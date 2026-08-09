@@ -85,14 +85,24 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             
-            <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 font-mono">
-              <span className="text-slate-500">Project:</span>
-              <span className="truncate max-w-[260px] md:max-w-[380px] text-slate-300 bg-slate-800/60 px-1.5 py-0.5 rounded border border-slate-700/50" title={config.contentFolderPath}>
-                {config.contentFolderPath || 'No folder selected'}
-              </span>
+            {/* Project Path & Target File */}
+            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 font-mono">
+              <span className="text-slate-500 font-sans font-semibold">Active Project:</span>
+              <button 
+                onClick={onOpenSettings}
+                title={`Content Directory: ${config.contentFolderPath || 'Not Set'}\nClick to change in Settings`}
+                className="flex items-center gap-1.5 text-slate-200 bg-slate-800/80 hover:bg-slate-700/80 px-2 py-0.5 rounded-lg border border-slate-700/60 hover:border-cyan-500/40 transition-colors text-left group"
+              >
+                <FolderOpen className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span className="truncate max-w-[280px] md:max-w-[420px] text-cyan-300 font-semibold">
+                  {config.contentFolderPath ? (
+                    config.contentFolderPath.split(/[/\\]/).filter(Boolean).slice(-2).join('/') || config.contentFolderPath
+                  ) : 'No folder set'}
+                </span>
+              </button>
               <span className="text-slate-600">/</span>
-              <span className="text-cyan-400/90 font-medium">
-                {config.targetVerseFileName}
+              <span className="text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                {config.targetVerseFileName || 'managed_transactions.verse'}
               </span>
             </div>
           </div>

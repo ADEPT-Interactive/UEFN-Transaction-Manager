@@ -77,7 +77,9 @@ app.post('/api/verse/load', (req, res) => {
 // Save Verse file content with automatic backup
 app.post('/api/verse/save', (req, res) => {
   try {
-    const { filePath, content, createBackup = true } = req.body;
+    const { filePath, createBackup = true } = req.body;
+    const content = req.body.content !== undefined ? req.body.content : (req.body.verseCode !== undefined ? req.body.verseCode : '');
+
     if (!filePath) {
       return res.status(400).json({ success: false, error: 'Target file path is required' });
     }
@@ -95,10 +97,14 @@ app.post('/api/verse/save', (req, res) => {
         fs.mkdirSync(backupDir, { recursive: true });
       }
       const backupPath = path.join(backupDir, `${path.basename(filePath)}.${timestamp}.bak`);
-      fs.copyFileSync(filePath, backupPath);
+      try {
+        fs.copyFileSync(filePath, backupPath);
+      } catch (backupErr) {
+        console.warn('Backup creation notice:', backupErr);
+      }
     }
 
-    fs.writeFileSync(filePath, content, 'utf-8');
+    fs.writeFileSync(filePath, String(content), 'utf-8');
     res.json({ success: true, filePath, message: 'Verse file written successfully' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || 'Failed to save Verse file' });

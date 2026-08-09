@@ -104,7 +104,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               required
               value={formData.targetVerseFileName}
               onChange={(e) => setFormData(prev => ({ ...prev, targetVerseFileName: e.target.value }))}
-              placeholder="in_island_transactions.verse"
+              placeholder="managed_transactions.verse"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-400"
             />
           </div>

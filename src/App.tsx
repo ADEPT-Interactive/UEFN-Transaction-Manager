@@ -34,22 +34,38 @@ import { Layers, FileCode, Columns } from 'lucide-react';
 
 const DEFAULT_CONFIG: ProjectConfig = {
   contentFolderPath: 'C:\\Users\\brann\\Documents\\UEFN Projects\\TaB\\Content',
-  targetVerseFileName: 'in_island_transactions.verse',
+  targetVerseFileName: 'managed_transactions.verse',
   assetFolderName: 'EntitlementIcons',
-  deviceClassName: 'in_island_transactions',
-  infoModuleName: 'EntitlementInfo',
-  entitlementsModuleName: 'Entitlements',
-  pricesModuleName: 'TransactionPrices',
-  offersModuleName: 'Offers',
+  deviceClassName: 'managed_transactions_device',
+  infoModuleName: 'ManagedEntitlementInfo',
+  entitlementsModuleName: 'ManagedEntitlements',
+  pricesModuleName: 'ManagedTransactionPrices',
+  offersModuleName: 'ManagedOffers',
   autoBackup: true,
   enableVerseWorkflowServer: true,
 };
 
 export const App: React.FC = () => {
-  // Config & State
+  // Config & State with synchronous URL param override
   const [config, setConfig] = useState<ProjectConfig>(() => {
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const contentDirParam = params?.get('contentDir') || params?.get('project');
+    const assetFolderParam = params?.get('assetFolder');
+    const verseFileParam = params?.get('verseFile');
+
     const saved = localStorage.getItem('uefn_entitlement_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
+    let initial: ProjectConfig = saved ? { ...DEFAULT_CONFIG, ...JSON.parse(saved) } : DEFAULT_CONFIG;
+
+    // URL parameters have top priority
+    if (contentDirParam) {
+      initial = {
+        ...initial,
+        contentFolderPath: decodeURIComponent(contentDirParam),
+        assetFolderName: assetFolderParam ? decodeURIComponent(assetFolderParam) : initial.assetFolderName,
+        targetVerseFileName: verseFileParam ? decodeURIComponent(verseFileParam) : initial.targetVerseFileName,
+      };
+    }
+    return initial;
   });
 
   const [entitlements, setEntitlements] = useState<EntitlementItem[]>(() => {
@@ -108,32 +124,42 @@ export const App: React.FC = () => {
   useEffect(() => {
     FileService.checkHealth().then(isHealthy => setServerOnline(isHealthy));
 
-    // Handle project path passed via URL query params (e.g. from UEFN Python launcher)
     const params = new URLSearchParams(window.location.search);
     const contentDirParam = params.get('contentDir') || params.get('project');
     const assetFolderParam = params.get('assetFolder');
     const verseFileParam = params.get('verseFile');
 
-    if (contentDirParam) {
-      setConfig(prev => ({
-        ...prev,
-        contentFolderPath: decodeURIComponent(contentDirParam),
-        assetFolderName: assetFolderParam ? decodeURIComponent(assetFolderParam) : prev.assetFolderName,
-        targetVerseFileName: verseFileParam ? decodeURIComponent(verseFileParam) : prev.targetVerseFileName,
-      }));
+    const activeContentDir = contentDirParam ? decodeURIComponent(contentDirParam) : config.contentFolderPath;
+    if (activeContentDir) {
+      const cleanDir = activeContentDir.replace(/[/\\]+$/, '');
+      const primaryFile = `${cleanDir}\\${verseFileParam || config.targetVerseFileName || 'managed_transactions.verse'}`;
+      const fallbackFile = `${cleanDir}\\in_island_transactions.verse`;
 
-      // Try auto-loading existing Verse file from the provided directory
-      const targetPath = `${decodeURIComponent(contentDirParam).replace(/[/\\]+$/, '')}\\${verseFileParam || config.targetVerseFileName}`;
-      FileService.loadVerseFile(targetPath).then(res => {
+      // Try loading primary file first
+      FileService.loadVerseFile(primaryFile).then(res => {
         if (res.success && res.content) {
           const parsed = parseVerseCode(res.content);
           if (parsed.entitlements.length > 0) {
             setEntitlements(parsed.entitlements);
             if (parsed.bundles.length > 0) setBundles(parsed.bundles);
-            setSaveStatusMessage(`Auto-loaded ${parsed.entitlements.length} entitlements from active UEFN project!`);
+            setSaveStatusMessage(`Auto-loaded ${parsed.entitlements.length} entitlements from ${config.targetVerseFileName}!`);
             setTimeout(() => setSaveStatusMessage(null), 5000);
+            return;
           }
         }
+
+        // Fallback: If managed_transactions.verse is not yet created, import from in_island_transactions.verse
+        FileService.loadVerseFile(fallbackFile).then(fallbackRes => {
+          if (fallbackRes.success && fallbackRes.content) {
+            const parsed = parseVerseCode(fallbackRes.content);
+            if (parsed.entitlements.length > 0) {
+              setEntitlements(parsed.entitlements);
+              if (parsed.bundles.length > 0) setBundles(parsed.bundles);
+              setSaveStatusMessage(`Imported ${parsed.entitlements.length} entitlements from existing in_island_transactions.verse!`);
+              setTimeout(() => setSaveStatusMessage(null), 5000);
+            }
+          }
+        });
       });
     }
   }, []);

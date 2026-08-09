@@ -8,14 +8,11 @@ export function parseVerseCode(verseCode: string): {
   const bundles: BundleOffer[] = [];
 
   try {
-    // 1. Extract EntitlementInfo blocks
-    // Pattern: ModuleName<public> := module: ... Name = "..." ... Description = "..." ... ShortDescription = "..."
+    // 1. Extract Info blocks (e.g. EntitlementInfo or ManagedEntitlementInfo)
     const infoMap = new Map<string, { name: string; description: string; shortDescription: string }>();
     
-    const infoModuleRegex = /([a-zA-Z0-9_]+)<public>\s*:=\s*module:\s*\n([^]*?)(?=(?:[a-zA-Z0-9_]+<public>\s*:=\s*module:)|(?:Entitlements<public>)|$)/gi;
-    
-    // Scan info blocks
-    const infoSectionMatch = verseCode.match(/EntitlementInfo<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=Entitlements<public>|$)/i);
+    // Find info module block
+    const infoSectionMatch = verseCode.match(/(?:[a-zA-Z0-9_]*EntitlementInfo|[a-zA-Z0-9_]*Info)<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=(?:[a-zA-Z0-9_]*Entitlements<public>)|$)/i);
     if (infoSectionMatch) {
       const infoContent = infoSectionMatch[1];
       const itemBlocks = infoContent.split(/\n\s{4}([a-zA-Z0-9_]+)<public>\s*:=\s*module:/);
@@ -35,9 +32,9 @@ export function parseVerseCode(verseCode: string): {
       }
     }
 
-    // 2. Extract Prices
+    // 2. Extract Prices (e.g. TransactionPrices or ManagedTransactionPrices)
     const priceMap = new Map<string, number>();
-    const pricesSectionMatch = verseCode.match(/TransactionPrices<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=Offers<public>|$)/i);
+    const pricesSectionMatch = verseCode.match(/(?:[a-zA-Z0-9_]*TransactionPrices|[a-zA-Z0-9_]*Prices)<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=(?:[a-zA-Z0-9_]*Offers<public>)|$)/i);
     if (pricesSectionMatch) {
       const priceLines = pricesSectionMatch[1].split('\n');
       for (const line of priceLines) {
@@ -48,11 +45,11 @@ export function parseVerseCode(verseCode: string): {
       }
     }
 
-    // 3. Extract Entitlements
-    const entSectionMatch = verseCode.match(/Entitlements<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=TransactionPrices<public>|$)/i);
+    // 3. Extract Entitlements (e.g. Entitlements or ManagedEntitlements)
+    const entSectionMatch = verseCode.match(/(?:[a-zA-Z0-9_]*Entitlements)<public>\s*:=\s*module:\s*\n([\s\S]*?)(?=(?:[a-zA-Z0-9_]*Prices<public>)|(?:[a-zA-Z0-9_]*TransactionPrices<public>)|(?:[a-zA-Z0-9_]*Offers<public>)|$)/i);
     if (entSectionMatch) {
       const entContent = entSectionMatch[1];
-      // Match classes inheriting from basic_entitlement
+      // Match classes inheriting from basic_entitlement or entitlement
       const classRegex = /([a-zA-Z0-9_]+)_entitlement<public>\s*:=\s*class<concrete>\([^)]+\):\s*\n([\s\S]*?)(?=(?:[a-zA-Z0-9_]+_entitlement<public>)|$)/gi;
       let match;
       while ((match = classRegex.exec(entContent)) !== null) {

@@ -25,23 +25,37 @@ def get_uefn_content_dir():
     """Detect active UEFN project content directory via Unreal Python API."""
     try:
         import unreal
+        # 1. Try project_content_dir
         content_dir = unreal.Paths.project_content_dir()
         if content_dir:
-            norm = os.path.normpath(unreal.Paths.convert_relative_path_to_full(content_dir))
-            print(f"[EntitlementManager] Hooked into active UEFN project: {norm}")
-            return norm
-    except Exception:
-        pass
+            full_path = unreal.Paths.convert_relative_path_to_full(content_dir)
+            norm = os.path.normpath(full_path).rstrip("/\\")
+            if os.path.isdir(norm):
+                print(f"[EntitlementManager] Auto-detected UEFN Content Directory: {norm}")
+                return norm
+
+        # 2. Try project_dir + Content
+        proj_dir = unreal.Paths.project_dir()
+        if proj_dir:
+            full_proj = unreal.Paths.convert_relative_path_to_full(proj_dir)
+            candidate = os.path.normpath(os.path.join(full_proj, "Content")).rstrip("/\\")
+            if os.path.isdir(candidate):
+                print(f"[EntitlementManager] Auto-detected UEFN Content Directory: {candidate}")
+                return candidate
+    except Exception as e:
+        print(f"[EntitlementManager] Unreal API notice: {e}")
     
-    # Fallback to known local project or relative Content path
+    # Fallback to standard project paths if testing outside editor
     candidates = [
         r"<project-root>\TaB\Content",
         os.path.abspath(os.path.join(TOOL_DIR, "..", "Content")),
         os.path.abspath(os.path.join(os.getcwd(), "Content"))
     ]
     for c in candidates:
-        if os.path.exists(c):
-            return c
+        if os.path.isdir(c):
+            norm = os.path.normpath(c).rstrip("/\\")
+            print(f"[EntitlementManager] Using fallback directory: {norm}")
+            return norm
     return candidates[0]
 
 def is_server_running():
@@ -118,7 +132,7 @@ def start_server_background():
 def launch_app_window(content_dir):
     """Open a self-contained, dedicated desktop app window."""
     encoded_dir = urllib.parse.quote(content_dir)
-    app_url = f"http://localhost:{SERVER_PORT}/?contentDir={encoded_dir}&assetFolder=EntitlementIcons"
+    app_url = f"http://localhost:{SERVER_PORT}/?contentDir={encoded_dir}&assetFolder=EntitlementIcons&verseFile=managed_transactions.verse"
 
     browsers = [
         os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
