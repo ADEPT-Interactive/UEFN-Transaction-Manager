@@ -104,15 +104,45 @@ export const App: React.FC = () => {
     localStorage.setItem('uefn_entitlements_items', JSON.stringify(entitlements));
   }, [entitlements]);
 
-  // Check backend server health on mount
+  // Check backend server health and handle URL query params on mount
   useEffect(() => {
     FileService.checkHealth().then(isHealthy => setServerOnline(isHealthy));
+
+    // Handle project path passed via URL query params (e.g. from UEFN Python launcher)
+    const params = new URLSearchParams(window.location.search);
+    const contentDirParam = params.get('contentDir') || params.get('project');
+    const assetFolderParam = params.get('assetFolder');
+    const verseFileParam = params.get('verseFile');
+
+    if (contentDirParam) {
+      setConfig(prev => ({
+        ...prev,
+        contentFolderPath: decodeURIComponent(contentDirParam),
+        assetFolderName: assetFolderParam ? decodeURIComponent(assetFolderParam) : prev.assetFolderName,
+        targetVerseFileName: verseFileParam ? decodeURIComponent(verseFileParam) : prev.targetVerseFileName,
+      }));
+
+      // Try auto-loading existing Verse file from the provided directory
+      const targetPath = `${decodeURIComponent(contentDirParam).replace(/[/\\]+$/, '')}\\${verseFileParam || config.targetVerseFileName}`;
+      FileService.loadVerseFile(targetPath).then(res => {
+        if (res.success && res.content) {
+          const parsed = parseVerseCode(res.content);
+          if (parsed.entitlements.length > 0) {
+            setEntitlements(parsed.entitlements);
+            if (parsed.bundles.length > 0) setBundles(parsed.bundles);
+            setSaveStatusMessage(`Auto-loaded ${parsed.entitlements.length} entitlements from active UEFN project!`);
+            setTimeout(() => setSaveStatusMessage(null), 5000);
+          }
+        }
+      });
+    }
   }, []);
 
   // Compute live Verse code
   const verseCode = useMemo(() => {
     return generateVerseCode(entitlements, bundles, config);
   }, [entitlements, bundles, config]);
+
 
   // Compute live validation issues
   const validationIssues = useMemo(() => {

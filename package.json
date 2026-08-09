@@ -7,9 +7,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run build:server",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs",
     "preview": "vite preview",
-    "server": "tsx server/index.ts",
+    "server": "node dist/server.cjs",
     "start": "concurrently \"npm run server\" \"npm run dev\""
   },
   "keywords": [

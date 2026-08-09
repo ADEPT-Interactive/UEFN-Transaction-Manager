@@ -16,6 +16,12 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Multer memory storage for direct PNG uploads
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Serve static frontend files from dist/ if available
+const distPath = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', server: 'UEFN Entitlement Manager Bridge', version: '1.0.0' });
@@ -194,6 +200,16 @@ app.post('/api/verse/compile', async (req, res) => {
   });
 });
 
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.send('UEFN Entitlement Manager Bridge Server Active. Run "npm run dev" or "npm run build" to view UI.');
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[UEFN Entitlement Manager Bridge] Server listening on http://localhost:${PORT}`);
 });
+
