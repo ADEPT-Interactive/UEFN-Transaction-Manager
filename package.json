@@ -13,7 +13,7 @@
     "build": "node scripts/build-flag-sprite.mjs && tsc && vite build && npm run build:server",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --external:sharp --outfile=dist/server.cjs",
     "server": "node dist/server.cjs",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/fileService.test.ts tests/generator.test.ts tests/server-security.test.ts tests/textureImporter.test.ts tests/ui-regressions.test.ts tests/workflowClient.test.ts",
     "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
     "test:desktop": "python scripts/create-icon.py && dotnet publish desktop/UEFNEntitlementManager.Desktop.csproj -c Release --no-restore --output desktop/bin/Release/net48/publish && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-standalone-project-link.ps1",
     "test:version": "node scripts/verify-version.mjs",

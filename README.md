@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/uem-mark.svg" alt="UEFN Entitlement Manager icon" width="112" height="112">
   <h1>UEFN Entitlement Manager</h1>
-  <p><strong>Design In-Island Transaction catalogs, generate reviewable Verse, and keep every project isolated.</strong></p>
+  <p><strong>Connect directly to UEFN, build your transaction catalog visually, import ready-to-use icons, and compile generated Verse without leaving the manager.</strong></p>
   <p>
     <img alt="Version 2.3.2" src="https://img.shields.io/badge/version-2.3.2-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
@@ -17,17 +17,28 @@
   </p>
 </div>
 
-UEFN Entitlement Manager is a local Windows desktop tool for Fortnite creators working with In-Island Transactions. It turns a visual catalog into entitlement classes, individual and bundle offers, storefront displays, purchase prompts, event hooks, and a versioned `managed_transactions.verse` file that can be reopened without guessing at existing code.
+UEFN Entitlement Manager is a local Windows desktop tool that works alongside the UEFN project you already have open. Its authenticated editor connector attaches automatically, imports native Texture2D assets into the correct project mount, writes the generated `managed_transactions.verse` file safely, and asks UEFN's own local Verse Workflow Server to compile it directly from **Save & Compile**.
 
-The manager complements UEFN. It does not replace Verse compilation, edit-session testing, moderation review, or Epic's current transaction requirements.
+The visual catalog produces entitlement classes, individual and bundle offers, storefront displays, purchase prompts, and public event hooks. A versioned manifest inside the generated file lets UEM reopen the exact catalog later instead of guessing at executable Verse.
+
+![Fully connected Demo project with custom entitlement icons](docs/screenshots/catalog-overview.png)
+
+## Built around a live UEFN connection
+
+UEM is more than a standalone code generator. The desktop launcher verifies the selected `.uefnproject`, starts a project-scoped authenticated bridge, and installs a small automatic editor connector under the project's `Content/Python` folder. Once Python Editor Scripting is enabled, the manager detects it immediately and attaches to the open editor without a restart.
+
+From that connected state, UEM can:
+
+- write the current catalog to `managed_transactions.verse` using an atomic replacement and verified backup;
+- send the project to UEFN's local Verse Workflow Server and report success only after the authoritative response contains zero errors;
+- import confirmed PNGs as native Texture2D assets under the verified project plugin mount;
+- automatically normalize non-compliant images to the most logical power-of-two canvas before import;
+- preserve transparent artwork, show the exact normalized preview, and rehydrate thumbnails after later launches; and
+- distinguish a fully connected project from a closed editor, a different open project, or a missing Python connector before allowing editor-dependent actions.
+
+UEM invokes UEFN's real local compiler and importer. It does not simulate a successful build or treat local validation as proof of native import, gameplay correctness, moderation approval, or marketplace compliance.
 
 ## See it in action
-
-### Catalog and generated Verse
-
-Build a catalog with custom icons, prices, restrictions, bundles, and focused offer displays while reviewing the generated Verse beside it.
-
-![Catalog and generated Verse workspace](docs/screenshots/catalog-and-verse.png)
 
 ### Focused starting templates
 
@@ -41,7 +52,7 @@ The built-in help panel covers Python Editor Scripting, compiling, placing the g
 
 ![In-app Python and UEFN setup help](docs/screenshots/python-help.png)
 
-> The screenshots use isolated dummy catalog data and original flat demo icons. No production project content is included.
+> The screenshots use a sandboxed Demo catalog and original flat icon assets. No production project data is included or saved.
 
 ## Highlights
 
