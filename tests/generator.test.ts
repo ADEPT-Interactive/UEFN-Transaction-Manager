@@ -154,6 +154,40 @@ test('validator still reports restricted copy and Pascal symbol collisions', () 
   assert.equal(toPascalCase('vip__pass'), 'VipPass');
 });
 
+test('moderation word checking flags common risk categories without blocking creation', () => {
+  const flagged = structuredClone(items);
+  flagged[0].name = 'F.u.c.k Casino Pass';
+  flagged[0].shortDescription = 'Join my Discord for a cash prize.';
+  flagged[0].description = 'Includes sexual gore, cocaine, and a guaranteed win.';
+
+  const issues = validateEntireProject(flagged, bundles, config);
+  const moderationIssues = issues.filter(issue => issue.ruleName.startsWith('moderation_'));
+  const moderationRules = moderationIssues.map(issue => issue.ruleName);
+
+  assert.ok(moderationRules.includes('moderation_profanity'));
+  assert.ok(moderationRules.includes('moderation_sexual_content'));
+  assert.ok(moderationRules.includes('moderation_violence_or_self_harm'));
+  assert.ok(moderationRules.includes('moderation_drugs_or_alcohol'));
+  assert.ok(moderationRules.includes('moderation_gambling'));
+  assert.ok(moderationRules.includes('moderation_deceptive_or_real_world_value'));
+  assert.ok(moderationRules.includes('moderation_external_contact'));
+  assert.ok(moderationIssues.every(issue => issue.severity === 'warning'));
+  assert.ok(moderationIssues.every(issue => /does not block entitlement creation/i.test(issue.message)));
+  assert.deepEqual(issues.filter(issue => issue.severity === 'error'), []);
+});
+
+test('moderation word checking deduplicates categories and respects word boundaries', () => {
+  const reviewed = structuredClone(items);
+  reviewed[0].name = 'Classic Assignment';
+  reviewed[0].description = 'A class assignment with no player-facing profanity.';
+  let issues = validateEntireProject(reviewed, bundles, config);
+  assert.equal(issues.some(issue => issue.ruleName === 'moderation_profanity'), false);
+
+  reviewed[0].description = 'Sh1t and bullshit are both present.';
+  issues = validateEntireProject(reviewed, bundles, config);
+  assert.equal(issues.filter(issue => issue.ruleName === 'moderation_profanity').length, 1);
+});
+
 test('starter presets are broad entitlement categories rather than gameplay examples', () => {
   assert.deepEqual(DEFAULT_PRESETS.map(preset => preset.presetTitle), [
     'Durable entitlement',

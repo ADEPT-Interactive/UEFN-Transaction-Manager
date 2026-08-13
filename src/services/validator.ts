@@ -1,5 +1,6 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
+import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
 
 const MAX_ENTITLEMENTS = 100;
 const MAX_NAME_LENGTH = 50;
@@ -15,6 +16,10 @@ const BANNED_TERMS = [
 ];
 const VALID_PLATFORM_FAMILY_SET = new Set<string>(EPIC_PLATFORM_FAMILIES);
 const VALID_COUNTRY_CODE_SET = new Set<string>(COUNTRY_CODE_OPTIONS);
+
+const MODERATION_LEET_REPLACEMENTS: Record<string, string> = {
+  '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's',
+};
 
 export function validateVerseIdentifier(identifier: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
@@ -100,6 +105,34 @@ function validateCompliance(ownerId: string, texts: string[], entitlementId?: st
     const pattern = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i');
     if (pattern.test(joined)) {
       issues.push(issue(`${ownerId}-term-${term.replace(/[^a-z0-9]+/gi, '-')}`, 'warning', `The text contains the restricted monetization term "${term}". Epic may reject or restrict this offer; review it before publishing.`, 'restricted_monetization_term', 'name_or_description', entitlementId, bundleId));
+    }
+  }
+  const normalized = joined
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[013457@$]/g, character => MODERATION_LEET_REPLACEMENTS[character] ?? character);
+  for (const group of MODERATION_RULE_GROUPS) {
+    const matched = group.terms.some(term => {
+      const normalizedTerm = term
+        .toLowerCase()
+        .replace(/[013457@$]/g, character => MODERATION_LEET_REPLACEMENTS[character] ?? character);
+      const characters = [...normalizedTerm].map(character => {
+        if (/\s|-/.test(character)) return '[\\s._*+\\-]+';
+        return `${character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s._*+\\-]*`;
+      }).join('');
+      return new RegExp(`(?:^|[^a-z])${characters}(?:$|[^a-z])`, 'i').test(normalized);
+    });
+    if (matched) {
+      issues.push(issue(
+        `${ownerId}-moderation-${group.key}`,
+        'warning',
+        `Potential ${group.label} detected; ${group.guidance}. This moderation flag is advisory and does not block entitlement creation.`,
+        `moderation_${group.key}`,
+        'name_or_description',
+        entitlementId,
+        bundleId,
+      ));
     }
   }
   if (/\b(prize\s*wheel|spin\s*the\s*wheel|wheel\s*spin)\b/i.test(joined)) {

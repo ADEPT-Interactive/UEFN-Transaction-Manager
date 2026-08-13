@@ -3,7 +3,7 @@
   <h1>UEFN Entitlement Manager</h1>
   <p><strong>Connect directly to UEFN, build your transaction catalog visually, import ready-to-use icons, and compile generated Verse without leaving the manager.</strong></p>
   <p>
-    <img alt="Version 2.3.2" src="https://img.shields.io/badge/version-2.3.2-24c7dd?style=flat-square">
+    <img alt="Version 2.3.3" src="https://img.shields.io/badge/version-2.3.3-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="LICENSE"><img alt="ADEPT Source-Available License" src="https://img.shields.io/badge/license-ADEPT%20Source--Available-f59e0b?style=flat-square"></a>
@@ -60,6 +60,7 @@ The built-in help panel covers Python Editor Scripting, compiling, placing the g
 - Individual offers, alternate variants, nested bundles, and focused storefront displays
 - V-Bucks pricing from 50 to 5,000 in increments of 50
 - Minimum-age, country, and platform-family purchase restrictions
+- **Non-blocking moderation flags for profanity, hateful or adult language, violence, regulated substances, gambling, deceptive claims, and off-platform contact**
 - Generated public purchase, grant, removal, consumption, and ownership-verification events
 - Trigger bindings by default, with optional button and mutator-zone bindings under Advanced settings
 - Project-scoped catalog storage and exact reopening through a versioned comment-only manifest
@@ -68,11 +69,17 @@ The built-in help panel covers Python Editor Scripting, compiling, placing the g
 - One-click save and compile through UEFN's local Verse Workflow Server
 - Self-contained Windows release with its own frontend, bridge, desktop shell, Node runtime, and production dependencies
 
+## Moderation flags without workflow blockers
+
+UEM checks names, descriptions, duration copy, alternate offers, bundle copy, and paid-random disclosures for common moderation signals. The checker covers restricted monetization terms plus focused categories for profanity, hateful or harassing language, sexual content, graphic violence or self-harm, drugs and alcohol, gambling, deceptive or real-world-value claims, and off-platform contact.
+
+Every text moderation match is shown as an advisory warning in the offer editor and project validation report. **Moderation flags never prevent an entitlement from being created or saved.** They are a practical pre-publishing review aid, not a guarantee of Epic approval, and wording should still be reviewed in the context of the complete island experience.
+
 ## Download and run
 
 1. Download `UEFN Entitlement Manager.zip` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest).
 2. Extract the full ZIP to a folder. Keep its contents together.
-3. Open `UEFNEntitlementManager-2.3.2.exe`.
+3. Open `UEFNEntitlementManager-2.3.3.exe`.
 4. Select or browse to the intended `.uefnproject`, then confirm the project before UEM starts its isolated bridge.
 
 No Node.js, Python, browser, `npm install`, or administrator access is required for the packaged app. Windows needs the Microsoft Edge WebView2 Runtime and .NET Framework 4.8, which are normally already available on supported systems.
@@ -183,7 +190,7 @@ Generated `dist`, private runtimes, desktop build outputs, and release packages 
 
 ## Validation boundary
 
-Local checks cover identifiers, generated name collisions, filenames, texture expressions, metadata lengths, price ranges, entitlement constraints, paid-random copy, purchase restrictions, nested bundle depth, quantities, and generated binding names.
+Local checks cover identifiers, generated name collisions, filenames, texture expressions, metadata lengths, price ranges, entitlement constraints, paid-random copy, purchase restrictions, nested bundle depth, quantities, generated binding names, and advisory text-moderation signals.
 
 They cannot prove that a texture exists in the active asset digest, that downstream event handlers correctly grant or revoke benefits, or that Epic will approve an island. UEFN compilation and real edit-session testing remain required. Review Epic's current [Creating Items and Offers documentation](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite) before publishing.
 

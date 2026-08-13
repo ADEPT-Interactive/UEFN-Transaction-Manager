@@ -1,7 +1,7 @@
 UEFN ENTITLEMENT MANAGER — USER RELEASE
 
 1. Extract the entire ZIP file to a normal folder.
-2. Open UEFNEntitlementManager-2.3.2.exe.
+2. Open UEFNEntitlementManager-2.3.3.exe.
 3. Select the project marked Open in UEFN, choose a recent project, or browse
    to its .uefnproject file.
 4. Confirm Open project in UEM.

@@ -1,6 +1,6 @@
 {
   "name": "uefn-entitlement-manager",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "private": true,
   "description": "Project-scoped In-Island Transactions and Verse entitlement manager for UEFN creators",
   "main": "server/index.ts",

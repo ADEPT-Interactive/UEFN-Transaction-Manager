@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>UEFNEntitlementManager.Desktop</RootNamespace>
-    <AssemblyName>UEFNEntitlementManager-2.3.2</AssemblyName>
+    <AssemblyName>UEFNEntitlementManager-2.3.3</AssemblyName>
     <ApplicationIcon>uem-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>AnyCPU</Platforms>
