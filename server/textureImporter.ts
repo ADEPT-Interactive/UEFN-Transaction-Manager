@@ -1,90 +1,187 @@
+import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import sharp from 'sharp';
+import { persistProjectIconPreview } from './iconPreviews';
 
-export interface TextureImportResult {
-  success: boolean;
-  filePath: string;
+export type TextureImportJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+
+export interface TextureImportJob {
+  jobId: string;
+  status: TextureImportJobStatus;
+  assetFolderName: string;
+  assetName: string;
   verseAssetPath: string;
+  sourcePath: string;
+  destinationPath?: string;
+  assetObjectPath?: string;
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
+  claimedAt?: number;
+}
+
+export interface TextureImportJobResponse {
+  success: boolean;
+  jobId: string;
+  status: TextureImportJobStatus;
+  assetFolderName: string;
+  assetName: string;
+  verseAssetPath: string;
+  destinationPath?: string;
+  assetObjectPath?: string;
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface TextureImportJobResult {
+  success: boolean;
+  destinationPath?: string;
+  assetObjectPath?: string;
   error?: string;
 }
 
-export function savePngToContentFolder(
-  contentFolderPath: string,
-  assetFolderName: string,
-  assetName: string,
-  pngBuffer: Buffer
-): TextureImportResult {
-  try {
-    const targetDir = path.join(contentFolderPath, assetFolderName);
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
+const jobs = new Map<string, TextureImportJob>();
+const stagingRoot = path.join(os.tmpdir(), 'UEFN Entitlement Manager', 'texture-imports');
+const JOB_TTL_MS = 15 * 60 * 1000;
+const CLAIM_TIMEOUT_MS = 120 * 1000;
+const MAX_PENDING_TEXTURE_JOBS = 32;
+const MAX_TEXTURE_DIMENSION = 4096;
+
+function isPowerOfTwo(value: number): boolean {
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+function powerOfTwoCanvasSize(value: number): number {
+  if (value >= MAX_TEXTURE_DIMENSION) return MAX_TEXTURE_DIMENSION;
+  return 2 ** Math.ceil(Math.log2(value));
+}
+
+export async function normalizePngToPowerOfTwo(pngBuffer: Buffer): Promise<Buffer> {
+  const image = sharp(pngBuffer, { failOn: 'error' });
+  const metadata = await image.metadata();
+  if (!metadata.width || !metadata.height || metadata.format !== 'png') {
+    throw new Error('Uploaded image is not a readable PNG.');
+  }
+  if (isPowerOfTwo(metadata.width) && isPowerOfTwo(metadata.height) && metadata.width <= MAX_TEXTURE_DIMENSION && metadata.height <= MAX_TEXTURE_DIMENSION) {
+    return pngBuffer;
+  }
+  const width = powerOfTwoCanvasSize(metadata.width);
+  const height = powerOfTwoCanvasSize(metadata.height);
+  return image
+    .resize(width, height, {
+      fit: 'contain',
+      position: 'centre',
+      withoutEnlargement: true,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+}
+
+function removeSource(job: TextureImportJob): void {
+  if (fs.existsSync(job.sourcePath)) fs.unlinkSync(job.sourcePath);
+}
+
+export function cleanupTextureImportJobs(now = Date.now()): void {
+  for (const [jobId, job] of jobs) {
+    if (job.status === 'processing' && job.claimedAt && now - job.claimedAt > CLAIM_TIMEOUT_MS) {
+      job.status = 'queued';
+      job.claimedAt = undefined;
     }
-
-    const cleanAssetName = assetName.replace(/[^a-zA-Z0-9_]/g, '_');
-    const pngFileName = `${cleanAssetName}.png`;
-    const fullPngPath = path.join(targetDir, pngFileName);
-
-    fs.writeFileSync(fullPngPath, pngBuffer);
-
-    // In Verse, assets placed in Content/<AssetFolder>/<Name> are referenced as:
-    // <AssetFolder>.<CleanAssetName>
-    const verseAssetPath = `${assetFolderName}.${cleanAssetName}`;
-
-    return {
-      success: true,
-      filePath: fullPngPath,
-      verseAssetPath,
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      filePath: '',
-      verseAssetPath: '',
-      error: err?.message || 'Failed to save PNG texture asset',
-    };
+    const createdAt = Date.parse(job.createdAt);
+    if (!Number.isFinite(createdAt) || now - createdAt <= JOB_TTL_MS) continue;
+    if (job.status === 'processing') continue;
+    removeSource(job);
+    jobs.delete(jobId);
   }
 }
 
-export function generateUefnPythonImportScript(
-  contentFolderPath: string,
-  assetFolderName: string
-): string {
-  return `# UEFN Automated Texture Importer for Entitlement Icons
-# Run inside UEFN via Tools > Execute Python Script...
-import os
-import unreal
+function publicJob(job: TextureImportJob): TextureImportJobResponse {
+  const { sourcePath: _sourcePath, claimedAt: _claimedAt, ...response } = job;
+  return { success: response.status !== 'failed', ...response };
+}
 
-def import_entitlement_icons():
-    content_dir = r"${contentFolderPath.replace(/\\/g, '/')}"
-    icon_dir = os.path.join(content_dir, "${assetFolderName}")
-    if not os.path.exists(icon_dir):
-        print(f"[IIT Importer] Directory not found: {icon_dir}")
-        return
+function getJobOrThrow(jobId: string): TextureImportJob {
+  const job = jobs.get(jobId);
+  if (!job) throw new Error('Texture import job was not found or has expired.');
+  return job;
+}
 
-    destination_game_path = "/Game/${assetFolderName}"
-    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
-    
-    png_files = [f for f in os.listdir(icon_dir) if f.lower().endswith('.png')]
-    tasks = []
-    
-    for f in png_files:
-        src_path = os.path.join(icon_dir, f)
-        asset_name = os.path.splitext(f)[0]
-        
-        task = unreal.AssetImportTask()
-        task.filename = src_path
-        task.destination_path = destination_game_path
-        task.destination_name = asset_name
-        task.replace_existing = True
-        task.automated = True
-        task.save = True
-        tasks.append(task)
-        
-    if tasks:
-        asset_tools.import_asset_tasks(tasks)
-        print(f"[IIT Importer] Successfully imported {len(tasks)} entitlement textures into {destination_game_path}!")
+export async function queueTextureImport(assetFolderName: string, assetName: string, pngBuffer: Buffer): Promise<TextureImportJobResponse> {
+  cleanupTextureImportJobs();
+  const pending = [...jobs.values()].filter(job => job.status === 'queued' || job.status === 'processing').length;
+  if (pending >= MAX_PENDING_TEXTURE_JOBS) throw new Error(`Too many texture imports are pending. Finish or retry existing jobs before adding another (limit ${MAX_PENDING_TEXTURE_JOBS}).`);
+  const normalizedPng = await normalizePngToPowerOfTwo(pngBuffer);
+  fs.mkdirSync(stagingRoot, { recursive: true });
+  const jobId = crypto.randomUUID();
+  const temporaryPath = path.join(stagingRoot, `.${jobId}.tmp`);
+  const sourcePath = path.join(stagingRoot, `${jobId}.png`);
+  fs.writeFileSync(temporaryPath, normalizedPng, { flag: 'wx' });
+  fs.renameSync(temporaryPath, sourcePath);
 
-if __name__ == "__main__":
-    import_entitlement_icons()
-`;
+  const job: TextureImportJob = {
+    jobId,
+    status: 'queued',
+    assetFolderName,
+    assetName,
+    verseAssetPath: `${assetFolderName}.${assetName}`,
+    sourcePath,
+    createdAt: new Date().toISOString(),
+  };
+  jobs.set(jobId, job);
+  return publicJob(job);
+}
+
+export function claimNextTextureImport(): (TextureImportJob & { success: true }) | null {
+  cleanupTextureImportJobs();
+  const now = Date.now();
+  for (const job of jobs.values()) {
+    if (job.status !== 'queued') continue;
+    job.status = 'processing';
+    job.claimedAt = now;
+    return { ...job, success: true };
+  }
+  return null;
+}
+
+export function getTextureImportJob(jobId: string): TextureImportJobResponse {
+  cleanupTextureImportJobs();
+  return publicJob(getJobOrThrow(jobId));
+}
+
+export function finishTextureImport(jobId: string, result: TextureImportJobResult, contentRoot?: string): TextureImportJobResponse {
+  const job = getJobOrThrow(jobId);
+  if (job.status !== 'processing') throw new Error('Only a claimed texture import can be completed.');
+  let finalResult = result;
+  if (result.success && contentRoot) {
+    try {
+      persistProjectIconPreview(contentRoot, job.assetFolderName, job.assetName, fs.readFileSync(job.sourcePath), result.assetObjectPath);
+    } catch (error) {
+      finalResult = { success: false, error: error instanceof Error ? `Project icon preview could not be persisted: ${error.message}` : 'Project icon preview could not be persisted.' };
+    }
+  }
+  job.status = finalResult.success ? 'completed' : 'failed';
+  job.destinationPath = finalResult.destinationPath;
+  job.assetObjectPath = finalResult.assetObjectPath;
+  job.error = finalResult.error;
+  job.completedAt = new Date().toISOString();
+  job.claimedAt = undefined;
+  if (finalResult.success) {
+    removeSource(job);
+  }
+  return publicJob(job);
+}
+
+export function resetTextureImportJob(jobId: string): TextureImportJobResponse {
+  const job = getJobOrThrow(jobId);
+  if (job.status !== 'failed') throw new Error('Only failed texture imports can be retried.');
+  job.status = 'queued';
+  job.error = undefined;
+  job.destinationPath = undefined;
+  job.assetObjectPath = undefined;
+  job.completedAt = undefined;
+  return publicJob(job);
 }

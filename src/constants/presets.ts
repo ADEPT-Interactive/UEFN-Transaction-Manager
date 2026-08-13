@@ -1,206 +1,77 @@
-import { EntitlementItem, BundleOffer } from '../types/entitlement';
+import { EntitlementItem } from '../types/entitlement';
 
-export const DEFAULT_PRESETS: Partial<EntitlementItem>[] = [
+export interface PresetDefinition extends Partial<EntitlementItem> {
+  presetTitle: string;
+  presetDescription: string;
+  presetExample: string;
+}
+
+// These keys identify the starter catalog shipped before presets became opt-in.
+// Keep them separate from the current category names so existing untouched
+// starter data can still be cleared without preserving the old examples.
+export const LEGACY_STARTER_PRESET_KEYS = [
+  'vip_pass',
+  'strength_boost_10',
+  'double_money',
+  'mystery_crate',
+  'bag_expansion_10',
+] as const;
+
+export const DEFAULT_PRESETS: PresetDefinition[] = [
   {
-    name: 'VIP Pass',
-    verseKey: 'vip_pass',
-    shortDescription: '⭐ Unlock exclusive VIP conveyors & special overhead badge!',
-    description: 'Grants access to the exclusive VIP block conveyors and shows a special VIP badge above your head!',
-    priceVBucks: 500,
-    itemType: 'durable',
-    maxCount: 1,
-    autoConsume: false,
-    iconTexture: 'EntitlementIcons.Icon_VIP',
-    flags: {
-      paidRandomItem: false,
-      paidRandomItemOdds: '',
-      paidArea: true,
-      consequentialToGameplay: true,
-    },
-    ageAndRegion: {
-      enabled: false,
-      minAge: 0,
-      allowedCountryCodes: [],
-      disallowedCountryCodes: [],
-    },
-    actionHook: {
-      type: 'signal_event',
-      eventName: 'VipPassPurchasedEvent',
-    },
-    cancelHook: {
-      notifyPlayer: true,
-      notificationMessage: 'VIP Pass purchase was cancelled.',
-    },
-    rejoinHook: {
-      autoRestore: true,
-      customVerificationCode: '# Verify VIP pass on reconnect and fire event if owned\nVipPassPurchasedEvent.Signal(Player)',
-    },
-    triggers: {
-      generateButtonBinding: true,
-      buttonDeviceName: 'VipPassButtons',
-      generateZoneBinding: true,
-      mutatorZoneName: 'VipPassZones',
-      generateAsyncListener: false,
-    },
+    presetTitle: 'Durable entitlement',
+    presetDescription: 'Durable, limited to one per player, restored on join, with an offer Trigger array ready to assign.',
+    presetExample: 'VIP Pass',
+    name: 'Durable Entitlement', verseKey: 'durable_entitlement', shortDescription: 'A persistent entitlement for this island.',
+    description: 'Grants a persistent entitlement defined by the game integration.', priceVBucks: 100,
+    itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.DurableEntitlement',
+    flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
+    purchaseEventName: 'DurableEntitlementGrantedEvent', restoreOnJoin: true,
+    triggers: { generateTriggerBinding: true, triggerDeviceName: 'DurableEntitlementOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
   {
-    name: '+10 Strength Boost',
-    verseKey: 'strength_boost_10',
-    shortDescription: '🔥 10 Levels of Strength - TOSS YOUR BLOCKS FURTHER!',
-    description: 'Consumable boost giving 10 strength levels instantly to fling items with incredible power!',
-    priceVBucks: 150,
-    itemType: 'consumable',
-    maxCount: 5,
-    autoConsume: true,
-    iconTexture: 'EntitlementIcons.Strength_10',
-    flags: {
-      paidRandomItem: false,
-      paidRandomItemOdds: '',
-      paidArea: false,
-      consequentialToGameplay: true,
-    },
-    ageAndRegion: {
-      enabled: false,
-      minAge: 0,
-      allowedCountryCodes: [],
-      disallowedCountryCodes: [],
-    },
-    actionHook: {
-      type: 'grant_stat',
-      statName: 'StrengthLevels',
-      statAmount: 10,
-      targetDevice: 'ShopManager.GrantFreeUpgradeToss(Player, 10 * QuantityBought)',
-    },
-    cancelHook: {
-      notifyPlayer: false,
-    },
-    rejoinHook: {
-      autoRestore: false,
-    },
-    triggers: {
-      generateButtonBinding: false,
-      generateZoneBinding: false,
-      generateAsyncListener: true,
-      asyncEventName: 'UIManager.TossUpgradeIITEvent',
-    },
+    presetTitle: 'Consumable entitlement',
+    presetDescription: 'Consumable, allows up to 10 per player, and includes an offer Trigger array. Your game decides when to consume it.',
+    presetExample: 'Health Potion Pack',
+    name: 'Consumable Entitlement', verseKey: 'consumable_entitlement', shortDescription: 'A repeatable entitlement for this island.',
+    description: 'Provides a consumable entitlement whose use is handled by the game integration.', priceVBucks: 100,
+    itemType: 'consumable', maxCount: 10, autoConsume: false, iconTexture: 'EntitlementIcons.ConsumableEntitlement',
+    flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
+    purchaseEventName: 'ConsumableEntitlementGrantedEvent', restoreOnJoin: false,
+    triggers: { generateTriggerBinding: true, triggerDeviceName: 'ConsumableEntitlementOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
   {
-    name: '2x Cash Multiplier',
-    verseKey: 'double_money',
-    shortDescription: '🔥🤑 Permanent 2x Cash Multiplier on all earnings!',
-    description: 'Permanently doubles all currency earned across your gameplay sessions!',
-    priceVBucks: 400,
-    itemType: 'durable',
-    maxCount: 1,
-    autoConsume: false,
-    iconTexture: 'EntitlementIcons.Double_Cash',
-    flags: {
-      paidRandomItem: false,
-      paidRandomItemOdds: '',
-      paidArea: false,
-      consequentialToGameplay: true,
-    },
-    ageAndRegion: {
-      enabled: false,
-      minAge: 0,
-      allowedCountryCodes: [],
-      disallowedCountryCodes: [],
-    },
-    actionHook: {
-      type: 'device_method',
-      targetDevice: 'SaveManager.GrantDoubleMoney(Player)',
-    },
-    cancelHook: {
-      notifyPlayer: false,
-    },
-    rejoinHook: {
-      autoRestore: true,
-      customVerificationCode: 'SaveManager.GrantDoubleMoney(Player)',
-    },
-    triggers: {
-      generateButtonBinding: true,
-      buttonDeviceName: 'DoubleMoneyButtons',
-      generateZoneBinding: false,
-      generateAsyncListener: false,
-    },
+    presetTitle: 'Time-limited entitlement',
+    presetDescription: 'Durable, limited to one per player, restored on join, with a duration disclosure ready to customize.',
+    presetExample: '30-Day VIP Access',
+    name: 'Time-Limited Entitlement', verseKey: 'time_limited_entitlement', shortDescription: 'An entitlement available for a defined duration.',
+    description: 'Grants a time-limited entitlement defined by the game integration.', priceVBucks: 100,
+    itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.TimeLimitedEntitlement',
+    flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
+    durationDescription: 'Define the player-facing duration in the game integration.',
+    purchaseEventName: 'TimeLimitedEntitlementGrantedEvent', restoreOnJoin: true,
+    triggers: { generateTriggerBinding: true, triggerDeviceName: 'TimeLimitedEntitlementOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
   {
-    name: 'Mystery Crate (Random Reward)',
-    verseKey: 'mystery_crate',
-    shortDescription: '🎲 Open a mystery crate containing rare or legendary loot!',
-    description: 'Spin for randomized items! Odds: Common (60%), Rare (30%), Epic (8%), Legendary (2%).',
-    priceVBucks: 100,
-    itemType: 'consumable',
-    maxCount: 10,
-    autoConsume: true,
-    iconTexture: 'EntitlementIcons.MysteryCrate',
-    flags: {
-      paidRandomItem: true,
-      paidRandomItemOdds: 'Common: 60%, Rare: 30%, Epic: 8%, Legendary: 2%',
-      paidArea: false,
-      consequentialToGameplay: true,
-    },
-    ageAndRegion: {
-      enabled: false,
-      minAge: 0,
-      allowedCountryCodes: [],
-      disallowedCountryCodes: [],
-    },
-    actionHook: {
-      type: 'custom_verse',
-      customVerseCode: '# Trigger RNG Loot Roll for the player\nRNGManager.RollMysteryCrate(Player, QuantityBought)',
-    },
-    cancelHook: {
-      notifyPlayer: true,
-      notificationMessage: 'Crate purchase cancelled.',
-    },
-    rejoinHook: {
-      autoRestore: false,
-    },
-    triggers: {
-      generateButtonBinding: false,
-      generateZoneBinding: false,
-      generateAsyncListener: true,
-      asyncEventName: 'UIManager.MysteryCrateIITEvent',
-    },
+    presetTitle: 'Paid random item',
+    presetDescription: 'Consumable, limited to one per player, with paid-random safeguards enabled and an odds disclosure ready to complete.',
+    presetExample: 'Mystery Crate',
+    name: 'Paid Random Item', verseKey: 'paid_random_item', shortDescription: 'A paid entitlement with randomized outcomes.',
+    description: 'Provides a paid random item with outcomes disclosed to players.', priceVBucks: 100,
+    itemType: 'consumable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.PaidRandomItem',
+    flags: { paidRandomItem: true, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
+    purchaseEventName: 'PaidRandomItemGrantedEvent', restoreOnJoin: false,
+    triggers: { generateTriggerBinding: true, triggerDeviceName: 'PaidRandomItemOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
   {
-    name: '+10 Backpack Slots',
-    verseKey: 'bag_expansion_10',
-    shortDescription: '🎒 Instantly expand your inventory capacity by +10 slots!',
-    description: 'Permanently adds 10 extra storage slots to your inventory. Caps at +70 slots.',
-    priceVBucks: 100,
-    itemType: 'consumable',
-    maxCount: 7,
-    autoConsume: true,
-    iconTexture: 'EntitlementIcons.Inventory_10',
-    flags: {
-      paidRandomItem: false,
-      paidRandomItemOdds: '',
-      paidArea: false,
-      consequentialToGameplay: true,
-    },
-    ageAndRegion: {
-      enabled: false,
-      minAge: 0,
-      allowedCountryCodes: [],
-      disallowedCountryCodes: [],
-    },
-    actionHook: {
-      type: 'device_method',
-      targetDevice: 'SaveManager.GrantPurchasedInventorySlots(Player, 10 * QuantityBought)',
-    },
-    cancelHook: {
-      notifyPlayer: false,
-    },
-    rejoinHook: {
-      autoRestore: false,
-    },
-    triggers: {
-      generateButtonBinding: false,
-      generateZoneBinding: false,
-      generateAsyncListener: true,
-      asyncEventName: 'UIManager.InvIITEvent',
-    },
+    presetTitle: 'Access entitlement',
+    presetDescription: 'Durable, limited to one per player, restored on join, with paid-area access enabled.',
+    presetExample: 'VIP Area Pass',
+    name: 'Access Entitlement', verseKey: 'access_entitlement', shortDescription: 'An entitlement associated with restricted access.',
+    description: 'Grants access to an area or feature defined by the game integration.', priceVBucks: 100,
+    itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.AccessEntitlement',
+    flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: false },
+    purchaseEventName: 'AccessEntitlementGrantedEvent', restoreOnJoin: true,
+    triggers: { generateTriggerBinding: true, triggerDeviceName: 'AccessEntitlementOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
 ];

@@ -1,17 +1,23 @@
 {
   "name": "uefn-entitlement-manager",
-  "version": "1.0.0",
+  "version": "2.3.2",
   "private": true,
-  "description": "Production-grade In-Island Transactions & Verse Entitlement Manager for UEFN creators by ADEPT Interactive",
+  "description": "Project-scoped In-Island Transactions and Verse entitlement manager for UEFN creators",
   "main": "server/index.ts",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && npm run build:server",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs",
-    "preview": "vite preview",
+    "build": "node scripts/build-flag-sprite.mjs && tsc && vite build && npm run build:server",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --external:sharp --outfile=dist/server.cjs",
     "server": "node dist/server.cjs",
-    "start": "concurrently \"npm run server\" \"npm run dev\""
+    "test": "tsx --test tests/*.test.ts",
+    "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
+    "test:desktop": "python scripts/create-icon.py && dotnet publish desktop/UEFNEntitlementManager.Desktop.csproj -c Release --no-restore --output desktop/bin/Release/net48/publish && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-standalone-project-link.ps1",
+    "test:version": "node scripts/verify-version.mjs",
+    "test:all": "npm run build && npm test && npm run test:python && npm run test:desktop && npm run test:version"
   },
   "keywords": [
     "uefn",
@@ -21,20 +27,19 @@
     "entitlements",
     "adept-interactive"
   ],
-  "author": "ADEPT Interactive",
-  "license": "MIT",
+  "author": "AD3PT Interactive Inc. (ADEPT Interactive / ADEPT)",
+  "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
     "clsx": "^2.1.1",
-    "cors": "^2.8.5",
     "express": "^4.21.2",
     "lucide-react": "^0.475.0",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "^0.35.3",
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.4",
@@ -42,7 +47,7 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "concurrently": "^9.1.2",
+    "flag-icons": "^7.5.0",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",

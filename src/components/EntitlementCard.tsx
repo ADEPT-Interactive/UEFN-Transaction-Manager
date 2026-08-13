@@ -1,6 +1,5 @@
 import React from 'react';
 import { 
-  Coins, 
   Sparkles, 
   Infinity as InfinityIcon, 
   RotateCw, 
@@ -10,17 +9,16 @@ import {
   Copy, 
   Trash2, 
   Edit3, 
-  Play,
   Layers
 } from 'lucide-react';
 import { EntitlementItem } from '../types/entitlement';
+import { VBucksIcon } from './VBucksIcon';
 
 interface EntitlementCardProps {
   item: EntitlementItem;
   onEdit: (item: EntitlementItem) => void;
   onDuplicate: (item: EntitlementItem) => void;
   onDelete: (id: string) => void;
-  onTestPurchase: (item: EntitlementItem) => void;
 }
 
 export const EntitlementCard: React.FC<EntitlementCardProps> = ({
@@ -28,7 +26,6 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
-  onTestPurchase,
 }) => {
   const isConsumable = item.itemType === 'consumable';
 
@@ -58,7 +55,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
           {/* V-Bucks Price Tag */}
           <div className="flex flex-col items-end">
             <div className="flex items-center gap-1.5 bg-gradient-to-r from-sky-500/20 to-blue-500/20 text-sky-300 border border-sky-400/40 px-2.5 py-1 rounded-full shadow-sm">
-              <Coins className="w-3.5 h-3.5 text-sky-400 animate-pulse-subtle" />
+              <VBucksIcon className="h-3.5 w-3.5 animate-pulse-subtle text-sky-400" />
               <span className="font-extrabold text-xs font-mono">{item.priceVBucks.toLocaleString()}</span>
               <span className="text-[10px] text-sky-400 font-bold">V-Bucks</span>
             </div>
@@ -128,37 +125,34 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
       {/* Card Action Footer */}
       <div className="flex items-center justify-between border-t border-slate-800/80 pt-3 mt-4">
         
-        {/* Test Buy Button */}
-        <button
-          onClick={() => onTestPurchase(item)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-1 rounded-lg border border-cyan-500/20 transition-all active:scale-95"
-          title="Test purchase in Store Simulator"
-        >
-          <Play className="w-3 h-3 text-cyan-400" />
-          <span>Test Buy</span>
-        </button>
 
         {/* Quick Operations (Duplicate, Edit, Delete) */}
         <div className="flex items-center gap-1">
           <button
+            type="button"
+            aria-label={`Duplicate ${item.name}`}
             onClick={() => onDuplicate(item)}
-            title="Duplicate Entitlement"
+            title="Duplicate offer"
             className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors"
           >
             <Copy className="w-3.5 h-3.5" />
           </button>
           
           <button
+            type="button"
+            aria-label={`Edit ${item.name}`}
             onClick={() => onEdit(item)}
-            title="Edit Entitlement"
+            title="Edit offer"
             className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-md transition-colors"
           >
             <Edit3 className="w-3.5 h-3.5" />
           </button>
 
           <button
+            type="button"
+            aria-label={`Delete ${item.name}`}
             onClick={() => onDelete(item.id)}
-            title="Delete Entitlement"
+            title="Delete offer"
             className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />

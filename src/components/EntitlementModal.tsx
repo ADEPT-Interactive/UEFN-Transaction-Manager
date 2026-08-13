@@ -1,24 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   X, 
   Sparkles, 
-  Coins, 
   Layers, 
   RotateCw, 
   Infinity as InfinityIcon, 
   Lock, 
   Dice5, 
   ShieldCheck, 
-  Code, 
   Radio, 
-  Bell, 
   Save,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Code,
+  SlidersHorizontal,
+  ExternalLink
 } from 'lucide-react';
-import { EntitlementItem, ActionHookType } from '../types/entitlement';
+import { AlternateOffer, EntitlementItem, OfferRestrictions } from '../types/entitlement';
 import { sanitizeVerseIdentifier, validateEntitlement } from '../services/validator';
-import { ImageUploadZone } from './ImageUploadZone';
+import { handleExternalLinkClick } from '../services/externalLink';
+import { PAID_RANDOM_ITEM_GUIDANCE_URL } from '../constants/docs';
+import { ConfirmedTextureImport, ImageUploadZone, ImageUploadZoneHandle } from './ImageUploadZone';
+import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
+import { VBucksIcon } from './VBucksIcon';
 
 interface EntitlementModalProps {
   isOpen: boolean;
@@ -30,6 +34,16 @@ interface EntitlementModalProps {
   onClose: () => void;
 }
 
+const EMPTY_ENTITLEMENT: EntitlementItem = {
+  id: '', verseKey: '', name: '', shortDescription: '', description: '', priceVBucks: 100,
+  itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: '',
+  flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
+  purchaseEventName: '', restoreOnJoin: true,
+  triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+};
+
+const EMPTY_RESTRICTIONS: OfferRestrictions = { blockedCountryCodes: [], blockedPlatformFamilies: [] };
+
 export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   isOpen,
   item,
@@ -39,10 +53,71 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   onSave,
   onClose,
 }) => {
-  if (!isOpen || !item) return null;
-
-  const [formData, setFormData] = useState<EntitlementItem>({ ...item });
+  const [formData, setFormData] = useState<EntitlementItem>(() => item ?? EMPTY_ENTITLEMENT);
   const [activeTab, setActiveTab] = useState<'general' | 'icon' | 'behavior' | 'hooks'>('general');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const imageUploadRef = useRef<ImageUploadZoneHandle>(null);
+  const [pendingIconUpload, setPendingIconUpload] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'save' | 'close' | null>(null);
+
+  const requestClose = () => {
+    if (pendingIconUpload) {
+      setPendingAction('close');
+      return;
+    }
+    onClose();
+  };
+
+  const confirmPendingIcon = async () => {
+    const action = pendingAction;
+    if (!action) return;
+    const confirmed: ConfirmedTextureImport | null = await imageUploadRef.current?.confirmPendingImport() ?? null;
+    if (!confirmed) return;
+    const nextItem = {
+      ...formData,
+      iconTexture: confirmed.verseAssetPath,
+      iconImageData: confirmed.preview,
+      iconFileName: confirmed.fileName,
+    };
+    setFormData(nextItem);
+    setPendingAction(null);
+    if (action === 'close') onClose();
+    else onSave(nextItem);
+  };
+
+  useEffect(() => {
+    if (isOpen && item) {
+      setFormData({ ...item });
+      setActiveTab('general');
+      setShowAdvanced(false);
+      setPendingIconUpload(false);
+      setPendingAction(null);
+    }
+  }, [isOpen, item]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (pendingIconUpload) setPendingAction('close');
+        else onClose();
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex]:not([tabindex="-1"])')).filter(element => !element.hasAttribute('disabled'));
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); previous?.focus(); };
+  }, [isOpen, onClose, pendingIconUpload]);
+
+  if (!isOpen || !item) return null;
 
   // Handle price quick-select
   const setPrice = (amount: number) => {
@@ -52,12 +127,34 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   // Auto-slugify key on name change if key hasn't been custom modified
   const handleNameChange = (newName: string) => {
     setFormData(prev => {
-      const shouldAutoSlug = !prev.verseKey || prev.verseKey === sanitizeVerseIdentifier(prev.name);
+      const shouldAutoSlug = item.id.includes('new') || !prev.verseKey || prev.verseKey === sanitizeVerseIdentifier(prev.name);
       return {
         ...prev,
         name: newName,
         verseKey: shouldAutoSlug ? sanitizeVerseIdentifier(newName) : prev.verseKey,
       };
+    });
+  };
+
+  const updateRestrictions = (patch: Partial<OfferRestrictions>) => {
+    setFormData(previous => ({ ...previous, offerRestrictions: { ...EMPTY_RESTRICTIONS, ...previous.offerRestrictions, ...patch } }));
+  };
+
+  const addAlternateOffer = () => {
+    setFormData(previous => {
+      const index = (previous.alternateOffers ?? []).length + 1;
+      const key = `${previous.verseKey || 'offer'}_alternate_${index}`;
+      const offer: AlternateOffer = {
+        id: `${previous.id || 'entitlement'}-alternate-${Date.now()}`,
+        verseKey: sanitizeVerseIdentifier(key),
+        name: `${previous.name || 'Offer'} Alternate ${index}`,
+        shortDescription: previous.shortDescription,
+        description: previous.description,
+        priceVBucks: previous.priceVBucks,
+        iconTexture: previous.iconTexture,
+        restrictions: { ...EMPTY_RESTRICTIONS },
+      };
+      return { ...previous, alternateOffers: [...(previous.alternateOffers ?? []), offer] };
     });
   };
 
@@ -67,15 +164,18 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (errors.length > 0) {
-      alert(`Please fix validation errors before saving:\n- ${errors.map(e => e.message).join('\n- ')}`);
+      return;
+    }
+    if (pendingIconUpload) {
+      setPendingAction('save');
       return;
     }
     onSave(formData);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-[#0d1326] border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden animate-modal flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="entitlement-dialog-title" tabIndex={-1} className="relative w-full max-w-2xl bg-[#0d1326] border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden animate-modal flex flex-col max-h-[90vh] outline-none">
         
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
@@ -84,25 +184,32 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-extrabold text-base text-white">
-                {item.id.includes('new') ? 'Create New Entitlement' : `Edit: ${formData.name || formData.verseKey}`}
+              <h2 id="entitlement-dialog-title" className="font-extrabold text-base text-white">
+                {item.id.includes('new') ? 'Create Offer' : `Edit offer: ${formData.name || formData.verseKey}`}
               </h2>
-              <p className="text-xs text-slate-400 font-mono">
-                {formData.verseKey ? `${formData.verseKey}_entitlement` : 'Define item details & parameters'}
+              <p className={`text-xs text-slate-400 ${showAdvanced ? 'font-mono' : ''}`}>
+                {showAdvanced ? `${formData.verseKey}_entitlement` : 'Add the storefront details players will see.'}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1"><button type="button" onClick={() => { if (showAdvanced && activeTab === 'hooks') setActiveTab('general'); setShowAdvanced(open => !open); }} aria-pressed={showAdvanced} className={`flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-bold transition-colors ${showAdvanced ? 'bg-cyan-500/15 text-cyan-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><SlidersHorizontal className="h-3.5 w-3.5" />Advanced</button><button
+              type="button"
+              aria-label="Close offer editor"
+              onClick={requestClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button></div>
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div className="flex border-b border-slate-800 bg-[#090e1a] px-6 gap-1">
+        <div role="tablist" aria-label="Offer editor sections" className="flex border-b border-slate-800 bg-[#090e1a] px-6 gap-1">
           <button
+            type="button"
+            id="offer-tab-general"
+            role="tab"
+            aria-selected={activeTab === 'general'}
+            aria-controls="offer-editor-panel"
             onClick={() => setActiveTab('general')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'general'
@@ -110,11 +217,16 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Coins className="w-3.5 h-3.5" />
+            <VBucksIcon className="h-3.5 w-3.5" />
             <span>General & Pricing</span>
           </button>
 
           <button
+            type="button"
+            id="offer-tab-icon"
+            role="tab"
+            aria-selected={activeTab === 'icon'}
+            aria-controls="offer-editor-panel"
             onClick={() => setActiveTab('icon')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'icon'
@@ -127,6 +239,11 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           </button>
 
           <button
+            type="button"
+            id="offer-tab-behavior"
+            role="tab"
+            aria-selected={activeTab === 'behavior'}
+            aria-controls="offer-editor-panel"
             onClick={() => setActiveTab('behavior')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'behavior'
@@ -138,7 +255,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             <span>Behavior & Moderation</span>
           </button>
 
-          <button
+          {showAdvanced && <button
+            type="button"
+            id="offer-tab-hooks"
+            role="tab"
+            aria-selected={activeTab === 'hooks'}
+            aria-controls="offer-editor-panel"
             onClick={() => setActiveTab('hooks')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'hooks'
@@ -148,11 +270,11 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           >
             <Code className="w-3.5 h-3.5" />
             <span>Triggers & Hooks</span>
-          </button>
+          </button>}
         </div>
 
         {/* Modal Scrollable Body */}
-        <form onSubmit={handleSave} className="p-6 overflow-y-auto space-y-5 flex-1">
+        <form id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} onSubmit={handleSave} className="p-6 overflow-y-auto space-y-5 flex-1">
           
           {/* TAB 1: General & Pricing */}
           {activeTab === 'general' && (
@@ -160,12 +282,14 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               
               {/* Display Title */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                <label htmlFor="offer-display-name" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                   Display Title (Name) *
                 </label>
                 <input
+                  id="offer-display-name"
                   type="text"
                   required
+                  maxLength={50}
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. ⭐ VIP Pass or +10 Strength Boost"
@@ -174,31 +298,35 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               </div>
 
               {/* Verse Identifier Symbol */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+              {showAdvanced && <div>
+                <label htmlFor="offer-verse-key" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
                   <span>Verse Identifier Key *</span>
                   <span className="text-[10px] text-slate-500 lowercase">letters, numbers, underscore only</span>
                 </label>
                 <div className="relative">
                   <input
+                    id="offer-verse-key"
                     type="text"
                     required
-                    value={formData.verseKey}
+                  value={formData.verseKey}
                     onChange={(e) => setFormData(prev => ({ ...prev, verseKey: sanitizeVerseIdentifier(e.target.value) }))}
                     placeholder="e.g. vip_pass or strength_boost_10"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 font-semibold"
                   />
                 </div>
-              </div>
+              </div>}
 
               {/* Descriptions */}
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                  <label htmlFor="offer-short-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                     Short Description (Storefront Popup)
                   </label>
                   <input
+                    id="offer-short-description"
                     type="text"
+                    required
+                    maxLength={100}
                     value={formData.shortDescription}
                     onChange={(e) => setFormData(prev => ({ ...prev, shortDescription: e.target.value }))}
                     placeholder="e.g. Unlock exclusive VIP conveyors & badge!"
@@ -207,34 +335,42 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                  <label htmlFor="offer-full-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                     Full Description
                   </label>
                   <textarea
+                    id="offer-full-description"
                     rows={2}
+                    required
+                    maxLength={500}
                     value={formData.description}
                     onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="Detailed explanation of the entitlement and its in-game effects..."
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
+                <div>
+                  <label htmlFor="offer-duration" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Duration disclosure (if time-limited)</label>
+                  <input id="offer-duration" type="text" maxLength={100} value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400" />
+                </div>
               </div>
 
               {/* V-Bucks Price Configuration */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Coins className="w-4 h-4 text-sky-400" />
+                  <label htmlFor="offer-price" className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <VBucksIcon className="h-4 w-4 text-sky-400" />
                     <span>Price in V-Bucks (50 – 5,000 VB, Step 50)</span>
                   </label>
                   <span className="font-mono text-base font-extrabold text-sky-400">
-                    {formData.priceVBucks} VB
+                    <span className="inline-flex items-center gap-1.5"><VBucksIcon className="h-4 w-4" />{formData.priceVBucks} V-Bucks</span>
                   </span>
                 </div>
 
                 {/* Price input & slider */}
                 <div className="flex items-center gap-3">
                   <input
+                    id="offer-price"
                     type="number"
                     min={50}
                     max={5000}
@@ -244,6 +380,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-sky-400 text-center"
                   />
                   <input
+                    aria-label="Offer price in V-Bucks"
                     type="range"
                     min={50}
                     max={5000}
@@ -272,21 +409,47 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   ))}
                 </div>
               </div>
+
+              {showAdvanced && <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <OfferRestrictionsEditor restrictions={{ blockedCountryCodes: [], blockedPlatformFamilies: [], ...formData.offerRestrictions }} onChange={restrictions => setFormData(previous => ({ ...previous, offerRestrictions: restrictions }))} />
+              </div>}
+
+              {showAdvanced && <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between"><div><p className="text-xs font-bold text-cyan-300 uppercase tracking-wider">Alternate offers</p><p className="text-[11px] text-slate-400">Create region/platform/price variants that bundles can reference.</p></div><button type="button" onClick={addAlternateOffer} className="px-2.5 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-bold">Add variant</button></div>
+                {(formData.alternateOffers ?? []).map((offer, index) => (
+                  <div key={offer.id} className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
+                    <div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">Variant {index + 1}</span><button type="button" onClick={() => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).filter(candidate => candidate.id !== offer.id) }))} className="text-xs text-rose-300">Remove</button></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <input aria-label={`Variant ${index + 1} Verse key`} value={offer.verseKey} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, verseKey: sanitizeVerseIdentifier(e.target.value) } : candidate) }))} placeholder="variant_key" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono text-cyan-300" />
+                      <input aria-label={`Variant ${index + 1} price in V-Bucks`} type="number" min={50} max={5000} step={50} value={offer.priceVBucks} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: Number(e.target.value) } : candidate) }))} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
+                    </div>
+                    <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
+                  </div>
+                ))}
+              </div>}
             </div>
           )}
 
           {/* TAB 2: Icon & Texture */}
           {activeTab === 'icon' && (
             <div className="space-y-4">
-              <ImageUploadZone
-                contentFolderPath={contentFolderPath}
+                <ImageUploadZone
+                 key={item.id}
+                 ref={imageUploadRef}
+                  contentFolderPath={contentFolderPath}
                 assetFolderName={assetFolderName}
                 assetName={formData.verseKey || 'icon'}
                 currentTextureRef={formData.iconTexture}
-                currentImageData={formData.iconImageData}
-                onTextureRefChange={(ref) => setFormData(prev => ({ ...prev, iconTexture: ref }))}
-                onImageDataChange={(base64, fileName) => setFormData(prev => ({ ...prev, iconImageData: base64, iconFileName: fileName }))}
-              />
+                  currentImageData={formData.iconImageData}
+                  onTextureRefChange={(ref) => setFormData(prev => ({ ...prev, iconTexture: ref }))}
+                  onImageDataChange={(base64, fileName) => setFormData(prev => ({ ...prev, iconImageData: base64, iconFileName: fileName }))}
+                  onPendingStateChange={setPendingIconUpload}
+                />
             </div>
           )}
 
@@ -302,9 +465,11 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   
                   {/* Durable */}
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={formData.itemType === 'durable'}
                     onClick={() => setFormData(prev => ({ ...prev, itemType: 'durable', maxCount: 1, autoConsume: false }))}
-                    className={`cursor-pointer border rounded-2xl p-3.5 transition-all flex flex-col justify-between ${
+                    className={`w-full cursor-pointer border rounded-2xl p-3.5 text-left transition-all flex flex-col justify-between ${
                       formData.itemType === 'durable'
                         ? 'border-purple-500 bg-purple-500/10 shadow-lg shadow-purple-500/10'
                         : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
@@ -317,12 +482,14 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <p className="text-[11px] text-slate-400 mt-2">
                       Player owns forever. MaxCount is always 1. Cannot be consumed or repurchased once owned.
                     </p>
-                  </div>
+                  </button>
 
                   {/* Consumable */}
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={formData.itemType === 'consumable'}
                     onClick={() => setFormData(prev => ({ ...prev, itemType: 'consumable' }))}
-                    className={`cursor-pointer border rounded-2xl p-3.5 transition-all flex flex-col justify-between ${
+                    className={`w-full cursor-pointer border rounded-2xl p-3.5 text-left transition-all flex flex-col justify-between ${
                       formData.itemType === 'consumable'
                         ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/10'
                         : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
@@ -335,7 +502,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <p className="text-[11px] text-slate-400 mt-2">
                       Can be consumed/spent and repurchased. Supports custom MaxCount stacks and auto-consumption.
                     </p>
-                  </div>
+                  </button>
                 </div>
               </div>
 
@@ -350,7 +517,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <input
                       type="number"
                       min={1}
-                      max={1000}
+                      max={10000000}
                       value={formData.maxCount}
                       onChange={(e) => setFormData(prev => ({ ...prev, maxCount: parseInt(e.target.value, 10) || 1 }))}
                       className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-white text-center"
@@ -393,25 +560,31 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                       />
                       <span className="text-xs font-bold text-white flex items-center gap-1.5">
                         <Dice5 className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Paid Random Item (Loot Box / Mystery Pull)</span>
+                        <span>Paid Random Item</span>
                       </span>
                     </label>
                   </div>
                   {formData.flags.paidRandomItem && (
                     <div className="pt-2 border-t border-slate-800">
-                      <label className="block text-[11px] font-medium text-rose-300 mb-1">
-                        Odds Disclosure (Required by Epic Games Moderation) *
+                      <label htmlFor="paid-random-odds" className="block text-[11px] font-medium text-rose-300 mb-1">
+                        Odds / outcome disclosure
                       </label>
+                      <p className="mb-2 text-[11px] leading-4 text-slate-400">
+                        Enter the player-facing odds or outcome disclosure.{' '}
+                        <a href={PAID_RANDOM_ITEM_GUIDANCE_URL} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, PAID_RANDOM_ITEM_GUIDANCE_URL)} className="inline-flex items-center gap-1 text-cyan-300 hover:underline">
+                          Epic guidance <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </p>
                       <input
+                        id="paid-random-odds"
                         type="text"
-                        required
                         value={formData.flags.paidRandomItemOdds}
                         onChange={(e) => setFormData(prev => ({
                           ...prev,
                           flags: { ...prev.flags, paidRandomItemOdds: e.target.value },
                         }))}
                         placeholder="e.g. Common: 60%, Rare: 30%, Legendary: 10%"
-                        className="w-full bg-slate-950 border border-rose-500/40 rounded-lg px-3 py-1.5 text-xs text-white"
+                        className="w-full bg-slate-950 border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-white"
                       />
                     </div>
                   )}
@@ -462,92 +635,55 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           {activeTab === 'hooks' && (
             <div className="space-y-4">
               
-              {/* Action Hook on Success */}
+              {/* Stable public event contract */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>On Purchase Success Action</span>
+                  <span>Positive Entitlement Change Event</span>
                 </label>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { type: 'signal_event', label: 'Signal Custom Verse Event' },
-                    { type: 'device_method', label: 'Call Device / Save Manager' },
-                    { type: 'custom_verse', label: 'Custom Verse Code Snippet' },
-                  ].map(option => (
-                    <button
-                      key={option.type}
-                      type="button"
-                      onClick={() => setFormData(prev => ({
-                        ...prev,
-                        actionHook: { ...prev.actionHook, type: option.type as ActionHookType },
-                      }))}
-                      className={`px-3 py-2 text-xs font-semibold rounded-xl border text-left transition-all ${
-                        formData.actionHook.type === option.type
-                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                          : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-
-                {formData.actionHook.type === 'signal_event' && (
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Custom Event Symbol</label>
-                    <input
-                      type="text"
-                      value={formData.actionHook.eventName || `${formData.verseKey}_PurchasedEvent`}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        actionHook: { ...prev.actionHook, eventName: e.target.value },
-                      }))}
-                      placeholder="e.g. VipPassPurchasedEvent"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300"
-                    />
-                  </div>
-                )}
-
-                {formData.actionHook.type === 'device_method' && (
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Device Call (e.g. SaveManager)</label>
-                    <input
-                      type="text"
-                      value={formData.actionHook.targetDevice || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        actionHook: { ...prev.actionHook, targetDevice: e.target.value },
-                      }))}
-                      placeholder="e.g. SaveManager.GrantDoubleMoney(Player)"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300"
-                    />
-                  </div>
-                )}
-
-                {formData.actionHook.type === 'custom_verse' && (
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Verse Code Snippet</label>
-                    <textarea
-                      rows={3}
-                      value={formData.actionHook.customVerseCode || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        actionHook: { ...prev.actionHook, customVerseCode: e.target.value },
-                      }))}
-                      placeholder="# Write custom logic here&#10;MyManager.HandlePurchase(Player, QuantityBought)"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300"
-                    />
-                  </div>
-                )}
+                <p className="text-[11px] text-slate-400">The device signals this public event after any positive Marketplace entitlement delta, including a purchase or direct grant. Existing legacy “PurchasedEvent” names remain compatible.</p>
+                <input type="text" value={formData.purchaseEventName} onChange={event => setFormData(previous => ({ ...previous, purchaseEventName: event.target.value }))} placeholder="VipPassGrantedEvent" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300" />
+                {formData.itemType === 'durable' && <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={formData.restoreOnJoin} onChange={event => setFormData(previous => ({ ...previous, restoreOnJoin: event.target.checked }))} />Generate and signal a separate OwnershipVerifiedEvent on join</label>}
               </div>
 
-              {/* Triggers (Buttons & Mutator Zones) */}
+              {/* Triggers (Trigger devices, Buttons & Mutator Zones) */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Radio className="w-4 h-4 text-cyan-400" />
                   <span>In-Game Triggers & Bindings</span>
                 </label>
+
+                <div className="border-b border-slate-800 pb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.triggers.generateTriggerBinding}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        triggers: {
+                          ...prev.triggers,
+                          generateTriggerBinding: e.target.checked,
+                          triggerDeviceName: e.target.checked ? (prev.triggers.triggerDeviceName || `${prev.verseKey}_OfferTriggers`) : undefined,
+                        },
+                      }))}
+                      className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-semibold text-white">Expose Trigger Devices for this offer</span>
+                  </label>
+                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Recommended: assign one or more Trigger devices in UEFN. A player-triggered event opens this offer.</p>
+                  {formData.triggers.generateTriggerBinding && (
+                    <input
+                      type="text"
+                      value={formData.triggers.triggerDeviceName || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        triggers: { ...prev.triggers, triggerDeviceName: e.target.value },
+                      }))}
+                      className="mt-2 ml-6 w-52 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-cyan-300"
+                      placeholder="Offer Trigger Array"
+                    />
+                  )}
+                </div>
 
                 {/* Button Device Trigger */}
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -626,9 +762,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   ) : (
                     <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                   )}
-                  <span className={issue.severity === 'error' ? 'text-rose-300 font-medium' : 'text-amber-300'}>
-                    {issue.message}
-                  </span>
+                  <div className={issue.severity === 'error' ? 'text-rose-300 font-medium' : 'text-amber-300'}>
+                    <span>{issue.message}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -638,7 +774,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
             >
               Cancel
@@ -649,10 +785,23 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>Save Entitlement</span>
+              <span>Save Offer</span>
             </button>
           </div>
         </form>
+        {pendingAction && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#080c14]/85 p-6 backdrop-blur-sm">
+            <div role="alertdialog" aria-modal="true" aria-labelledby="pending-icon-title" className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#0d1326] p-5 shadow-2xl">
+              <h3 id="pending-icon-title" className="text-sm font-extrabold text-white">Confirm this icon before continuing</h3>
+              <p className="mt-2 text-xs leading-5 text-slate-300">The selected PNG is only a preview right now. It has not been imported and saved as a native Texture2D in the active UEFN project.</p>
+              <p className="mt-2 text-xs leading-5 text-amber-300">Keep UEFN open while the manager confirms the import. {pendingAction === 'save' ? 'The offer will save after the import succeeds.' : 'The editor will close after the import succeeds.'}</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setPendingAction(null)} className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Continue editing</button>
+                <button type="button" onClick={() => void confirmPendingIcon()} className="rounded-xl bg-cyan-400 px-3 py-2 text-xs font-extrabold text-slate-950 hover:bg-cyan-300">Confirm &amp; import{pendingAction === 'save' ? ', then save' : ', then close'}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

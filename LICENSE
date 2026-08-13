@@ -1,21 +1,132 @@
-MIT License
+ADEPT SOURCE-AVAILABLE LICENSE
+Version 1.2 — 2026-08-10
 
-Copyright (c) 2026 ADEPT Interactive
+Copyright (c) 2026 AD3PT Interactive Inc. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+AD3PT Interactive Inc. also operates under the names ADEPT Interactive and
+ADEPT. References to ADEPT in this license mean AD3PT Interactive Inc.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This is a source-available license, not an open-source license. The Software
+and all associated source code remain the property of AD3PT Interactive Inc.
+
+1. Definitions
+
+"Software" means this repository, its source code, compiled binaries, build
+artifacts, documentation, and substantial portions or derivatives of them.
+
+"ADEPT" means AD3PT Interactive Inc., doing business as ADEPT Interactive or
+ADEPT, and its successors and assigns.
+
+"Official Release" means a version of the Software published or expressly
+designated as an official release by ADEPT through this repository, its GitHub
+Releases page, or another distribution channel designated by ADEPT.
+
+"Contribution" means code, documentation, tests, designs, or other material
+intentionally submitted to ADEPT for possible inclusion in the Software.
+
+2. Use of the Official Release
+
+Subject to your compliance with this license, ADEPT grants you a limited,
+non-exclusive, non-transferable license to download and run an unmodified
+Official Release for your own personal or business use. This includes using
+the Official Release to create, develop, test, and operate your own UEFN
+projects, including UEFN projects that may be monetized.
+
+A business licensee may permit its employees and contractors to use the
+Official Release solely on its behalf and for its own UEFN projects, provided
+those persons comply with this license. You may make reasonable installation
+and backup copies for those permitted uses.
+
+3. Source inspection and private changes
+
+You may view the source code and make private local changes for evaluation,
+research, development, and testing. You may submit changes to ADEPT through
+the contribution process. Submission of a Contribution does not grant you any
+right to distribute the Software or a modified version of it.
+
+4. Prohibited acts
+
+Except for copies or forks made through GitHub to the extent permitted by
+GitHub's Terms of Service, and except for the private changes expressly
+permitted above, you may not do any of the following without ADEPT's prior
+written permission:
+
+  a. publish, distribute, sell, rent, sublicense, transfer, or make available
+     the Software or any modified version of it outside your permitted
+     internal use;
+  b. include the Software or any substantial portion of it in another product,
+     tool, service, plugin, template, release, or commercial offering;
+  c. rebrand, white-label, or release a modified, competing, or derivative
+     version of the Software;
+  d. host the Software for third-party access or provide it as a service; or
+  e. remove, obscure, or alter ADEPT's copyright, license, or trademark notices.
+
+GitHub's platform-specific permission to fork a public repository grants no
+additional right to distribute, sublicense, commercialize, or release the
+Software. A GitHub fork used for contribution or private development is not
+an Official Release and may not be presented as one.
+
+5. Contributions
+
+Contributions are governed by the ADEPT Contributor License Agreement. No
+ownership transfer occurs merely because a Contribution is submitted. Upon
+ADEPT's acceptance of a Contribution by merging, incorporating, or expressly
+accepting it for inclusion in the Software, the contributor's rights transfer
+according to the Contributor License Agreement.
+
+6. Third-party material
+
+A Contribution must not include third-party material unless it is clearly
+identified to ADEPT, including its applicable license, and ADEPT has approved
+its inclusion. Third-party material is not subject to any assignment in the
+Contributor License Agreement to the extent the contributor does not own the
+rights being assigned.
+
+7. Trademarks
+
+This license does not grant permission to use AD3PT Interactive Inc., ADEPT
+Interactive, ADEPT, or associated logos, names, or marks except as necessary
+to preserve required notices or with ADEPT's prior written permission.
+
+8. Third-party software
+
+Third-party dependencies remain subject to their own license terms. Nothing
+in this license removes rights granted by those third-party licenses.
+
+9. Termination
+
+Your rights under this license terminate automatically upon your material
+violation of it. You must stop using and destroy copies of the Software that
+you are not otherwise authorized to retain. ADEPT may reinstate rights for a
+violation in a written notice, subject to any conditions stated in that notice.
+
+10. Disclaimer and limitation of liability
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY LAW, ADEPT'S TOTAL
+AGGREGATE LIABILITY ARISING OUT OF OR RELATING TO THE SOFTWARE OR THIS
+LICENSE SHALL NOT EXCEED THE AMOUNT, IF ANY, PAID BY YOU TO ADEPT FOR THE
+SOFTWARE. ADEPT SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+CONSEQUENTIAL, OR EXEMPLARY DAMAGES.
+
+11. Governing law and forum
+
+This license and any dispute arising out of or relating to the Software or
+this license are governed by the laws of the Province of Ontario and the
+federal laws of Canada applicable in Ontario, without regard to conflict of
+laws principles. You and ADEPT irrevocably submit to the exclusive
+jurisdiction of the courts located in the Province of Ontario, Canada.
+
+12. Miscellaneous
+
+If any provision of this license is held unenforceable, it shall be modified
+to the minimum extent necessary and the remaining provisions shall continue
+in effect. This license, together with any written additional license signed
+by ADEPT, is the entire agreement concerning the Software and supersedes prior
+statements about the rights granted by ADEPT. No waiver or amendment is
+effective unless made in writing by ADEPT.
+
+If you need redistribution, embedding, white-labeling, commercial resale, or
+another use not expressly permitted here, contact ADEPT for a separate written
+license.

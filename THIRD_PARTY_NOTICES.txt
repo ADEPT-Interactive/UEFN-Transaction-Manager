@@ -1,0 +1,24 @@
+UEFN ENTITLEMENT MANAGER — THIRD-PARTY NOTICES
+
+The release includes bundled open-source dependencies. Those dependencies are
+not owned by AD3PT Interactive Inc. and remain subject to their own license
+terms.
+
+- Node.js runtime — MIT License and bundled third-party notices — https://nodejs.org/en/about/third-party-licenses
+
+Direct runtime dependencies:
+
+- clsx — MIT License — https://github.com/lukeed/clsx
+- express — MIT License — https://github.com/expressjs/express
+- lucide-react — ISC License — https://github.com/lucide-icons/lucide
+- multer — MIT License — https://github.com/expressjs/multer
+- react — MIT License — https://github.com/facebook/react
+- react-dom — MIT License — https://github.com/facebook/react
+- tailwind-merge — MIT License — https://github.com/dcastil/tailwind-merge
+
+The source repository's package-lock.json identifies exact versions and
+transitive packages. Their license notices remain applicable to the bundled
+files. Nothing in the ADEPT license changes those third-party rights.
+
+The release also bundles flag-icons (MIT License):
+https://github.com/lipis/flag-icons

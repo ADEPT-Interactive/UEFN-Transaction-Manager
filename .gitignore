@@ -3,6 +3,10 @@ node_modules
 dist
 dist-ssr
 *.local
+.runtime
+release
+desktop/bin
+desktop/obj
 
 # Logs
 npm-debug.log*
@@ -29,3 +33,5 @@ lerna-debug.log*
 *.bak
 temp/
 uploads/temp/
+__pycache__/
+*.py[cod]

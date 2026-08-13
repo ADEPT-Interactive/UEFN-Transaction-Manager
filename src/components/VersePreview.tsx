@@ -4,26 +4,32 @@ import {
   Check, 
   Download, 
   Save, 
-  Code, 
-  Terminal, 
   FileCode, 
-  Search, 
   ExternalLink 
 } from 'lucide-react';
-import { ProjectConfig } from '../types/entitlement';
+import { EntitlementItem, OfferDisplayGroup, ProjectConfig } from '../types/entitlement';
+import { handleExternalLinkClick } from '../services/externalLink';
+import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
+import { SetupPanel } from './SetupPanel';
 
 interface VersePreviewProps {
   verseCode: string;
   config: ProjectConfig;
+  entitlements: EntitlementItem[];
+  offerDisplayGroups: OfferDisplayGroup[];
   onSaveToDisk: () => void;
   isSaving: boolean;
+  hasErrors: boolean;
 }
 
 export const VersePreview: React.FC<VersePreviewProps> = ({
   verseCode,
   config,
+  entitlements,
+  offerDisplayGroups,
   onSaveToDisk,
   isSaving,
+  hasErrors,
 }) => {
   const [copied, setCopied] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,7 +45,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = config.targetVerseFileName || 'in_island_transactions.verse';
+    link.download = config.targetVerseFileName || 'managed_transactions.verse';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -57,7 +63,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
         <div className="flex items-center gap-2">
           <FileCode className="w-4 h-4 text-cyan-400" />
           <span className="font-mono text-xs font-bold text-white">
-            {config.targetVerseFileName || 'in_island_transactions.verse'}
+            {config.targetVerseFileName || 'managed_transactions.verse'}
           </span>
           <span className="text-[10px] font-mono text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded">
             {lines.length} lines
@@ -88,7 +94,8 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
           {/* Direct Write to Disk */}
           <button
             onClick={onSaveToDisk}
-            disabled={isSaving}
+            disabled={isSaving || hasErrors}
+            title={hasErrors ? 'Resolve validation errors before writing to the project.' : undefined}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md shadow-cyan-500/20 transition-all disabled:opacity-50 active:scale-95"
           >
             <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-bounce' : ''}`} />
@@ -99,7 +106,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
 
       {/* Code Editor Body */}
       <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed bg-[#070a13] text-slate-200 select-text">
-        <pre className="table w-full">
+        <div className="table w-full" role="region" aria-label="Generated Verse source">
           {lines.map((line, idx) => {
             const isComment = line.trim().startsWith('#');
             const isKeyword = line.includes(':=') || line.includes('<override>') || line.includes('<public>') || line.includes('module:');
@@ -137,24 +144,23 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
               </div>
             );
           })}
-        </pre>
+        </div>
       </div>
 
+      {entitlements.length > 0 && (
+        <details open className="max-h-[48%] overflow-y-auto border-t border-slate-800 bg-[#0b1020] text-xs text-slate-300">
+          <summary className="cursor-pointer px-4 py-3 font-bold text-cyan-300 hover:bg-slate-800/40">
+            Setup
+          </summary>
+          <div className="space-y-3 border-t border-slate-800 px-4 py-3">
+            <SetupPanel config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} />
+          </div>
+        </details>
+      )}
+
       {/* Code Footer info */}
-      <div className="px-4 py-2 bg-[#0d1326] border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-        <span className="flex items-center gap-1.5">
-          <Terminal className="w-3 h-3 text-cyan-400" />
-          <span>Verse standard: UEFN 39+ (/Fortnite.com/Marketplace)</span>
-        </span>
-        <a 
-          href="https://dev.epicgames.com/documentation/fortnite/in-island-transactions-overview" 
-          target="_blank" 
-          rel="noreferrer"
-          className="text-cyan-400 hover:underline flex items-center gap-1"
-        >
-          <span>Epic Games IIT Docs</span>
-          <ExternalLink className="w-3 h-3" />
-        </a>
+      <div className="px-4 py-2 bg-[#0d1326] border-t border-slate-800 text-[11px] text-slate-400 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {[[IN_ISLAND_TRANSACTIONS_URL, 'In-Island Transactions overview'], [CREATING_ITEMS_AND_OFFERS_URL, 'Creating Items & Offers guide'], [TRANSACTION_BEST_PRACTICES_URL, 'Best practices & debugging']].map(([url, label]) => <a key={url} href={url} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, url)} className="text-cyan-400 hover:underline flex items-center gap-1"><span>{label}</span><ExternalLink className="w-3 h-3" /></a>)}
       </div>
     </div>
   );

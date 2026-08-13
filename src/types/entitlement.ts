@@ -1,78 +1,61 @@
 export type EntitlementType = 'durable' | 'consumable';
 
-export type ActionHookType = 
-  | 'signal_event' 
-  | 'grant_stat' 
-  | 'grant_currency' 
-  | 'device_method' 
-  | 'custom_verse';
+export interface OfferRestrictions {
+  minimumPurchaseAge?: number;
+  blockedCountryCodes: string[];
+  blockedPlatformFamilies: string[];
+}
+
+export interface AlternateOffer {
+  id: string;
+  verseKey: string;
+  name: string;
+  shortDescription: string;
+  description: string;
+  durationDescription?: string;
+  priceVBucks: number;
+  iconTexture: string;
+  restrictions: OfferRestrictions;
+}
 
 export interface EntitlementItem {
   id: string;
-  verseKey: string;             // Verse-safe symbol name, e.g. "vip_pass"
-  name: string;                 // Display title with <localizes>:message support
-  shortDescription: string;     // Short summary (for popups/storefronts)
-  description: string;          // Full detailed description
-  priceVBucks: number;          // V-Bucks cost (multiples of 50, 50-5000)
-  itemType: EntitlementType;    // 'durable' vs 'consumable'
-  maxCount: number;             // Maximum allowed inventory holding (1 for durables)
-  autoConsume: boolean;         // If consumable: consume immediately upon grant
-  iconTexture: string;          // Verse texture asset reference, e.g. "EntitlementIcons.VipPass"
-  iconImageData?: string;       // Base64 PNG data for live UI preview and uasset generation
-  iconFileName?: string;        // Local file name, e.g. "VipPass.png"
-  
-  // In-Island Transaction & Moderation Flags
+  verseKey: string;
+  name: string;
+  shortDescription: string;
+  description: string;
+  priceVBucks: number;
+  itemType: EntitlementType;
+  maxCount: number;
+  autoConsume: boolean;
+  iconTexture: string;
+  iconImageData?: string;
+  iconFileName?: string;
   flags: {
-    paidRandomItem: boolean;    // Mystery loot / RNG rewards
-    paidRandomItemOdds: string; // Required disclosure for odds
-    paidArea: boolean;          // Access to restricted area/paywall
-    consequentialToGameplay: boolean; // Direct/indirect gameplay advantage
+    paidRandomItem: boolean;
+    paidRandomItemOdds: string;
+    paidArea: boolean;
+    consequentialToGameplay: boolean;
   };
-
-  // Optional Age & Region Gating
-  ageAndRegion: {
-    enabled: boolean;
-    minAge: number;
-    allowedCountryCodes: string[];   // e.g. ["US", "CA"]
-    disallowedCountryCodes: string[]; // e.g. ["AQ"]
-  };
-
-  // Purchase Lifecycle Hooks
-  actionHook: {
-    type: ActionHookType;
-    eventName?: string;         // e.g. "VipPassPurchasedEvent"
-    statName?: string;          // e.g. "StrengthLevels"
-    statAmount?: number;        // e.g. 10
-    targetDevice?: string;      // e.g. "SaveManager.GrantDoubleMoney(Player)"
-    customVerseCode?: string;   // Custom Verse logic
-  };
-
-  // Cancellation & Failure Hook
-  cancelHook: {
-    notifyPlayer: boolean;
-    notificationMessage?: string;
-    customVerseCode?: string;
-  };
-
-  // Reconnection / Join Validation Hook
-  rejoinHook: {
-    autoRestore: boolean;
-    customVerificationCode?: string;
-  };
-
-  // Trigger Bindings
+  durationDescription?: string;
+  offerRestrictions?: OfferRestrictions;
+  alternateOffers?: AlternateOffer[];
+  purchaseEventName: string;
+  restoreOnJoin: boolean;
   triggers: {
+    generateTriggerBinding: boolean;
+    triggerDeviceName?: string;
     generateButtonBinding: boolean;
     buttonDeviceName?: string;
     generateZoneBinding: boolean;
     mutatorZoneName?: string;
-    generateAsyncListener: boolean;
-    asyncEventName?: string;
   };
 }
 
 export interface BundleOfferItem {
-  entitlementId: string;
+  entitlementId?: string;
+  bundleId?: string;
+  offerVerseKey?: string;
   quantity: number;
 }
 
@@ -85,40 +68,56 @@ export interface BundleOffer {
   priceVBucks: number;
   iconTexture: string;
   iconImageData?: string;
+  durationDescription?: string;
+  restrictions?: OfferRestrictions;
+  dynamicRemaining?: boolean;
   items: BundleOfferItem[];
+}
+
+export interface OfferDisplayEntry {
+  entitlementId?: string;
+  bundleId?: string;
+  offerVerseKey?: string;
+}
+
+export interface OfferDisplayGroup {
+  id: string;
+  verseKey: string;
+  name: string;
+  entries: OfferDisplayEntry[];
+  generateTriggerBinding: boolean;
+  triggerDeviceName?: string;
 }
 
 export interface ProjectConfig {
   contentFolderPath: string;
   targetVerseFileName: string;
-  assetFolderName: string;      // Custom public folder for images (default "EntitlementIcons")
-  deviceClassName: string;      // Default "in_island_transactions"
-  infoModuleName: string;       // Default "EntitlementInfo"
-  entitlementsModuleName: string; // Default "Entitlements"
-  pricesModuleName: string;     // Default "TransactionPrices"
-  offersModuleName: string;     // Default "Offers"
+  assetFolderName: string;
+  deviceClassName: string;
+  infoModuleName: string;
+  entitlementsModuleName: string;
+  pricesModuleName: string;
+  offersModuleName: string;
   autoBackup: boolean;
   enableVerseWorkflowServer: boolean;
+  generateStorefrontBinding?: boolean;
+  storefrontButtonDeviceName?: string;
+  allowAutomaticZonePrompts?: boolean;
 }
 
 export interface ValidationIssue {
   id: string;
   entitlementId?: string;
+  bundleId?: string;
   severity: 'error' | 'warning' | 'info';
   message: string;
   field?: string;
   ruleName: string;
 }
 
-export interface SimulationPlayerState {
-  playerId: string;
-  name: string;
-  vbucksBalance: number;
-  ownedEntitlements: Record<string, number>; // verseKey -> quantity
-  actionLogs: Array<{
-    timestamp: string;
-    type: 'purchase_success' | 'purchase_cancel' | 'consumed' | 'granted' | 'validated' | 'error';
-    message: string;
-    entitlementKey?: string;
-  }>;
+export interface ManagedProjectData {
+  schemaVersion: 2 | 3 | 4;
+  entitlements: EntitlementItem[];
+  bundles: BundleOffer[];
+  offerDisplayGroups?: OfferDisplayGroup[];
 }
