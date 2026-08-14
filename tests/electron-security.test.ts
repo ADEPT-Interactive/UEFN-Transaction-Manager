@@ -57,3 +57,9 @@ test('desktop source keeps the renderer sandboxed behind narrow IPC', () => {
   assert.doesNotMatch(preload, /shell:/);
   assert.doesNotMatch(preload, /:\s*ipcRenderer(?:\s*[,}])/);
 });
+
+test('desktop verification explicitly installs the locked Electron runtime', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { scripts?: Record<string, string> };
+  assert.equal(packageJson.scripts?.['install:electron-runtime'], 'node node_modules/electron/install.js');
+  assert.match(packageJson.scripts?.['test:desktop'] ?? '', /npm run install:electron-runtime/);
+});

@@ -31,6 +31,7 @@ if ($PreferPortableRuntime) {
 Push-Location $toolRoot
 try {
     Invoke-NativeChecked -FilePath $npm.Source -ArgumentList @("ci", "--no-audit", "--no-fund") -Description "Installing locked Electron and application dependencies"
+    Invoke-NativeChecked -FilePath $npm.Source -ArgumentList @("run", "install:electron-runtime") -Description "Installing the locked Electron desktop runtime"
     Invoke-NativeChecked -FilePath $npm.Source -ArgumentList @("run", "build") -Description "Building the frontend, authenticated bridge, Electron main process, and hardened preload"
 }
 finally {
