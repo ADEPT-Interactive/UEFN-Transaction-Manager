@@ -17,9 +17,15 @@
   </p>
 </div>
 
-UEFN Entitlement Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It turns entitlement, offer, bundle, display, pricing, restriction, and gameplay-hook choices into a project-ready Verse file, then saves and compiles it through the UEFN project you select.
+UEFN Entitlement Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It links directly to the UEFN project you have open, turns entitlement, offer, bundle, display, pricing, restriction, and gameplay-hook choices into project-ready Verse, then saves and compiles it through that live UEFN session.
 
 ![A connected UEFN project with a visual entitlement catalog and custom icons](docs/screenshots/catalog-overview.png)
+
+## Connected directly to UEFN
+
+UEM is more than a standalone Verse generator. Its launcher finds active and recent `.uefnproject` files, confirms the project you intend to edit, and starts a local project bridge restricted to that project's `Content` directory. **Save & Compile** writes the generated Verse with a backup, then requests a real compile from the Verse Workflow Server running with UEFN.
+
+When Python Editor Scripting is enabled, UEM also installs and attaches its project connector automatically. Confirmed PNGs enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Save & Compile** reports UEFN's compile result directly.
 
 ## What it helps you do
 
@@ -30,7 +36,7 @@ UEFN Entitlement Manager is a Windows desktop companion for Fortnite creators us
 - Generate purchase, grant, removal, consumption, and ownership-check events for your gameplay code.
 - Use Trigger bindings by default, with optional Button and Mutator Zone bindings under Advanced settings.
 - Save and reopen each project's catalog without rebuilding it from scratch.
-- Save and compile the generated Verse from the same app.
+- Save the generated Verse and request a compile from the connected UEFN session.
 - Review schema errors and advisory moderation warnings before testing your island.
 
 Moderation warnings are review aids. They never block entitlement creation or saving, and they do not guarantee Epic approval.
@@ -72,7 +78,7 @@ Power-of-two PNGs are imported without any modification. Other sizes are scaled 
 
 ## Templates and in-app help
 
-The included templates provide focused starting points without changing unrelated settings such as price. The **Need Help?** panel covers setup, compiling, placing the generated device, and connecting it to your own Verse.
+The included templates provide focused starting points for common entitlement categories. The **Need Help?** panel covers setup, compiling, placing the generated device, and connecting it to your own Verse.
 
 ![Expanded entitlement templates](docs/screenshots/template-chooser.png)
 
