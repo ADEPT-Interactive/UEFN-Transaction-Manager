@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,9 +20,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
       - run: npm ci
-      - run: dotnet restore desktop/UEFNEntitlementManager.Desktop.csproj
       - run: npm run test:all
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -SkipTests
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uefn-entitlement-manager-windows-x64
+          path: |
+            release/UEFN Entitlement Manager.zip
+            release/UEFN Entitlement Manager.contents.tsv

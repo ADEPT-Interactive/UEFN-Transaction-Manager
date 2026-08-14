@@ -1,12 +1,12 @@
 # Node
 node_modules
 dist
+dist-electron
 dist-ssr
 *.local
 .runtime
 release
-desktop/bin
-desktop/obj
+desktop/
 
 # Logs
 npm-debug.log*

@@ -1,44 +1,42 @@
-UEFN ENTITLEMENT MANAGER — USER RELEASE
+UEFN ENTITLEMENT MANAGER 3.0.1
 
-1. Extract the entire ZIP file to a normal folder.
-2. Open UEFNEntitlementManager-2.3.3.exe.
-3. Select the project marked Open in UEFN, choose a recent project, or browse
+GET STARTED
+
+1. Extract the complete ZIP to a normal folder and keep its contents together.
+2. Open UEFNEntitlementManager-3.0.1.exe.
+3. Select the project that is open in UEFN, choose a recent project, or browse
    to its .uefnproject file.
 4. Confirm Open project in UEM.
 
-The release already contains the standalone app shell, frontend, bridge, Node
-runtime, and dependencies. The manager itself runs in its embedded shell; links
-you open are handed to Windows and attempt to use the system default browser.
-Do not move or delete the dist or .runtime folders. No Node.js, npm,
-or build installation is required.
+UEM is a portable Windows x64 app. It does not require an installer,
+administrator access, or separate Node.js, npm, Python, .NET, WebView2, or web
+browser installation.
 
-The Windows Microsoft Edge WebView2 Runtime and .NET Framework 4.8 are required
-as app runtimes. WebView2 is embedded in the manager; this is not the Edge
-browser and no browser window is opened.
+CREATOR WORKFLOW
 
-Python is not required to open UEM, generate Verse, or save it. Native PNG to
-Texture2D importing is an optional editor feature. UEM installs its project
-connector automatically when you link the project. From UEFN's palm-tree
-Project menu, open Project Settings, scroll to Python Editor Scripting, and
-enable its checkbox. UEM detects it immediately; no restart is needed. If UEFN is already open when the connector is first installed,
-UEM attaches it automatically. Future desktop launches also attach importing
-automatically. You do not need to run a Python file. UEM separately reports
-whether UEFN is running, which project is open, and whether Python is connected.
+Create your entitlements, offers, bundles, and displays, then use Save & Compile
+to write managed_transactions.verse and compile it in UEFN. Place the generated
+managed_transactions_device in your island and connect its Trigger arrays or
+public events and functions to your gameplay systems.
 
-After a confirmed import, a project-scoped preview is kept under
-Content/.uem-icon-previews so the catalog can restore thumbnails after a
-restart. New entitlements use a native placeholder texture until you import a
-real icon; Save & Compile creates that placeholder first when necessary.
+Test purchases, cancellations, refunds, consumption, saved state, and rejoin
+behavior in a real UEFN session before publishing.
 
-For the normal workflow, create an offer, save and compile the generated Verse,
-place its generated creative device in the island, and connect Trigger devices
-to the generated editable arrays. Button and mutator-zone arrays are optional
-advanced bindings and remain disabled unless you enable them. Focused offer
-displays can present selected offers together without selling them as a bundle.
+NATIVE ICON IMPORT
 
-For source access, development setup, contribution rules, and license terms,
-use the source repository. The software is owned by AD3PT Interactive Inc.,
-which also operates as ADEPT Interactive and ADEPT. The source-available
-license does not allow unauthorized derivative releases, repackaging,
-embedding, or redistribution. GitHub platform forks used for contribution do
-not grant release or commercialization rights.
+In UEFN, open the palm-tree Project menu, choose Project Settings, scroll to
+Python Editor Scripting, and enable it. No restart is needed. UEM installs and
+connects the project helper automatically.
+
+Power-of-two PNGs are imported unchanged. Other sizes are scaled uniformly to
+the closest suitable power-of-two shape. Transparent edge space is added only
+when needed to preserve the original proportions, so icons are never stretched
+or squashed.
+
+For source access, contribution rules, support links, security reporting, and
+license terms, visit:
+https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager
+
+The software is owned by AD3PT Interactive Inc., operating as ADEPT Interactive
+and ADEPT. The source-available license does not permit unauthorized derivative
+releases, repackaging, embedding, redistribution, or commercialization.

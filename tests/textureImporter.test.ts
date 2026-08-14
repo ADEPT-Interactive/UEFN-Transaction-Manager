@@ -4,14 +4,65 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import sharp from 'sharp';
-import { claimNextTextureImport, cleanupTextureImportJobs, finishTextureImport, getTextureImportJob, queueTextureImport, resetTextureImportJob } from '../server/textureImporter';
+import { claimNextTextureImport, cleanupTextureImportJobs, finishTextureImport, getTextureImportJob, normalizePngToPowerOfTwo, queueTextureImport, resetTextureImportJob } from '../server/textureImporter';
 import { listProjectIconPreviews, resolveProjectIconPreview } from '../server/iconPreviews';
+import { calculatePowerOfTwoTextureLayout } from '../src/services/textureDimensions';
 
 async function png(width: number, height: number): Promise<Buffer> {
   return sharp({ create: { width, height, channels: 4, background: { r: 24, g: 180, b: 220, alpha: 1 } } }).png().toBuffer();
 }
 
-test('texture imports are normalized to power-of-two canvases before UEFN receives them', async () => {
+test('power-of-two images bypass normalization byte-for-byte', async () => {
+  const original = await png(256, 512);
+  assert.strictEqual(await normalizePngToPowerOfTwo(original), original);
+  assert.deepEqual(calculatePowerOfTwoTextureLayout(256, 512), {
+    sourceWidth: 256,
+    sourceHeight: 512,
+    targetWidth: 256,
+    targetHeight: 512,
+    drawWidth: 256,
+    drawHeight: 512,
+    offsetX: 0,
+    offsetY: 0,
+    scale: 1,
+    normalized: false,
+    paddingRequired: false,
+  });
+  const largePowerOfTwo = calculatePowerOfTwoTextureLayout(8192, 4096);
+  assert.equal(largePowerOfTwo.normalized, false);
+  assert.deepEqual([largePowerOfTwo.targetWidth, largePowerOfTwo.targetHeight], [8192, 4096]);
+});
+
+test('non-power-of-two images use the closest shape and preserve their aspect ratio', async () => {
+  assert.deepEqual(
+    [
+      calculatePowerOfTwoTextureLayout(300, 300),
+      calculatePowerOfTwoTextureLayout(300, 600),
+      calculatePowerOfTwoTextureLayout(300, 500),
+      calculatePowerOfTwoTextureLayout(500, 300),
+    ].map(layout => [layout.targetWidth, layout.targetHeight, layout.paddingRequired]),
+    [[256, 256, false], [256, 512, false], [256, 512, true], [512, 256, true]],
+  );
+
+  const normalized = await normalizePngToPowerOfTwo(await png(300, 500));
+  const { data, info } = await sharp(normalized).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(info.width, 256);
+  assert.equal(info.height, 512);
+  const opaquePixels: Array<[number, number]> = [];
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      if (data[(y * info.width + x) * info.channels + 3] > 0) opaquePixels.push([x, y]);
+    }
+  }
+  assert.deepEqual([
+    Math.min(...opaquePixels.map(([x]) => x)),
+    Math.max(...opaquePixels.map(([x]) => x)),
+    Math.min(...opaquePixels.map(([, y]) => y)),
+    Math.max(...opaquePixels.map(([, y]) => y)),
+  ], [0, 255, 42, 468]);
+});
+
+test('texture imports are normalized before UEFN receives them', async () => {
   const contentRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-icon-preview-'));
   const queued = await queueTextureImport('EntitlementIcons', 'VipPass', await png(300, 500));
   assert.equal(queued.success, true);
@@ -25,7 +76,7 @@ test('texture imports are normalized to power-of-two canvases before UEFN receiv
   assert.equal(claimed?.sourcePath.endsWith('.png'), true);
   const stagedPng = fs.readFileSync(claimed!.sourcePath);
   const stagedMetadata = await sharp(stagedPng).metadata();
-  assert.equal(stagedMetadata.width, 512);
+  assert.equal(stagedMetadata.width, 256);
   assert.equal(stagedMetadata.height, 512);
 
   try {

@@ -1,20 +1,25 @@
-UEFN ENTITLEMENT MANAGER — THIRD-PARTY NOTICES
+UEFN ENTITLEMENT MANAGER - THIRD-PARTY NOTICES
 
 The release includes bundled open-source dependencies. Those dependencies are
 not owned by AD3PT Interactive Inc. and remain subject to their own license
 terms.
 
-- Node.js runtime — MIT License and bundled third-party notices — https://nodejs.org/en/about/third-party-licenses
+Desktop runtime:
+
+- Electron - MIT License - https://github.com/electron/electron
+- Chromium and its bundled third-party components - BSD-style and other
+  applicable licenses - see LICENSES.chromium.html in the release
+- Node.js runtime distributed inside Electron - MIT License and bundled
+  third-party notices - https://nodejs.org/en/about/third-party-licenses
 
 Direct runtime dependencies:
 
-- clsx — MIT License — https://github.com/lukeed/clsx
-- express — MIT License — https://github.com/expressjs/express
-- lucide-react — ISC License — https://github.com/lucide-icons/lucide
-- multer — MIT License — https://github.com/expressjs/multer
-- react — MIT License — https://github.com/facebook/react
-- react-dom — MIT License — https://github.com/facebook/react
-- tailwind-merge — MIT License — https://github.com/dcastil/tailwind-merge
+- express - MIT License - https://github.com/expressjs/express
+- Koffi - MIT License - https://github.com/Koromix/koffi
+- lucide-react - ISC License - https://github.com/lucide-icons/lucide
+- multer - MIT License - https://github.com/expressjs/multer
+- React and React DOM - MIT License - https://github.com/facebook/react
+- sharp - Apache-2.0 License - https://github.com/lovell/sharp
 
 The source repository's package-lock.json identifies exact versions and
 transitive packages. Their license notices remain applicable to the bundled

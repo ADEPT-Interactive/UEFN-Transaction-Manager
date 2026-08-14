@@ -1,6 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { Upload, Image as ImageIcon, CheckCircle, AlertCircle, RefreshCw, Layers, Check, X } from 'lucide-react';
 import { FileService } from '../services/fileService';
+import { calculatePowerOfTwoTextureLayout } from '../services/textureDimensions';
 
 interface ImageUploadZoneProps {
   contentFolderPath: string;
@@ -25,16 +26,6 @@ export interface ImageUploadZoneHandle {
 }
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_TEXTURE_DIMENSION = 4096;
-
-function isPowerOfTwo(value: number): boolean {
-  return value > 0 && (value & (value - 1)) === 0;
-}
-
-function powerOfTwoCanvasSize(value: number): number {
-  if (value >= MAX_TEXTURE_DIMENSION) return MAX_TEXTURE_DIMENSION;
-  return 2 ** Math.ceil(Math.log2(value));
-}
 
 function readImagePreview(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,24 +39,23 @@ function readImagePreview(file: File): Promise<string> {
 async function createPowerOfTwoPreview(file: File): Promise<{ preview: string; message: string }> {
   const bitmap = await createImageBitmap(file);
   try {
-    const width = powerOfTwoCanvasSize(bitmap.width);
-    const height = powerOfTwoCanvasSize(bitmap.height);
-    if (isPowerOfTwo(bitmap.width) && isPowerOfTwo(bitmap.height) && bitmap.width <= MAX_TEXTURE_DIMENSION && bitmap.height <= MAX_TEXTURE_DIMENSION) {
-      return { preview: await readImagePreview(file), message: `Preview ready at ${bitmap.width} × ${bitmap.height}. Confirm to import this image into the active UEFN project.` };
+    const layout = calculatePowerOfTwoTextureLayout(bitmap.width, bitmap.height);
+    if (!layout.normalized) {
+      return { preview: await readImagePreview(file), message: `Preview ready at ${bitmap.width} × ${bitmap.height}. The original PNG will be imported unchanged.` };
     }
-    const scale = Math.min(1, width / bitmap.width, height / bitmap.height);
-    const drawWidth = Math.max(1, Math.round(bitmap.width * scale));
-    const drawHeight = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = layout.targetWidth;
+    canvas.height = layout.targetHeight;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('PNG preview conversion is unavailable.');
-    context.clearRect(0, 0, width, height);
-    context.drawImage(bitmap, Math.floor((width - drawWidth) / 2), Math.floor((height - drawHeight) / 2), drawWidth, drawHeight);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.clearRect(0, 0, layout.targetWidth, layout.targetHeight);
+    context.drawImage(bitmap, layout.offsetX, layout.offsetY, layout.drawWidth, layout.drawHeight);
+    const paddingNote = layout.paddingRequired ? ' Minimal transparent edge space was added only to preserve its proportions.' : '';
     return {
       preview: canvas.toDataURL('image/png'),
-      message: `Automatically fitted ${bitmap.width} × ${bitmap.height} onto a ${width} × ${height} power-of-two canvas. Confirm to import it into UEFN.`,
+      message: `Resized proportionally from ${bitmap.width} × ${bitmap.height} to ${layout.targetWidth} × ${layout.targetHeight}.${paddingNote} Confirm to import it into UEFN.`,
     };
   } finally {
     bitmap.close();
@@ -270,7 +260,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
           <div className="py-2">
             <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-2 text-slate-400"><Upload className="w-5 h-5" /></div>
             <p className="text-xs font-semibold text-slate-200">Drop PNG image here or <span className="text-cyan-400 underline">browse</span></p>
-            <p className="text-[11px] text-slate-400 mt-1">Images are automatically fitted to a transparent power-of-two canvas for UEFN.</p>
+            <p className="text-[11px] text-slate-400 mt-1">Power-of-two PNGs stay unchanged. Other sizes are scaled proportionally for UEFN.</p>
           </div>
         )}
 

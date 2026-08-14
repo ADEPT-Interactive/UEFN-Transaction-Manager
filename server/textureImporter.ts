@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import sharp from 'sharp';
 import { persistProjectIconPreview } from './iconPreviews';
+import { calculatePowerOfTwoTextureLayout } from '../src/services/textureDimensions';
 
 export type TextureImportJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
@@ -48,33 +49,18 @@ const stagingRoot = path.join(os.tmpdir(), 'UEFN Entitlement Manager', 'texture-
 const JOB_TTL_MS = 15 * 60 * 1000;
 const CLAIM_TIMEOUT_MS = 120 * 1000;
 const MAX_PENDING_TEXTURE_JOBS = 32;
-const MAX_TEXTURE_DIMENSION = 4096;
-
-function isPowerOfTwo(value: number): boolean {
-  return value > 0 && (value & (value - 1)) === 0;
-}
-
-function powerOfTwoCanvasSize(value: number): number {
-  if (value >= MAX_TEXTURE_DIMENSION) return MAX_TEXTURE_DIMENSION;
-  return 2 ** Math.ceil(Math.log2(value));
-}
-
 export async function normalizePngToPowerOfTwo(pngBuffer: Buffer): Promise<Buffer> {
   const image = sharp(pngBuffer, { failOn: 'error' });
   const metadata = await image.metadata();
   if (!metadata.width || !metadata.height || metadata.format !== 'png') {
     throw new Error('Uploaded image is not a readable PNG.');
   }
-  if (isPowerOfTwo(metadata.width) && isPowerOfTwo(metadata.height) && metadata.width <= MAX_TEXTURE_DIMENSION && metadata.height <= MAX_TEXTURE_DIMENSION) {
-    return pngBuffer;
-  }
-  const width = powerOfTwoCanvasSize(metadata.width);
-  const height = powerOfTwoCanvasSize(metadata.height);
+  const layout = calculatePowerOfTwoTextureLayout(metadata.width, metadata.height);
+  if (!layout.normalized) return pngBuffer;
   return image
-    .resize(width, height, {
+    .resize(layout.targetWidth, layout.targetHeight, {
       fit: 'contain',
       position: 'centre',
-      withoutEnlargement: true,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
     .png()

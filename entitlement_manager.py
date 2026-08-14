@@ -1,15 +1,10 @@
-"""Attach UEFN editor automation to UEM, with a legacy launch fallback."""
+"""Attach optional UEFN editor automation to an active Electron UEM session."""
 
 import json
 import os
 import re
-import secrets
-import shutil
-import socket
-import subprocess
 import tempfile
 import time
-import urllib.parse
 import urllib.request
 
 TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -374,52 +369,6 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
     return callback_handle
 
 
-def reserve_loopback_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return listener.getsockname()[1]
-
-
-def find_node_executable():
-    bundled_runtime_candidates = []
-    runtime_root = os.path.join(TOOL_DIR, ".runtime")
-    if os.path.isdir(runtime_root):
-        for runtime_name in os.listdir(runtime_root):
-            runtime_node = os.path.join(runtime_root, runtime_name, "node.exe")
-            if runtime_name.lower().startswith("node-") and os.path.isfile(runtime_node):
-                bundled_runtime_candidates.append(runtime_node)
-
-    candidates = bundled_runtime_candidates + [
-        shutil.which("node"),
-        os.path.expandvars(r"%ProgramFiles%\nodejs\node.exe"),
-        os.path.expandvars(r"%ProgramFiles(x86)%\nodejs\node.exe"),
-        os.path.expandvars(r"%LocalAppData%\Programs\node\node.exe"),
-    ]
-    rejected_versions = []
-    for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
-            try:
-                version = subprocess.check_output(
-                    [candidate, "--version"],
-                    cwd=TOOL_DIR,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    timeout=5,
-                ).strip()
-                major_match = re.match(r"^v(\d+)", version)
-                if major_match and int(major_match.group(1)) >= 20:
-                    return candidate
-                rejected_versions.append(f"{candidate} ({version or 'unknown version'})")
-            except (OSError, subprocess.SubprocessError) as error:
-                rejected_versions.append(f"{candidate} ({error})")
-
-    version_note = f" Rejected candidates: {', '.join(rejected_versions)}." if rejected_versions else ""
-    raise RuntimeError(
-        "A supported Node.js runtime was not found. Run scripts\\setup.bat once, "
-        "or install Node.js 20+ and relaunch the manager." + version_note
-    )
-
-
 def verify_health(port):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1.0) as response:
@@ -427,139 +376,6 @@ def verify_health(port):
             return response.status == 200 and payload.get("server") == SERVER_IDENTITY and payload.get("version") == SERVER_VERSION
     except Exception:
         return False
-
-
-def start_bridge(content_dir, asset_mount):
-    port = reserve_loopback_port()
-    token = secrets.token_urlsafe(48)
-    editor_token = secrets.token_urlsafe(48)
-    bundled_server = os.path.join(TOOL_DIR, "dist", "server.cjs")
-    if os.path.isfile(bundled_server):
-        command = [find_node_executable(), bundled_server]
-    else:
-        node_executable = find_node_executable()
-        npx = (
-            os.path.join(os.path.dirname(node_executable), "npx.cmd")
-            if os.path.isfile(os.path.join(os.path.dirname(node_executable), "npx.cmd"))
-            else shutil.which("npx.cmd") or shutil.which("npx")
-        )
-        if not npx:
-            raise RuntimeError(
-                "The manager build is missing. Run scripts\\setup.bat once, then relaunch the manager. "
-                "The setup helper installs dependencies and builds the bridge in this folder."
-            )
-        command = [npx, "tsx", os.path.join(TOOL_DIR, "server", "index.ts")]
-
-    environment = os.environ.copy()
-    environment.update({
-        "PORT": str(port),
-        "UEM_SESSION_TOKEN": token,
-        "UEM_EDITOR_TOKEN": editor_token,
-        "UEM_CONTENT_ROOT": content_dir,
-        "UEM_ASSET_MOUNT": asset_mount,
-        "UEM_IDLE_TIMEOUT_MS": "120000",
-    })
-    log_root = os.path.join(
-        os.environ.get("LOCALAPPDATA", os.path.join(tempfile.gettempdir(), "UEFN Entitlement Manager")),
-        "UEFN Entitlement Manager",
-        "logs",
-    )
-    os.makedirs(log_root, exist_ok=True)
-    bridge_log_path = os.path.join(log_root, f"bridge-startup-{port}.log")
-    print(f"[EntitlementManager] Bridge content root: {content_dir}")
-    print(f"[EntitlementManager] Bridge asset mount: {asset_mount}")
-    print(f"[EntitlementManager] Bridge node command: {command}")
-    print(f"[EntitlementManager] Bridge startup log: {bridge_log_path}")
-    flags = 0x00000008 | 0x00000200 | 0x08000000  # detached, new process group, no console window
-    bridge_log = open(bridge_log_path, "ab")
-    process = subprocess.Popen(
-        command,
-        cwd=TOOL_DIR,
-        env=environment,
-        creationflags=flags,
-        stdout=bridge_log,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        close_fds=True,
-    )
-    bridge_log.close()
-
-    for _ in range(30):
-        if process.poll() is not None:
-            try:
-                with open(bridge_log_path, "r", encoding="utf-8", errors="replace") as log_file:
-                    startup_log = log_file.read()[-4000:]
-            except OSError:
-                startup_log = "<startup log unavailable>"
-            raise RuntimeError(
-                f"Bridge exited during startup with code {process.returncode}. "
-                f"See {bridge_log_path}. Output:\n{startup_log}"
-            )
-        if verify_health(port):
-            return port, token, editor_token, process
-        time.sleep(0.25)
-
-    process.terminate()
-    try:
-        with open(bridge_log_path, "r", encoding="utf-8", errors="replace") as log_file:
-            startup_log = log_file.read()[-4000:]
-    except OSError:
-        startup_log = "<startup log unavailable>"
-    raise RuntimeError(
-        "Bridge did not pass its identity health check within 7.5 seconds. "
-        f"See {bridge_log_path}. Output:\n{startup_log}"
-    )
-
-
-def find_desktop_shell():
-    executable_name = f"UEFNEntitlementManager-{SERVER_VERSION}.exe"
-    candidates = [
-        os.path.join(TOOL_DIR, executable_name),
-        os.path.join(
-            TOOL_DIR,
-            "desktop",
-            "bin",
-            "Release",
-            "net48",
-            "publish",
-            executable_name,
-        ),
-        os.path.join(
-            TOOL_DIR,
-            "desktop",
-            "bin",
-            "Release",
-            "net48",
-            executable_name,
-        ),
-    ]
-    for candidate in candidates:
-        if os.path.isfile(candidate):
-            return candidate
-    raise RuntimeError(
-        "The standalone manager shell is missing. Run scripts\\setup.bat once, "
-        "then relaunch the manager."
-    )
-
-
-def launch_app_window(content_dir, port, token):
-    fragment = urllib.parse.urlencode({
-        "token": token,
-        "contentDir": content_dir,
-        "assetFolder": "EntitlementIcons",
-        "verseFile": "managed_transactions.verse",
-    })
-    app_url = f"http://127.0.0.1:{port}/#{fragment}"
-    desktop_shell = find_desktop_shell()
-    flags = 0x00000008 | 0x00000200 | 0x08000000  # detached, new process group, no console window
-    subprocess.Popen(
-        [desktop_shell, app_url],
-        cwd=TOOL_DIR,
-        creationflags=flags,
-        stdin=subprocess.DEVNULL,
-        close_fds=True,
-    )
-    print("[EntitlementManager] Standalone manager window opened.")
 
 
 def attach_to_standalone_session(content_dir, asset_mount):
@@ -599,26 +415,18 @@ def attach_to_standalone_session(content_dir, asset_mount):
 
 def main():
     print("UEFN Entitlement Manager | ADEPT Interactive")
-    bridge_process = None
     try:
         content_dir = get_uefn_content_dir()
         asset_mount = get_uefn_asset_mount()
         if attach_to_standalone_session(content_dir, asset_mount):
             return
-        port, token, editor_token, bridge_process = start_bridge(content_dir, asset_mount)
-        install_texture_import_bridge(port, editor_token, content_dir, asset_mount)
-        launch_app_window(content_dir, port, token)
+        raise RuntimeError(
+            "No active Electron manager session is linked to this project. "
+            "Open UEFNEntitlementManager, confirm this .uefnproject in its project picker, "
+            "and leave the manager open while using native texture imports."
+        )
     except Exception as error:
-        if bridge_process is not None and bridge_process.poll() is None:
-            try:
-                bridge_process.terminate()
-                bridge_process.wait(timeout=3)
-            except Exception:
-                try:
-                    bridge_process.kill()
-                except Exception:
-                    pass
-        print(f"[EntitlementManager] Launch failed: {error}")
+        print(f"[EntitlementManager] Editor attachment failed: {error}")
         raise
 
 
