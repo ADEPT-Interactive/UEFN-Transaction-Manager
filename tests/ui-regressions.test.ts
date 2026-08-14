@@ -106,6 +106,15 @@ test('launcher uses anti-aliased painted surfaces and a high-resolution mark', (
   assert.match(packageSource, /electron\\assets\\uem-icon\.ico/);
 });
 
+test('ADEPT credit bubbles enlarge the visible logo rather than its transparent canvas', () => {
+  const launcherSource = read(path.join('electron', 'launcher.html'));
+  const headerSource = read(path.join('src', 'components', 'Header.tsx'));
+  assert.match(launcherSource, /class="adept-logo"/);
+  assert.match(launcherSource, /\.adept-logo img\{[^}]*transform:scaleY\(1\.5\)/);
+  assert.match(headerSource, /overflow-hidden/);
+  assert.match(headerSource, /scaleY\(1\.5\)/);
+});
+
 test('country flags use a guttered, lossless atlas rather than sampling adjacent tiles', () => {
   const spriteBuilder = read(path.join('scripts', 'build-flag-sprite.mjs'));
   const restrictionEditor = read(path.join('src', 'components', 'OfferRestrictionsEditor.tsx'));
