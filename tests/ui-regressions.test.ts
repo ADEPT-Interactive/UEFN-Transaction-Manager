@@ -110,8 +110,9 @@ test('ADEPT credit bubbles enlarge the visible logo rather than its transparent 
   const launcherSource = read(path.join('electron', 'launcher.html'));
   const headerSource = read(path.join('src', 'components', 'Header.tsx'));
   assert.match(launcherSource, /class="adept-logo"/);
-  assert.match(launcherSource, /\.adept-logo\{width:42px;height:26px/);
-  assert.match(launcherSource, /\.adept-logo img\{[^}]*transform:scale\(1\.5\)/);
+  assert.match(launcherSource, /\.adept-logo\{display:flex;align-items:center;justify-content:center;width:46px;height:26px/);
+  assert.match(launcherSource, /\.adept-logo img\{[^}]*width:42px;height:42px/);
+  assert.doesNotMatch(launcherSource, /\.adept-logo img\{[^}]*transform:/);
   assert.match(headerSource, /overflow-hidden/);
   assert.match(headerSource, /scale\(1\.5\)/);
   assert.doesNotMatch(`${launcherSource}\n${headerSource}`, /scaleY\(/);
