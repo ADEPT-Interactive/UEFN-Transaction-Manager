@@ -136,6 +136,16 @@ function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: Entit
   return [...new Set(disclosures)];
 }
 
+function purchaseEntryGuardLines(restrictPaidRandomItems: boolean): string[] {
+  const inFlightCheck = '        if (Active := PurchaseInFlight[Player], Active?):';
+  if (!restrictPaidRandomItems) return [inFlightCheck];
+  return [
+    '        if (RestrictPaidRandomItems[Player]):',
+    '            Print("Paid random items are restricted for this player")',
+    inFlightCheck.replace('        if ', '        else if '),
+  ];
+}
+
 export function generateVerseCode(entitlements: EntitlementItem[], bundles: BundleOffer[] = [], config: ProjectConfig, offerDisplayGroups: OfferDisplayGroup[] = []): string {
   const infoModule = config.infoModuleName;
   const entModule = config.entitlementsModuleName;
@@ -380,7 +390,7 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
       );
     }
     push(
-      '    # Direct grants bypass offer disclosures and purchase restrictions. Use only for deliberate free grants.',
+      '    # Direct grants bypass offer disclosures and the purchase flow. Use only for deliberate free grants.',
       `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
       '        if (Quantity > 0):',
       `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
@@ -395,9 +405,7 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
   for (const item of entitlements) {
     const pascal = toPascalCase(item.verseKey);
     const printableName = escapeVerseString(item.name);
-    const purchaseGuard = item.flags.paidRandomItem
-      ? ['        if (RestrictPaidRandomItems[Player]):', '            Print("Paid random items are restricted for this player")', '        else if (RestrictDirectPromptsToPurchase[Player]):']
-      : ['        if (RestrictDirectPromptsToPurchase[Player]):'];
+    const purchaseGuard = purchaseEntryGuardLines(item.flags.paidRandomItem);
     if (item.triggers.generateTriggerBinding) {
       push(
         `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
@@ -426,8 +434,6 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
     push(
       `    PromptBuy${pascal}<public>(Player:player):void =`,
       ...purchaseGuard,
-      '            Print("Direct purchase prompts are restricted for this player")',
-      '        else if (Active := PurchaseInFlight[Player], Active?):',
       '            Print("A purchase dialog is already open for this player")',
       '        else if (set PurchaseInFlight[Player] = true):',
       `            spawn{ExecuteBuy${pascal}(Player)}`,
@@ -446,8 +452,6 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
       push(
         `    PromptBuy${altPascal}<public>(Player:player):void =`,
         ...purchaseGuard,
-        '            Print("Direct purchase prompts are restricted for this player")',
-        '        else if (Active := PurchaseInFlight[Player], Active?):',
         '            Print("A purchase dialog is already open for this player")',
         '        else if (set PurchaseInFlight[Player] = true):',
         `            spawn{ExecuteBuy${altPascal}(Player)}`,
@@ -468,14 +472,10 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
     const pascal = toPascalCase(bundle.verseKey);
     const printableName = escapeVerseString(bundle.name);
     const dynamic = Boolean(bundle.dynamicRemaining && bundle.items[0] && bundle.items[0].entitlementId);
-    const bundlePurchaseGuard = bundleHasPaidRandomItems(bundle, entitlements, bundles)
-      ? ['        if (RestrictPaidRandomItems[Player]):', '            Print("Paid random items are restricted for this player")', '        else if (RestrictDirectPromptsToPurchase[Player]):']
-      : ['        if (RestrictDirectPromptsToPurchase[Player]):'];
+    const bundlePurchaseGuard = purchaseEntryGuardLines(bundleHasPaidRandomItems(bundle, entitlements, bundles));
     push(
       `    PromptBuy${pascal}<public>(Player:player):void =`,
       ...bundlePurchaseGuard,
-      '            Print("Direct purchase prompts are restricted for this player")',
-      '        else if (Active := PurchaseInFlight[Player], Active?):',
       '            Print("A purchase dialog is already open for this player")',
       '        else if (set PurchaseInFlight[Player] = true):',
       `            spawn{ExecuteBuy${pascal}(Player)}`,

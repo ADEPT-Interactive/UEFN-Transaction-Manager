@@ -88,6 +88,7 @@ The included templates provide focused starting points for common entitlement ca
 
 - A successful compile confirms Verse compilation, not gameplay correctness or marketplace approval.
 - Native texture import must be confirmed in the UEFN Content Browser.
+- Voluntary purchase helpers and storefront dialogs call the Fortnite Marketplace APIs normally. Creator-authored sales messaging is outside the entitlement and transaction generator, so messaging restrictions are not used as general purchase-eligibility guards. Configured offer age, country, platform, paid-random, and validator rules remain in force.
 - Paid-random offers still require creator review of disclosure wording and current Epic requirements.
 - Keep the manager open while using connected save, compile, and import actions.
 

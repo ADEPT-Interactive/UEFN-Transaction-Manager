@@ -52,7 +52,7 @@ test('generated Verse embeds a lossless managed manifest', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(parsed.bundles)), JSON.parse(JSON.stringify(bundles)));
 });
 
-test('generated device uses authoritative deltas, lifecycle cleanup, and purchase restrictions', () => {
+test('generated device uses authoritative deltas, lifecycle cleanup, and transaction flows', () => {
   const source = generateVerseCode(items, bundles, config);
   assert.match(source, /EntitlementIcons<public> := module \{\}/);
   assert.match(source, /EntitlementChange\.Change > 0/);
@@ -65,12 +65,25 @@ test('generated device uses authoritative deltas, lifecycle cleanup, and purchas
   assert.match(source, /VipPassOfferTriggers : \[\]trigger_device/);
   assert.match(source, /TriggeredEvent\.Subscribe\(OnVipPassTriggerActivated\)/);
   assert.match(source, /OnVipPassTriggerActivated\(MaybeAgent:\?agent\):void/);
-  assert.match(source, /RestrictDirectPromptsToPurchase\[Player\]/);
   assert.match(source, /RestrictPaidRandomItems\[Player\]/);
   assert.match(source, /Odds: Common: 75%, Rare: 25%/);
   assert.match(source, /else if \(set PurchaseInFlight\[Player\] = true\):/);
   assert.match(source, /ClearPurchaseInFlight\(Player\)/);
   assert.doesNotMatch(source, /BeginPurchase\(Player\)/);
+});
+
+test('voluntary purchase flows are not guarded by creator-messaging restrictions', () => {
+  const directPromptRestrictionName = ['Restrict', 'DirectPrompts', 'ToPurchase'].join('');
+  const regularSource = generateVerseCode([items[0]], [], { ...config, generateStorefrontBinding: false });
+  const mixedSource = generateVerseCode(items, bundles, config);
+
+  for (const source of [regularSource, mixedSource]) {
+    assert.equal(source.includes(directPromptRestrictionName), false);
+  }
+  assert.match(regularSource, /PromptBuyVipPass<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(mixedSource, /PromptBuyMysteryCrate<public>\(Player:player\):void =\n        if \(RestrictPaidRandomItems\[Player\]\):[\s\S]*?else if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(regularSource, /WasPurchased := BuyOffer\(Player, ManagedOffers\.vip_pass_offer\{\}\)/);
+  assert.match(mixedSource, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
 });
 
 test('missing trigger settings migrate to the default offer trigger binding', () => {
@@ -281,7 +294,6 @@ test('duplicating a configured offer regenerates every global identity and compi
   assert.deepEqual(validateEntireProject(complete, bundles, config).filter(issue => issue.severity === 'error'), []);
   const source = generateVerseCode(complete, bundles, config);
   assert.match(source, new RegExp(`${copy.alternateOffers![0].verseKey}_offer<public>`));
-  assert.doesNotMatch(source, /Direct purchase prompts are restricted for this player"\),?\r?\n\s*Print\("Direct purchase prompts are restricted for this player/);
 });
 
 test('validator rejects offer keys and alternate IDs reused anywhere in the project', () => {
