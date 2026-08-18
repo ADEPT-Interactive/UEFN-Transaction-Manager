@@ -2,15 +2,20 @@ const state = { projects: [], selectedId: null, status: 'Finding active and rece
 const byId = id => document.getElementById(id);
 
 function render() {
-  byId('status').textContent = state.status;
+  const status = byId('status');
+  status.textContent = state.status;
+  status.className = state.scanning ? 'scan-status' : '';
   const query = byId('search').value.trim().toLowerCase();
   const list = byId('projects');
+  const scrollTop = list.scrollTop;
+  const focusedProjectId = document.activeElement?.dataset?.projectId;
   list.replaceChildren();
   const matches = state.projects.filter(project => !query || project.name.toLowerCase().includes(query) || project.projectFile.toLowerCase().includes(query));
   for (const project of matches) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = `project${project.id === state.selectedId ? ' selected' : ''}`;
+    item.dataset.projectId = project.id;
     item.setAttribute('aria-pressed', String(project.id === state.selectedId));
     item.disabled = state.busy;
     const name = document.createElement('div');
@@ -25,6 +30,7 @@ function render() {
     item.append(name, projectPath, metadata);
     item.addEventListener('click', async () => applyState(await window.uemDesktop.launcher.select(project.id)));
     list.append(item);
+    if (focusedProjectId === project.id) item.focus();
   }
   if (matches.length === 0) {
     const empty = document.createElement('div');
@@ -32,6 +38,7 @@ function render() {
     empty.textContent = query ? 'No projects match your search.' : 'No projects are available yet.';
     list.append(empty);
   }
+  list.scrollTop = scrollTop;
   const selected = state.projects.find(project => project.id === state.selectedId);
   byId('continue').disabled = !selected || state.busy;
   byId('browse').disabled = state.busy;

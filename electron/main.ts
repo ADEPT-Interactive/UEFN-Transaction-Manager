@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BridgeSession } from './bridgeSession.js';
 import type { LauncherState, ProjectCandidate, WindowAction } from './contracts.js';
-import { discoverProjects, readProject } from './projectDiscovery.js';
+import { ProjectDiscovery, readProject } from './projectDiscovery.js';
 import { isAllowedNavigation as navigationIsAllowed, isHttpExternal } from './security.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -23,6 +23,7 @@ const launcherUrl = 'uem-launcher://app/index.html';
 const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager', 'logs');
 fs.mkdirSync(logRoot, { recursive: true });
 const diagnosticPath = path.join(logRoot, `electron-main-${process.pid}.log`);
+fs.writeFileSync(diagnosticPath, '', 'utf8');
 
 let mainWindow: BrowserWindow | null = null;
 let bridgeSession: BridgeSession | null = null;
@@ -35,6 +36,8 @@ let appHasUnsavedChanges = false;
 let allowWindowClose = false;
 let shutdownStarted = false;
 let testSwitchCompleted = false;
+let discoverySession: ProjectDiscovery | null = null;
+let discoveryActive = false;
 
 const projectArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--project');
 const preferredProjectFile = projectArgumentIndex >= 0 ? process.argv[projectArgumentIndex + 1] : undefined;
@@ -71,8 +74,11 @@ function launcherState(status?: string): LauncherState {
   return {
     projects: [...projects.values()].map(publicProject),
     selectedId: selectedProjectId,
-    status: status ?? (projects.size === 0 ? 'No UEFN projects were found. Browse to a .uefnproject file.' : `Found ${projects.size} available UEFN project${projects.size === 1 ? '' : 's'}.`),
+    status: status ?? (discoveryActive
+      ? 'Scanning for more projects...'
+      : projects.size === 0 ? 'No UEFN projects were found. Browse to a .uefnproject file.' : `Found ${projects.size} available UEFN project${projects.size === 1 ? '' : 's'}.`),
     busy: launcherBusy,
+    scanning: discoveryActive,
   };
 }
 
@@ -80,15 +86,48 @@ function sendLauncherState(status?: string) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uem:launcher:state', launcherState(status));
 }
 
+function stopProjectDiscovery() {
+  if (discoverySession) discoverySession.cancel();
+  discoverySession = null;
+  discoveryActive = false;
+}
+
 async function loadProjectCandidates() {
-  const discovered = discoverProjects(diagnostic);
-  projects = new Map(discovered.map(project => [project.id, project]));
-  if (preferredProjectFile) {
-    const supplied = readProject(preferredProjectFile, 'command-line', false, undefined, diagnostic);
-    if (supplied) projects.set(supplied.id, supplied);
-  }
-  if (!selectedProjectId || !projects.has(selectedProjectId)) selectedProjectId = projects.values().next().value?.id ?? null;
+  stopProjectDiscovery();
+  const session = new ProjectDiscovery({
+    writeDiagnostic: diagnostic,
+    backgroundScanEnabled: process.env.UEM_TEST_MODE !== '1',
+    broadScanEnabled: process.env.UEM_TEST_MODE !== '1',
+  });
+  discoverySession = session;
+  const immediate = session.loadImmediate(preferredProjectFile);
+  projects = new Map(immediate.projects.map(project => [project.id, project]));
+  if (immediate.preferredProjectId && projects.has(immediate.preferredProjectId)) selectedProjectId = immediate.preferredProjectId;
+  else if (!selectedProjectId || !projects.has(selectedProjectId)) selectedProjectId = projects.values().next().value?.id ?? null;
+  diagnostic(`Project discovery first result delivered: projects=${projects.size}; durationMs=${immediate.durationMs}`);
+  discoveryActive = true;
   sendLauncherState();
+  void session.start({
+    onProjects: discovered => {
+      if (discoverySession !== session || mode !== 'launcher') return;
+      for (const project of discovered) {
+        projects.set(project.id, project);
+      }
+      if (!selectedProjectId) selectedProjectId = projects.values().next().value?.id ?? null;
+      sendLauncherState();
+    },
+    onComplete: stats => {
+      if (discoverySession !== session || mode !== 'launcher') return;
+      discoveryActive = false;
+      diagnostic(`Project discovery completed: drives=${stats.drivesConsidered}; targetedRoots=${stats.targetedRoots}; broadRoots=${stats.broadRoots}; directories=${stats.directoriesVisited}; candidates=${stats.candidatesFound}; inaccessible=${stats.inaccessibleDirectories}; cancelled=${stats.cancelled}; durationMs=${stats.durationMs}`);
+      sendLauncherState();
+    },
+  }).catch(error => {
+    if (discoverySession !== session || mode !== 'launcher') return;
+    discoveryActive = false;
+    diagnostic(`Project discovery failed without aborting the launcher: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    sendLauncherState();
+  });
 }
 
 async function validateVisibleRenderer(expectedMode: 'launcher' | 'dashboard') {
@@ -129,6 +168,7 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
   if (!verified || verified.id !== selected.id || verified.contentDirectory.toLowerCase() !== selected.contentDirectory.toLowerCase()) {
     return { success: false, error: 'The selected project changed or became unavailable. Refresh the launcher and select it again.' };
   }
+  stopProjectDiscovery();
   launcherBusy = true;
   sendLauncherState('Starting the authenticated project bridge…');
   try {
@@ -182,6 +222,7 @@ async function shutdownAndQuit() {
   if (shutdownStarted) return;
   shutdownStarted = true;
   allowWindowClose = true;
+  stopProjectDiscovery();
   if (bridgeSession) await bridgeSession.stop();
   bridgeSession = null;
   diagnostic('Electron shutdown completed');
@@ -208,6 +249,7 @@ function configureIpc() {
       if (project) {
         projects.set(project.id, project);
         selectedProjectId = project.id;
+        discoverySession?.recordProject(project.projectFile, true);
       } else await dialog.showMessageBox(mainWindow, { type: 'warning', title: 'UEFN Entitlement Manager', message: 'That file is not a usable UEFN project.', detail: 'Select a .uefnproject descriptor whose project Content directory is accessible.' });
     }
     return launcherState();

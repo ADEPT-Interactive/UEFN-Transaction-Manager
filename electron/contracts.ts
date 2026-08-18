@@ -1,4 +1,4 @@
-export type ProjectSource = 'active' | 'last-opened' | 'recent' | 'discovered' | 'browse' | 'command-line';
+export type ProjectSource = 'active' | 'last-opened' | 'recent' | 'cached' | 'discovered' | 'browse' | 'command-line';
 
 export interface ProjectCandidate {
   id: string;
@@ -20,6 +20,7 @@ export interface LauncherState {
   selectedId: string | null;
   status: string;
   busy: boolean;
+  scanning: boolean;
 }
 
 export type WindowAction = 'request-state' | 'drag' | 'minimize' | 'toggle-maximize' | 'switch-project' | 'close';

@@ -8,6 +8,8 @@ GET STARTED
    to its .uefnproject file.
 4. Confirm Open project in UEM.
 
+Known projects appear first. The launcher can continue discovering projects across local fixed drives while it is open.
+
 UEM is a portable Windows x64 app. It does not require an installer,
 administrator access, or separate Node.js, npm, Python, .NET, WebView2, or web
 browser installation.

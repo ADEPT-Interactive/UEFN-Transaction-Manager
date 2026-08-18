@@ -49,6 +49,8 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
 5. Confirm the project and begin building the catalog.
 
+The launcher shows known projects immediately, then continues looking for projects across local fixed drives in the background. Network, optical, and removable drives are not traversed automatically.
+
 The release is a portable Windows x64 app. It does not need an installer, administrator access, or separate Node.js, npm, Python, .NET, WebView2, or browser installation.
 
 ## Typical creator workflow
