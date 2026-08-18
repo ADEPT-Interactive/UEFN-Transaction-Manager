@@ -3,6 +3,8 @@ import test from 'node:test';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { publicApiBundles, publicApiConfig, publicApiDisplayGroups, publicApiItems } from './public-api-fixture';
 
+const legacyApiOptions = { generatedApiVersion: 1 as const };
+
 function publicDeclarations(source: string): string[] {
   return source
     .split(/\r?\n/)
@@ -103,7 +105,7 @@ function expectedPublicDeclarations(): string[] {
 }
 
 test('complex generated output has a locked public declaration baseline', () => {
-  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], legacyApiOptions);
   assert.deepEqual(publicDeclarations(source), expectedPublicDeclarations());
   assert.equal(publicDeclarations(source).length, 100);
   assert.match(source, /phase4_public_api_device := class\(creative_device\):/);
@@ -111,7 +113,7 @@ test('complex generated output has a locked public declaration baseline', () => 
 });
 
 test('UEFN-exposed editables are present while device plumbing remains private', () => {
-  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], legacyApiOptions);
   for (const editable of [
     'AccessPassTriggers : []trigger_device', 'AccessPassButtons : []button_device', 'AccessPassZones : []mutator_zone_device',
     'SeasonPassButtons : []button_device', 'CoinPackTriggers : []trigger_device',
@@ -131,7 +133,7 @@ test('UEFN-exposed editables are present while device plumbing remains private',
 });
 
 test('public helper signatures preserve current return and suspension contracts', () => {
-  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], legacyApiOptions);
   assert.match(source, /GrantAccessPass<public>\(Player:player, Quantity:int\)<suspends>:void/);
   assert.match(source, /ConsumeCoinPack<public>\(Player:player, Quantity:int\)<suspends>:void/);
   assert.match(source, /PromptBuyDynamicBundle<public>\(Player:player\):void/);

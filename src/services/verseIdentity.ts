@@ -22,6 +22,18 @@ export function isValidVerseIdentifier(identifier: string): boolean {
 }
 
 /**
+ * Convert the persisted stable Verse key into the one canonical public API
+ * stem. Public events, purchase helpers, and storefront helpers all use this
+ * transformation so display-name edits cannot rename generated API symbols.
+ */
+export function toVerseApiStem(value: string): string {
+  const words = value.split('_').filter(Boolean);
+  const result = words.map(word => word[0].toUpperCase() + word.slice(1)).join('');
+  if (!result) return 'Item';
+  return /^[0-9]/.test(result) ? `Item${result}` : result;
+}
+
+/**
  * Convert human-facing text to the conservative ASCII identifier subset that
  * Verse accepts. Existing persisted keys are not passed through this function
  * during normal reopen/regeneration; it is for new keys and deterministic repair.

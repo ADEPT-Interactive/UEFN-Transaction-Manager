@@ -17,7 +17,10 @@ CREATOR WORKFLOW
 Create your entitlements, offers, bundles, and displays, then use Save & Compile
 to write managed_transactions.verse and compile it in UEFN. Place the generated
 managed_transactions_device in your island and connect its Trigger arrays or
-public events and functions to your gameplay systems.
+canonical public events and functions to your gameplay systems. New projects use
+stable-key-based names such as OpenDurableEntitlementPurchase and
+DurableEntitlement_GrantedEvent. Existing API-v1 projects retain compatible
+legacy names during migration where their historical identity is reproducible.
 
 Test purchases, cancellations, refunds, consumption, saved state, and rejoin
 behavior in a real UEFN session before publishing.

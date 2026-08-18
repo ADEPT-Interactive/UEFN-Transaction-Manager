@@ -1,4 +1,4 @@
-import { BundleOffer, EntitlementItem, OfferDisplayGroup } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, GeneratedApiVersion, OfferDisplayGroup } from '../types/entitlement';
 import { parseManagedData } from './projectSchema';
 
 export const MANIFEST_BEGIN = '# UEFN_ENTITLEMENT_MANAGER_DATA_BEGIN';
@@ -10,6 +10,9 @@ export interface VerseParseResult {
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
+  generatedApiVersion: GeneratedApiVersion;
+  legacyApiCompatibility: boolean;
+  legacyApiDiagnostics: string[];
   managed: boolean;
   error?: string;
 }
@@ -30,6 +33,9 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
       bundles: [],
       offerDisplayGroups: [],
       retiredVerseKeys: [],
+      generatedApiVersion: 1,
+      legacyApiCompatibility: true,
+      legacyApiDiagnostics: [],
       managed: false,
       error: 'This Verse file has no Entitlement Manager manifest. It was left untouched because legacy Verse cannot be imported without losing data.',
     };
@@ -55,6 +61,9 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
       bundles: [],
       offerDisplayGroups: [],
       retiredVerseKeys: [],
+      generatedApiVersion: 1,
+      legacyApiCompatibility: true,
+      legacyApiDiagnostics: [],
       managed: true,
       error: error instanceof Error ? `The embedded manifest is invalid: ${error.message}` : 'The embedded manifest is invalid.',
     };

@@ -33,7 +33,7 @@ When Python Editor Scripting is enabled, UEM also installs and attaches its proj
 - Build individual offers, alternate variants, nested bundles, and focused storefront displays.
 - Configure V-Bucks prices, age requirements, country restrictions, and platform restrictions.
 - Import PNG artwork as native Texture2D assets and use it in generated offers.
-- Generate purchase, grant, removal, consumption, and ownership-check events for your gameplay code.
+- Generate canonical stable-key-based grant, removal, and reconciliation events for your gameplay code.
 - Use Trigger bindings by default, with optional Button and Mutator Zone bindings under Advanced settings.
 - Save and reopen each project's catalog without rebuilding it from scratch.
 - Save the generated Verse and request a compile from the connected UEFN session.
@@ -62,6 +62,21 @@ The release is a portable Windows x64 app. It does not need an installer, admini
 7. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session.
 
 UEM creates the transaction interface, but your project remains responsible for granting gameplay benefits and reconciling saved player state.
+
+## Generated Verse API
+
+New projects generate API v2 symbols from each persisted `verseKey`, so changing a display name does not rename the integration surface. For an entitlement with key `durable_entitlement`, use:
+
+```verse
+Transactions.OpenDurableEntitlementPurchase(Player)
+Transactions.DurableEntitlement_GrantedEvent.Subscribe(OnGranted)
+Transactions.DurableEntitlement_RemovedEvent.Subscribe(OnRemoved)
+Transactions.DurableEntitlement_ReconciledEvent.Subscribe(OnReconciled)
+```
+
+The global storefront helper is `OpenAllOffersStore(Player)`. Focused storefronts use `Open<StableKeyStem>(Player)`. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
+
+UEM automatically migrates manifests without `generatedApiVersion` as API v1. Migrated projects receive the canonical API plus reproducible `PromptBuy...`, legacy event, `OpenStorefront`, and unsafe `Show...` compatibility symbols where possible. New API-v2 projects do not generate those legacy symbols. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
 
 ## Native icon import
 

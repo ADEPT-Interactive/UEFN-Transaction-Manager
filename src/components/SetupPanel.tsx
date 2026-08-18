@@ -25,7 +25,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, of
       <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><strong className="block text-cyan-300">2. Place one device</strong><span className="mt-1 block text-slate-400">Find the generated Verse device in UEFN and drag one instance into the level. Select it to expose its editable arrays.</span></li>
       <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><strong className="block text-cyan-300">3. Wire or call it</strong><span className="mt-1 block text-slate-400">Assign Trigger devices to the arrays below, or reference the placed device from your own Verse and call its public functions.</span></li>
     </ol>
-    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-[11px]"><strong className="text-white">Reference the placed manager from your own Verse device</strong><pre className="mt-2 overflow-x-auto rounded-lg bg-[#070a13] p-3 font-mono text-[10px] leading-4 text-emerald-200">{`@editable\nTransactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\n# In a player-driven callback:\nTransactions.OpenStorefront(Player)`}</pre><p className="mt-2 text-slate-400">After placing both devices, select your gameplay device and assign the placed transaction-manager instance to <code>Transactions</code> in Details.</p></div>
+    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-[11px]"><strong className="text-white">Reference the placed manager from your own Verse device</strong><pre className="mt-2 overflow-x-auto rounded-lg bg-[#070a13] p-3 font-mono text-[10px] leading-4 text-emerald-200">{`@editable\nTransactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\n# In a player-driven callback:\nTransactions.OpenAllOffersStore(Player)`}</pre><p className="mt-2 text-slate-400">After placing both devices, select your gameplay device and assign the placed transaction-manager instance to <code>Transactions</code> in Details.</p></div>
     {entitlements.length === 0 ? (
       <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-center text-slate-400">Create your first offer to see its exact Trigger array, purchase function, entitlement events, and consume/grant helpers here.</div>
     ) : (
@@ -39,10 +39,10 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, of
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="text-white">{item.name || item.verseKey}</strong><code className="text-[10px] text-slate-500">{item.verseKey}</code></div>
               {item.triggers.generateTriggerBinding ? <p><code className="text-cyan-200">{triggerName}</code> — add one or more UEFN Trigger devices to this editable array. A trigger caused by a player opens the offer.</p> : <p className="text-slate-400">No Trigger device array is generated for this offer. Turn it on under Advanced → Triggers &amp; Hooks if you want no-code device wiring.</p>}
               <div className="grid gap-2 text-[11px] sm:grid-cols-2">
-                <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">PromptBuy{pascal}(Player)</code></p>
+                <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">Open{pascal}Purchase(Player)</code></p>
                 <p><span className="block text-slate-500">Grant without V-Bucks (promotion/testing)</span><code className="text-emerald-200">Grant{pascal}(Player, Quantity)</code></p>
                 {item.itemType === 'consumable' && <p><span className="block text-slate-500">Deduct after the reward is used</span><code className="text-emerald-200">Consume{pascal}(Player, Quantity)</code></p>}
-                <p><span className="block text-slate-500">Observe every positive ownership change</span><code className="text-emerald-200">{item.purchaseEventName}.Subscribe(...)</code></p>
+                <p><span className="block text-slate-500">Observe every positive entitlement delta</span><code className="text-emerald-200">{pascal}_GrantedEvent.Subscribe(...)</code></p>
               </div>
             </div>
           );

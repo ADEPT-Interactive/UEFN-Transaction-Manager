@@ -1,8 +1,18 @@
 # Generated Verse Public API Contract
 
-Status: Phase 4 baseline, 2026-08-17
+Status: Phase 6 canonical API migration, 2026-08-18
 
-This document defines the generated Verse surface that UEFN Entitlement Manager may expose to a creator's own Verse. It is a contract boundary, not a naming proposal. The naming overhaul is intentionally deferred.
+This document defines the generated Verse surface that UEFN Entitlement Manager may expose to a creator's own Verse. It is a compatibility contract. The generated API version is separate from the managed-data schema version.
+
+## Generated API versions
+
+`schemaVersion` describes the persisted UEM manifest format. `generatedApiVersion` describes the developer-facing generated Verse contract.
+
+- API v1 is the legacy shape. Manifests without `generatedApiVersion` are interpreted as v1. It includes `PromptBuy...`, the old event families, `OpenStorefront`, focused `Show...` helpers, and the configurable `purchaseEventName` event.
+- API v2 is the canonical shape. New projects use it by default. Public symbols derive from the persisted stable `verseKey`, not the mutable display name.
+- When UEM opens a v1 project, it records API v2 with `legacyApiCompatibility: true`. Canonical v2 symbols are generated and reproducible v1 functions/events remain as compatibility shims where their historical identity is known.
+
+Regeneration is idempotent. Compatibility metadata is part of the embedded manifest and is not a second schema version.
 
 ## Ownership and scope
 
@@ -16,7 +26,7 @@ Display names, generated display modules, and persistent manifest IDs are data a
 
 The baseline was generated from `tests/public-api-fixture.ts` into `temp/phase4_public_api_fixture.verse`. The representative project contains four entitlements, one alternate offer, two durable items, two consumables, a paid-random item with odds, static and nested bundles, a dynamic remaining-quantity bundle, two focused storefronts, age/country/platform restrictions, trigger/button/zone bindings, auto-consume, and a global storefront binding.
 
-The output contains 100 explicit `<public>` declarations and 9 UEFN-exposed `@editable` arrays. The declaration patterns below are exhaustive for the current generator. Counts vary with the catalog.
+The clean API-v2 output contains 88 explicit `<public>` declarations and 9 UEFN-exposed `@editable` arrays for this fixture. The same fixture contains 100 declarations as API v1 and 121 when API-v1 compatibility is retained during migration. Counts vary with the catalog.
 
 | Category | Current generated declarations | Fixture count | Classification |
 | --- | --- | ---: | --- |
@@ -26,11 +36,11 @@ The output contains 100 explicit `<public>` declarations and 9 UEFN-exposed `@ed
 | Entitlement module and types | `${entitlementsModule}<public>`, `basic_entitlement<public>`, one concrete `${verseKey}_entitlement<public>` per entitlement | 6 | Potentially useful, needs justification |
 | Price module and constants | `${pricesModule}<public>`, `${verseKey}_price<public>:float` for items, alternates, and bundles | 9 | Potentially useful, needs justification |
 | Offer module and classes | `${offersModule}<public>`, `${verseKey}_offer<public>`, plus `${verseKey}_dynamic_offer<public>` for dynamic bundles | 10 | Potentially useful, needs justification |
-| Entitlement events | Purchase-event name, ownership/quantity event, granted, removed, reconciled, and conditional ownership-verified events | 21 | Mixed: supported tuple events; legacy or needs justification for the rest |
+| Entitlement events | `<Stem>_GrantedEvent`, `<Stem>_RemovedEvent`, and `<Stem>_ReconciledEvent` in v2; old families only in v1 or migrated compatibility output | 12 | Supported canonical tuple events |
 | Grant and consume helpers | `Grant${Pascal}<public>`, `Consume${Pascal}<public>` for consumables | 6 | Supported developer API |
-| Purchase helpers | `PromptBuy${Pascal}<public>` for items, alternates, and bundles | 8 | Supported today, rename-sensitive |
-| Global storefront helpers | `ShowStorefront<public>`, `OpenStorefront<public>` | 2 | `OpenStorefront` supported; `ShowStorefront` unsafe legacy surface |
-| Focused storefront helpers | `Show${StorePascal}<public>`, `Open${StorePascal}<public>` per offer display group | 4 | `Open...` supported; `Show...` unsafe legacy surface |
+| Purchase helpers | `Open${Stem}Purchase<public>` for items, alternates, and bundles | 8 | Supported canonical API |
+| Global storefront helpers | `OpenAllOffersStore<public>` | 1 | Supported canonical API |
+| Focused storefront helpers | `Open${StoreStem}<public>` per offer display group | 2 | Supported canonical API |
 
 The generated device class is currently `deviceClassName := class(creative_device):` without `<public>`. UEFN exposes it as a placeable Verse device after compilation, and the editor exposes each generated `@editable` array. The fixture editables are `AccessPassTriggers`, `AccessPassButtons`, `AccessPassZones`, `SeasonPassButtons`, `CoinPackTriggers`, `MysteryItemButtons`, `MysteryItemZones`, `Phase4StorefrontButtons`, and `CoinStoreTriggers`.
 
@@ -42,25 +52,27 @@ These are the deliberate integration points for creator-authored Verse:
 
 - The generated `creative_device` subclass as a placeable device and a type that can hold a reference to the placed instance.
 - Generated `@editable` trigger, button, zone, and global storefront arrays as UEFN authoring configuration. They are exposed editor fields, not a promise that external Verse should manipulate the arrays directly.
-- `${Pascal}EntitlementGrantedEvent<public>:event(tuple(player, int))`.
-- `${Pascal}EntitlementRemovedEvent<public>:event(tuple(player, int))`.
-- `${Pascal}EntitlementReconciledEvent<public>:event(tuple(player, int))`.
+- `${Stem}_GrantedEvent<public>:event(tuple(player, int))`.
+- `${Stem}_RemovedEvent<public>:event(tuple(player, int))`.
+- `${Stem}_ReconciledEvent<public>:event(tuple(player, int))`.
 - `Grant${Pascal}<public>(Player:player, Quantity:int)<suspends>:void`.
 - `Consume${Pascal}<public>(Player:player, Quantity:int)<suspends>:void` for consumables.
-- `PromptBuy${Pascal}<public>(Player:player):void`, including alternate and bundle variants. This is the current supported purchase entry point, even though its name is not the desired final name.
-- `OpenStorefront<public>(Player:player):void`.
-- `Open${StorePascal}<public>(Player:player):void` for focused storefronts.
+- `Open${Stem}Purchase<public>(Player:player):void`, including alternate and bundle variants.
+- `OpenAllOffersStore<public>(Player:player):void`.
+- `Open${StoreStem}<public>(Player:player):void` for focused storefronts.
 
 The supported surface is intentionally based on device operations, events, and helpers. Direct use of generated metadata, price, entitlement, or offer declarations is not required for the normal UEM integration flow.
 
-### B. Public today, but useful only with justification or compatibility handling
+### B. Legacy compatibility API only
 
-These declarations are currently public or editor-exposed, but should not automatically become the future facade:
+These declarations are generated only for API-v1 output or a migrated v2 project with `legacyApiCompatibility: true`:
 
 - The configurable `purchaseEventName<public>:event(player)`. Its current signal site is the generic positive entitlement-delta handler, so a name such as `VipPassPurchasedEvent` does not prove that a purchase occurred. It also omits quantity. Existing integrations may still reference it, so it is compatibility-sensitive.
 - `${Pascal}OwnershipRemovedEvent<public>:event(player)` for durable items and `${Pascal}QuantityDecreasedEvent<public>:event(player)` for consumables. These are lower-level player-only signals. The consumable event omits the quantity that is available on `EntitlementRemovedEvent`.
 - `${Pascal}OwnershipVerifiedEvent<public>:event(player)` for durable items with restore-on-join. It is a convenience signal, not new state information beyond a positive reconciled count.
-- `ShowStorefront<public>(...)<suspends>` and `Show${StorePascal}<public>(...)<suspends>`. These directly call `ShowOffersDialog` and bypass the generated in-flight guard. They are currently public and must not be removed or renamed in this phase.
+- `PromptBuy${Pascal}<public>(Player:player):void` delegates to `Open${Stem}Purchase` in migrated output.
+- `ShowStorefront<public>(...)<suspends>` and `Show${StorePascal}<public>(...)<suspends>` retain their historical direct-dialog behavior for source compatibility. They are deprecated and unsafe because they bypass the generated in-flight guard.
+- `OpenStorefront<public>(Player:player):void` delegates to `OpenAllOffersStore` in migrated output.
 - The asset module, metadata modules, localized metadata messages, price constants, entitlement classes, offer classes, and dynamic offer classes. Generated modules reference one another across module boundaries, which explains much of their current visibility. External Verse may have legitimate custom-UI or direct Marketplace reasons to use some of them, but UEM does not currently define them as a stable facade.
 - `basic_entitlement<public>` and concrete entitlement types. UEM uses the base type for entitlement-change subscriptions and the concrete types for Marketplace calls. Direct external use is plausible, but changing or hiding these types could break custom Marketplace integrations.
 - `ManagedOffers` offer classes and `ManagedTransactionPrices` price constants. They are useful to direct `BuyOffer` or custom `ShowOffersDialog` integrations, but UEM's safe wrappers should be the normal path.
@@ -73,7 +85,7 @@ These declarations are not explicitly public and must remain generator plumbing 
 - `Process${Pascal}Grant` and `Process${Pascal}Removal`.
 - `On${Pascal}TriggerActivated`, `On${Pascal}ButtonInteracted`, and `On${Pascal}ZoneEntered`.
 - `OnBegin`, `OnEnd`, `OnPlayerAdded`, `OnPlayerRemoved`, `OnEntitlementsChanged`, subscription cleanup, and in-flight cleanup helpers.
-- `ShowStorefrontAndRelease` and `Show${StorePascal}AndRelease`.
+- `ShowAllOffers`, `ShowAllOffersAndRelease`, and `Show${StorePascal}OffersAndRelease`.
 - `EntitlementChangeSubscriptions`, `PurchaseInFlight`, `StorefrontInFlight`, device subscription arrays, and other implementation state.
 - `ReconcilePlayerEntitlements` as the implementation routine that obtains the Marketplace snapshot and emits the supported reconciliation event.
 
@@ -83,19 +95,19 @@ The fact that these functions are callable from other code in the same generated
 
 The device subscribes to `GetEntitlementsChangedEvent` and examines each authoritative `entitlement_change`. A positive change calls `Process...Grant`; a negative change calls `Process...Removal` with the magnitude of the decrease.
 
-| Current event family | Signal cause | Payload and limits | Contract assessment |
+| Event family | Signal cause | Payload and limits | Contract assessment |
 | --- | --- | --- | --- |
 | Custom `purchaseEventName` | Every positive delta reaching `Process...Grant`, including a direct grant that produces a positive Marketplace delta. It is not signaled from `BuyOffer` itself. | `player` only | Misleading for purchase-specific semantics; retain for compatibility and treat as legacy or advisory. |
-| `${Pascal}EntitlementGrantedEvent` | Every positive entitlement delta. It can represent a completed purchase, direct grant, or another authoritative positive change. | `(player, int)` with the positive quantity | Useful supported event. The current name is more accurate than the purchase-event name but still describes a delta rather than a purchase. |
+| `${Stem}_GrantedEvent` | Every positive entitlement delta. It can represent a completed purchase, direct grant, or another authoritative positive change. | `(player, int)` with the positive quantity | Canonical v2 event. It is not purchase-specific. |
 | Durable `OwnershipRemovedEvent` | Every negative delta for a durable entitlement. | `player` only; no quantity because durable ownership is normally one | Low-level convenience event. Its information is covered by the tuple removal event plus item type. |
 | Consumable `QuantityDecreasedEvent` | Every negative delta for a consumable, including a successful `ConsumeEntitlement` operation. | `player` only; quantity is omitted | Redundant with the tuple removal event, which carries the quantity. |
-| `${Pascal}EntitlementRemovedEvent` | Every negative entitlement delta. | `(player, int)` with the removed quantity | Useful supported event. It is not purchase-specific. |
-| `${Pascal}EntitlementReconciledEvent` | `ReconcilePlayerEntitlements` on player join, after `GetPurchasedEntitlements` returns the saved Marketplace snapshot. | `(player, int)` containing the current owned count, including zero | Useful snapshot event, distinct from a delta event. |
+| `${Stem}_RemovedEvent` | Every negative entitlement delta. | `(player, int)` with the removed quantity | Canonical v2 event. It is not purchase-specific. |
+| `${Stem}_ReconciledEvent` | `ReconcilePlayerEntitlements` on player join, after `GetPurchasedEntitlements` returns the saved Marketplace snapshot. | `(player, int)` containing the current owned count, including zero | Canonical v2 snapshot event. |
 | `${Pascal}OwnershipVerifiedEvent` | During reconciliation only, for durable restore-on-join items whose reconciled count is greater than zero. | `player` only | Convenience boolean signal. It conveys no state that a positive reconciled count does not already convey. |
 
 Auto-consume adds a second state transition: a positive grant can spawn the public consume helper, and the later negative entitlement change then emits the removal events. No event is signaled directly by the public helper before the Marketplace state changes.
 
-The recommended future canonical event shape remains:
+The API-v2 canonical event shape is:
 
 ```verse
 X_GrantedEvent : event(tuple(player, int))
@@ -103,7 +115,7 @@ X_RemovedEvent : event(tuple(player, int))
 X_ReconciledEvent : event(tuple(player, int))
 ```
 
-The names and any collapse of redundant events belong to a later event/naming phase. This phase does not rename, remove, or collapse any event.
+API v2 does not generate `PurchasedEvent`, `OwnershipRemovedEvent`, `QuantityDecreasedEvent`, or a canonical `OwnershipVerifiedEvent`. A positive reconciliation count communicates ownership; migrated API-v1 output still signals the legacy ownership-verification event when it was part of the historical shape.
 
 ## Grant and consume helpers
 
@@ -115,20 +127,20 @@ The current `void` return type is compatibility-sensitive. Changing it to expose
 
 ## Purchase helper semantics
 
-Every generated `PromptBuy...` helper is a guarded, non-suspending entry point. It sets the per-player purchase in-flight flag and spawns an internal suspending `ExecuteBuy...` function. The internal function calls `BuyOffer`, which opens the Epic purchase UI and returns an optional result indicating whether the offer was purchased. Closing the dialog does not purchase the offer. The generated purchase helper therefore initiates a purchase UI flow; it does not purchase automatically and does not guarantee a purchase.
+Every generated API-v2 `Open...Purchase` helper is a guarded, non-suspending entry point. It sets the per-player purchase in-flight flag and spawns an internal suspending `ExecuteBuy...` function. The internal function calls `BuyOffer`, which opens the Epic purchase UI and returns an optional result indicating whether the offer was purchased. Closing the dialog does not purchase the offer. The generated purchase helper therefore initiates a purchase UI flow; it does not purchase automatically and does not guarantee a purchase.
 
-The later name `OpenXPurchase` is semantically clearer than `PromptBuyX`, but no rename occurs here. Existing public item, alternate, static-bundle, and dynamic-bundle prompt functions remain in the baseline.
+In migrated output, `PromptBuyX` is a same-signature wrapper that calls `OpenXPurchase`; it does not duplicate the purchase implementation. Internal trigger, button, and deliberate zone callbacks call the canonical function directly.
 
 ## Storefront helper semantics
 
-The global storefront currently exposes both:
+API v2 exposes:
 
-- `ShowStorefront<public>(Player)<suspends>`, which calls `ShowOffersDialog` directly and can bypass `StorefrontInFlight`.
-- `OpenStorefront<public>(Player)`, which applies the in-flight guard and spawns `ShowStorefrontAndRelease`.
+- `OpenAllOffersStore<public>(Player)`, which applies the in-flight guard and spawns the internal dialog flow.
+- `Open${StoreStem}<public>(Player)` for focused storefronts, with the same guard.
 
-Each focused offer display group has the same pair, `Show${StorePascal}` and `Open${StorePascal}`. `Show...AndRelease` is internal and clears the guard after the direct dialog call completes.
+API-v2 output does not expose unsafe `Show...` helpers. Migrated output retains `ShowStorefront` and focused `Show...` functions with their old suspending signatures and direct-dialog behavior, and retains `OpenStorefront` as a safe alias to `OpenAllOffersStore`.
 
-The intended later public surface is the safe `Open...` family. The unsafe `Show...` functions remain public for compatibility analysis and are not removed in Phase 4. Dynamic bundle purchase restriction parity, richer storefront behavior, and any generic storefront execution refactor remain deferred.
+Dynamic bundle purchase restriction parity, richer storefront behavior, and any generic storefront execution refactor remain deferred.
 
 ## Modules and types
 
@@ -152,7 +164,7 @@ The default class remains `managed_transactions_device := class(creative_device)
 @editable
 Transactions : managed_transactions_device = managed_transactions_device{}
 
-Transactions.OpenStorefront(Player)
+Transactions.OpenAllOffersStore(Player)
 ```
 
 The class name, its placement identity, and every editable property name are compatibility-sensitive even though the class declaration and fields are not marked `<public>`. UEFN serializes placed-device property assignments. Editable renames therefore need preservation or an explicit migration, not a silent source-level rename.
@@ -165,11 +177,11 @@ There are two separate compatibility layers.
 
 The embedded manifest is the data UEM owns and regenerates. The current manifest uses `schemaVersion: 4`; older supported schemas 2, 3, and 4 remain importable. The manifest preserves catalog data such as persistent item IDs, bundle IDs, offer keys, event-name fields, trigger names, and editable names. UEM can regenerate its managed file from this data.
 
-`schemaVersion` describes the managed manifest data shape. The application and `version.json` describe the shipped UEM and bridge version. None of these is currently a generated public-API version.
+`schemaVersion` describes the managed manifest data shape. `generatedApiVersion` and `legacyApiCompatibility` describe the generated public API contract. The application and `version.json` describe the shipped UEM and bridge version.
 
 ### Layer B: developer-authored Verse
 
-External Verse may reference the placed device, call `PromptBuy...`, `Grant...`, `Consume...`, and `Open...`, subscribe to generated events, or directly use generated module/type names. A managed-file regeneration does not rewrite those external references. UEM also deliberately refuses to import an unmanaged Verse file because guessing its structure would risk data loss.
+External Verse may reference the placed device, call canonical `Open...Purchase`, `Grant...`, `Consume...`, and `Open...` helpers, subscribe to generated events, or directly use generated module/type names. A managed-file regeneration does not rewrite those external references. UEM also deliberately refuses to import an unmanaged Verse file because guessing its structure would risk data loss.
 
 Therefore, changing a public symbol can break an existing project even when the manifest imports and the managed file regenerates perfectly. Public generated names must be treated as source-compatibility commitments.
 
@@ -177,27 +189,25 @@ Therefore, changing a public symbol can break an existing project even when the 
 
 Use a compatibility-preserving hybrid of Strategy A and Strategy B:
 
-1. Preserve legacy public identifiers for existing objects using persisted manifest identity. New objects may use the future canonical naming rules.
+1. Preserve legacy public identifiers for existing objects using persisted manifest identity. New objects use the canonical stable-key rules.
 2. For functions, generate the new canonical implementation and a legacy public wrapper when the old identifier is known. A function wrapper is technically practical because it can delegate to the safe implementation without changing the old signature.
 3. For events, do not assume a first-class alias is practical. An event value must receive signals. During a deprecation window, retain the legacy event declaration and signal both legacy and canonical events at the same authoritative signal sites, or preserve the legacy event name for that object. This has a temporary declaration and signal cost but avoids silent loss of subscriptions.
 4. For modules and types, preserve the old public declarations for existing projects unless a small Verse alias/facade prototype compiles in the real editor. Type and module aliases cannot be assumed from the TypeScript generator.
 5. For `@editable` fields, preserve serialized legacy field names for existing placed devices. Add migration support only when UEFN's actual property behavior is verified. Do not silently rename editable fields.
-6. Keep legacy compatibility through the naming migration and at least until an explicit future major-version removal or opt-in project migration. Do not remove compatibility merely because new names are cleaner.
+6. Keep legacy compatibility for migrated projects until an explicit future major-version removal or opt-in project migration. New API-v2 projects do not generate legacy symbols.
 
 This strategy protects unmanaged external Verse while allowing later canonical names. It does increase generated code for function wrappers and, temporarily, for paired events. That cost is safer and more maintainable than pretending UEM can rewrite arbitrary external Verse.
 
 ## Generated API version decision
 
-Do not add a `generatedApiVersion` field in Phase 4. No public behavior changes in this phase require one. However, the upcoming naming migration has a real need for a marker separate from `schemaVersion`: the manifest data shape and the generated callable surface are different compatibility dimensions.
-
-Add an optional generated API version as part of the first naming/migration implementation. It should select legacy preservation, wrappers, and event compatibility behavior without changing the meaning of the managed-data schema version. Adding it during the migration also allows old manifests to default to the legacy API behavior without a breaking import change.
+API v2 adds `generatedApiVersion: 2` to new manifests. A missing value safely defaults to v1 on import. Opening that project migrates the generated output to v2 and sets `legacyApiCompatibility: true`; the managed schema remains unchanged. `legacyApiDiagnostics` records non-blocking compatibility warnings such as repaired or ambiguous historical keys.
 
 ## Deliberate non-changes and deferrals
 
-Phase 4 does not:
+Phase 6 does not:
 
-- rename `PromptBuyX`, generated events, entitlement keys, bundle keys, editables, storefront helpers, modules, or the device class;
-- collapse redundant events;
+- rename entitlement keys, bundle keys, editables, modules, or the device class;
+- change persisted `purchaseEventName`; it remains legacy compatibility data and is not the canonical event identity;
 - change Grant or Consume return types;
 - add query helpers;
 - genericize purchase or storefront execution;

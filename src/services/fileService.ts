@@ -1,4 +1,4 @@
-import { BundleOffer, EntitlementItem, ProjectConfig } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, GeneratedApiOptions, ProjectConfig } from '../types/entitlement';
 import { cleanManagedData } from './projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import versionInfo from '../../version.json';
@@ -331,8 +331,8 @@ export const FileService = {
     URL.revokeObjectURL(url);
   },
 
-  exportPresetJson(data: { config: ProjectConfig; entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups?: import('../types/entitlement').OfferDisplayGroup[]; retiredVerseKeys?: string[] }) {
-    const clean = cleanManagedData(data.entitlements, data.bundles, data.offerDisplayGroups ?? [], data.retiredVerseKeys ?? []);
+  exportPresetJson(data: { config: ProjectConfig; entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups?: import('../types/entitlement').OfferDisplayGroup[]; retiredVerseKeys?: string[] } & GeneratedApiOptions) {
+    const clean = cleanManagedData(data.entitlements, data.bundles, data.offerDisplayGroups ?? [], data.retiredVerseKeys ?? [], data);
     const portableConfig = { ...data.config, contentFolderPath: '' };
     const blob = new Blob([JSON.stringify({ ...clean, config: portableConfig }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

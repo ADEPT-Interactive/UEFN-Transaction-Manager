@@ -8,7 +8,7 @@ import { ValidationReportModal } from './components/ValidationReportModal';
 import { ProjectSettingsModal } from './components/ProjectSettingsModal';
 import { BundleManager } from './components/BundleManager';
 import { OfferDisplayManager } from './components/OfferDisplayManager';
-import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from './types/entitlement';
+import { BundleOffer, EntitlementItem, GeneratedApiOptions, OfferDisplayGroup, ProjectConfig } from './types/entitlement';
 import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets';
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
@@ -44,6 +44,14 @@ const DEFAULT_CONFIG: ProjectConfig = {
 
 const STORAGE_NAMESPACE = FileService.getStorageNamespace(launchContext.contentFolderPath);
 const storageKey = (name: string) => `${STORAGE_NAMESPACE}:${name}`;
+
+type ProjectGeneratedApiState = Required<GeneratedApiOptions>;
+
+const DEFAULT_GENERATED_API_STATE: ProjectGeneratedApiState = {
+  generatedApiVersion: 2,
+  legacyApiCompatibility: false,
+  legacyApiDiagnostics: [],
+};
 
 const LEGACY_STARTER_PRESET_IDENTITIES: Record<typeof LEGACY_STARTER_PRESET_KEYS[number], {
   name: string;
@@ -148,6 +156,30 @@ function loadRetiredVerseKeys(): string[] {
   }
 }
 
+function loadGeneratedApiState(): ProjectGeneratedApiState {
+  try {
+    const stored = localStorage.getItem(storageKey('generatedApiState'));
+    if (!stored) return DEFAULT_GENERATED_API_STATE;
+    const parsed = JSON.parse(stored) as Partial<ProjectGeneratedApiState>;
+    return {
+      generatedApiVersion: parsed.generatedApiVersion === 1 ? 1 : 2,
+      legacyApiCompatibility: parsed.legacyApiCompatibility === true,
+      legacyApiDiagnostics: Array.isArray(parsed.legacyApiDiagnostics) ? parsed.legacyApiDiagnostics.filter((entry): entry is string => typeof entry === 'string') : [],
+    };
+  } catch {
+    localStorage.removeItem(storageKey('generatedApiState'));
+    return DEFAULT_GENERATED_API_STATE;
+  }
+}
+
+function migrateGeneratedApiState(parsed: Pick<ProjectGeneratedApiState, 'generatedApiVersion' | 'legacyApiCompatibility' | 'legacyApiDiagnostics'>): ProjectGeneratedApiState {
+  return {
+    generatedApiVersion: 2,
+    legacyApiCompatibility: parsed.generatedApiVersion === 1 || parsed.legacyApiCompatibility,
+    legacyApiDiagnostics: parsed.legacyApiDiagnostics,
+  };
+}
+
 function allocateProjectVerseKey(
   name: string,
   entitlements: EntitlementItem[],
@@ -162,8 +194,8 @@ function addRetiredVerseKeys(current: string[], keys: Iterable<string>): string[
   return normalizeRetiredVerseKeys([...current, ...keys]);
 }
 
-function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig): string {
-  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys), config: { ...config, contentFolderPath: '' } });
+function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig, apiState: GeneratedApiOptions = DEFAULT_GENERATED_API_STATE): string {
+  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, apiState), config: { ...config, contentFolderPath: '' } });
 }
 
 async function hydrateProjectImages(
@@ -289,7 +321,8 @@ export const App: React.FC = () => {
   const [bundles, setBundles] = useState(loadBundles);
   const [offerDisplayGroups, setOfferDisplayGroups] = useState(loadOfferDisplayGroups);
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig()));
+  const [generatedApiState, setGeneratedApiState] = useState(loadGeneratedApiState);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig(), loadGeneratedApiState()));
   const [creationChooserRequest, setCreationChooserRequest] = useState(0);
   const [activeViewMode, setActiveViewMode] = useState<'split' | 'catalog' | 'verse'>('catalog');
   const [editingItem, setEditingItem] = useState<EntitlementItem | null>(null);
@@ -309,32 +342,39 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys]);
+  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState]);
   const validationIssues = useMemo(() => {
-    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys);
+    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState);
+    if (generatedApiState.legacyApiCompatibility) issues.unshift({
+      id: 'legacy-api-compatibility', severity: 'warning', ruleName: 'legacy_api_compatibility', field: 'generatedApiVersion',
+      message: generatedApiState.legacyApiDiagnostics.length
+        ? `Legacy Verse API compatibility is retained for this project. Review: ${generatedApiState.legacyApiDiagnostics.join(' ')}`
+        : 'Legacy Verse API compatibility is retained for this project while its public API is migrated to canonical v2 names.',
+    });
     if (unmanagedTargetFile === config.targetVerseFileName) issues.unshift({
       id: 'unmanaged-target-file', severity: 'error', ruleName: 'managed_file_required', field: 'targetVerseFileName',
       message: `${unmanagedTargetFile} is not managed by this tool and cannot be overwritten. Choose a new target filename in Settings.`,
     });
     return issues;
-  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, unmanagedTargetFile]);
+  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState, unmanagedTargetFile]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
-  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config]);
+  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config, generatedApiState), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config, generatedApiState]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
 
   useEffect(() => {
     try {
       localStorage.setItem(storageKey('config'), JSON.stringify({ ...config, contentFolderPath: '' }));
-      const clean = cleanManagedData(entitlements, bundles, offerDisplayGroups);
+      const clean = cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState);
       localStorage.setItem(storageKey('entitlements'), JSON.stringify(clean.entitlements));
       localStorage.setItem(storageKey('bundles'), JSON.stringify(clean.bundles));
       localStorage.setItem(storageKey('offerDisplayGroups'), JSON.stringify(clean.offerDisplayGroups));
       localStorage.setItem(storageKey('retiredVerseKeys'), JSON.stringify(retiredVerseKeys));
+      localStorage.setItem(storageKey('generatedApiState'), JSON.stringify(generatedApiState));
     } catch {
       setStatus({ message: 'Browser storage is full or unavailable. Export a preset to preserve this session.', error: true });
     }
-  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys]);
+  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState]);
 
   useEffect(() => {
     let active = true;
@@ -352,6 +392,7 @@ export const App: React.FC = () => {
       let loadedBundles = bundles;
       let loadedOfferDisplayGroups = offerDisplayGroups;
       let loadedRetiredVerseKeys = retiredVerseKeys;
+      let loadedGeneratedApiState = generatedApiState;
       const result = await FileService.loadVerseFile(config.targetVerseFileName);
       if (result.success && result.content) {
         const parsed = parseVerseCode(result.content);
@@ -364,9 +405,10 @@ export const App: React.FC = () => {
         loadedBundles = parsed.bundles;
         loadedOfferDisplayGroups = parsed.offerDisplayGroups;
         loadedRetiredVerseKeys = parsed.retiredVerseKeys;
+        loadedGeneratedApiState = migrateGeneratedApiState(parsed);
         setUnmanagedTargetFile(null);
         setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config));
+        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config, loadedGeneratedApiState));
       } else if (result.status !== 404) {
         setStatus({ message: result.error ?? 'The configured Verse file could not be inspected.', error: true });
         return;
@@ -379,8 +421,11 @@ export const App: React.FC = () => {
       setBundles(hydrated.bundles);
       setOfferDisplayGroups(loadedOfferDisplayGroups);
       setRetiredVerseKeys(loadedRetiredVerseKeys);
+      setGeneratedApiState(loadedGeneratedApiState);
+      const compatibilityNote = loadedGeneratedApiState.legacyApiCompatibility ? ' Legacy API compatibility retained.' : '';
+      const diagnosticNote = loadedGeneratedApiState.legacyApiDiagnostics.length ? ' Review the non-blocking compatibility diagnostic in Validation.' : '';
       setStatus({ message: result.success && result.content
-        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.`
+        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${compatibilityNote}${diagnosticNote}`
         : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
     };
     void initialize();
@@ -475,10 +520,14 @@ export const App: React.FC = () => {
     setBundles(hydrated.bundles);
     setOfferDisplayGroups(parsed.offerDisplayGroups);
     setRetiredVerseKeys(parsed.retiredVerseKeys);
+    const migratedApiState = migrateGeneratedApiState(parsed);
+    setGeneratedApiState(migratedApiState);
     setUnmanagedTargetFile(null);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config));
-    setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.` });
+    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config, migratedApiState));
+    const compatibilityNote = migratedApiState.legacyApiCompatibility ? ' Legacy API compatibility retained.' : '';
+    const diagnosticNote = migratedApiState.legacyApiDiagnostics.length ? ' Review the non-blocking compatibility diagnostic in Validation.' : '';
+    setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${compatibilityNote}${diagnosticNote}` });
   };
 
   const loadFromDisk = async () => {
@@ -531,8 +580,9 @@ export const App: React.FC = () => {
         setBundles(data.bundles);
         setOfferDisplayGroups(data.offerDisplayGroups);
         setRetiredVerseKeys(data.retiredVerseKeys);
+        setGeneratedApiState(migrateGeneratedApiState(data));
         setConfig(nextConfig);
-        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays. Review validation before saving.` });
+        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays${data.generatedApiVersion === 1 ? ' with API-v1 compatibility migration enabled' : ''}. Review validation before saving.` });
       } catch (error) {
         setStatus({ message: error instanceof Error ? `Preset rejected: ${error.message}` : 'Preset JSON is invalid.', error: true });
       }
@@ -657,7 +707,7 @@ export const App: React.FC = () => {
       <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
       <Header
         config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
-        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys) })}
+        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState) })}
         onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}

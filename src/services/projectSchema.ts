@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, EntitlementItem, GeneratedApiOptions, GeneratedApiVersion, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
 import {
   createVerseKeyAllocator,
   isValidVerseIdentifier,
@@ -174,6 +174,20 @@ interface RepairedManagedData {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
+  legacyApiDiagnostics: string[];
+}
+
+function normalizedLegacyDiagnostics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((entry): entry is string => typeof entry === 'string').map(entry => entry.trim()).filter(Boolean))];
+}
+
+function generatedApiVersionFor(value: Record<string, unknown>): GeneratedApiVersion {
+  if (value.generatedApiVersion === undefined) return 1;
+  if (value.generatedApiVersion !== 1 && value.generatedApiVersion !== 2) {
+    throw new Error('Preset generatedApiVersion must be 1 or 2. Future and unsupported generated API versions are not imported.');
+  }
+  return value.generatedApiVersion;
 }
 
 function repairProjectVerseKeys(
@@ -184,9 +198,15 @@ function repairProjectVerseKeys(
 ): RepairedManagedData {
   const allocator = createVerseKeyAllocator([], retiredVerseKeys);
   const alternateReplacements = new Map<string, string>();
+  const legacyApiDiagnostics: string[] = [];
 
   const preserveOrRepair = (currentKey: string, displayName: string, fallbackName: string): string => {
     if (isValidVerseIdentifier(currentKey) && allocator.reserveExisting(currentKey)) return currentKey;
+    if (currentKey && isValidVerseIdentifier(currentKey)) {
+      legacyApiDiagnostics.push(`Legacy Verse key "${currentKey}" for ${fallbackName} was duplicated and repaired. Any external API symbol derived from the duplicate may require manual review.`);
+    } else {
+      legacyApiDiagnostics.push(`Legacy Verse key "${currentKey || '(missing)'}" for ${fallbackName} was invalid or reserved and repaired. Any external API symbol derived from it may require manual review.`);
+    }
     return allocator.allocate(displayName || fallbackName);
   };
 
@@ -207,6 +227,9 @@ function repairProjectVerseKeys(
       const verseKey = canPreserve
         ? previousKey
         : allocator.allocateAlternate(item.verseKey);
+      if (!canPreserve) {
+        legacyApiDiagnostics.push(`Legacy Verse key "${previousKey || '(missing)'}" for alternate offer ${index + 1} of "${item.name || item.verseKey}" was invalid, reserved, or already assigned and repaired. Any external API symbol derived from it may require manual review.`);
+      }
       if (previousKey && previousKey !== verseKey && !isValidVerseIdentifier(previousKey)) {
         const replacementKey = `${item.id}\u0000${previousKey.toLowerCase()}`;
         if (!alternateReplacements.has(replacementKey)) alternateReplacements.set(replacementKey, verseKey);
@@ -234,10 +257,18 @@ function repairProjectVerseKeys(
   for (const bundle of repairedBundles) bundle.items = bundle.items.map(repairOfferReference);
   for (const group of repairedOfferDisplayGroups) group.entries = group.entries.map(repairOfferReference);
 
-  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups };
+  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups, legacyApiDiagnostics };
 }
 
-export function parseManagedData(value: unknown): { entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups: OfferDisplayGroup[]; retiredVerseKeys: string[] } {
+export function parseManagedData(value: unknown): {
+  entitlements: EntitlementItem[];
+  bundles: BundleOffer[];
+  offerDisplayGroups: OfferDisplayGroup[];
+  retiredVerseKeys: string[];
+  generatedApiVersion: GeneratedApiVersion;
+  legacyApiCompatibility: boolean;
+  legacyApiDiagnostics: string[];
+} {
   if (!isRecord(value)) throw new Error('Preset must contain a JSON object.');
   if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) {
     throw new Error('Preset schemaVersion must be 2, 3, or 4. Future, missing, and unsupported schemas are not imported.');
@@ -246,16 +277,43 @@ export function parseManagedData(value: unknown): { entitlements: EntitlementIte
   if (value.bundles !== undefined && !Array.isArray(value.bundles)) throw new Error('Preset bundles must be an array.');
   if (value.offerDisplayGroups !== undefined && !Array.isArray(value.offerDisplayGroups)) throw new Error('Preset offerDisplayGroups must be an array.');
 
-  const entitlements = value.entitlements.map(normalizeEntitlement);
+  const generatedApiVersion = generatedApiVersionFor(value);
+  const legacyApiCompatibility = generatedApiVersion === 1 || booleanValue(value.legacyApiCompatibility);
+
+  const rawEntitlementValues = value.entitlements as unknown[];
+  const entitlements = rawEntitlementValues.map(normalizeEntitlement);
   const bundles = (value.bundles ?? []).map(normalizeBundle);
   const offerDisplayGroups = (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup);
+  const compatibilityDiagnostics = normalizedLegacyDiagnostics(value.legacyApiDiagnostics);
+  if (legacyApiCompatibility) {
+    const legacyEventOwners = new Map<string, string>();
+    entitlements.forEach((item, index) => {
+      const raw = isRecord(rawEntitlementValues[index]) ? rawEntitlementValues[index] : {};
+      const rawEventName = stringValue(raw.purchaseEventName) || (isRecord(raw.actionHook) ? stringValue(raw.actionHook.eventName) : '');
+      if (!rawEventName) compatibilityDiagnostics.push(`Legacy entitlement "${item.name || item.verseKey}" has no persisted purchaseEventName. UEM used a deterministic fallback; verify any external reference to the old event.`);
+      if (!isValidVerseIdentifier(item.purchaseEventName)) compatibilityDiagnostics.push(`Legacy purchase event "${item.purchaseEventName}" for "${item.name || item.verseKey}" is not a valid Verse identifier and cannot be reproduced safely.`);
+      const normalized = item.purchaseEventName.toLowerCase();
+      const previous = legacyEventOwners.get(normalized);
+      if (previous) compatibilityDiagnostics.push(`Legacy purchase event "${item.purchaseEventName}" is duplicated by ${previous} and ${item.name || item.verseKey}; the second declaration cannot be reproduced safely.`);
+      else legacyEventOwners.set(normalized, item.name || item.verseKey || `entitlement ${index + 1}`);
+    });
+  }
   const repaired = repairProjectVerseKeys(
     entitlements,
     bundles,
     offerDisplayGroups,
     normalizeRetiredVerseKeys(value.retiredVerseKeys),
   );
-  return { ...repaired, retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys) };
+  return {
+    ...repaired,
+    retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys),
+    generatedApiVersion,
+    legacyApiCompatibility,
+    legacyApiDiagnostics: [...new Set([
+      ...compatibilityDiagnostics,
+      ...repaired.legacyApiDiagnostics,
+    ])],
+  };
 }
 
 export function normalizeProjectConfig(value: unknown, fallback: ProjectConfig): ProjectConfig {
@@ -291,19 +349,34 @@ export function parseStoredArray(value: string | null, kind: 'entitlements' | 'b
   return kind === 'entitlements' ? repaired.entitlements : kind === 'bundles' ? repaired.bundles : repaired.offerDisplayGroups;
 }
 
-export function cleanManagedData(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[] = [], retiredVerseKeys: string[] = []) {
+export function cleanManagedData(
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  offerDisplayGroups: OfferDisplayGroup[] = [],
+  retiredVerseKeys: string[] = [],
+  apiOptions: GeneratedApiOptions = {},
+) {
   const clean: {
     schemaVersion: 4;
+    generatedApiVersion: GeneratedApiVersion;
+    legacyApiCompatibility?: boolean;
+    legacyApiDiagnostics?: string[];
     entitlements: EntitlementItem[];
     bundles: BundleOffer[];
     offerDisplayGroups: OfferDisplayGroup[];
     retiredVerseKeys?: string[];
   } = {
     schemaVersion: 4 as const,
-    entitlements: entitlements.map(stripTransientImages),
-    bundles: bundles.map(stripTransientImages),
-    offerDisplayGroups,
+    generatedApiVersion: apiOptions.generatedApiVersion ?? 2,
+    // Normalize before embedding the manifest so a parse -> regenerate cycle
+    // cannot change omitted defaults into newly persisted fields.
+    entitlements: entitlements.map((item, index) => stripTransientImages(normalizeEntitlement(item, index))),
+    bundles: bundles.map((bundle, index) => stripTransientImages(normalizeBundle(bundle, index))),
+    offerDisplayGroups: offerDisplayGroups.map(normalizeOfferDisplayGroup),
   };
+  if (apiOptions.legacyApiCompatibility) clean.legacyApiCompatibility = true;
+  const legacyApiDiagnostics = normalizedLegacyDiagnostics(apiOptions.legacyApiDiagnostics);
+  if (legacyApiDiagnostics.length) clean.legacyApiDiagnostics = legacyApiDiagnostics;
   const normalizedRetiredVerseKeys = normalizeRetiredVerseKeys(retiredVerseKeys);
   if (normalizedRetiredVerseKeys.length) clean.retiredVerseKeys = normalizedRetiredVerseKeys;
   return clean;
