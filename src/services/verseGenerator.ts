@@ -42,14 +42,21 @@ function metadataModule(key: string, name: string, description: string, shortDes
 }
 
 function restrictionLines(restrictions: OfferRestrictions | undefined): string {
-  if (!restrictions) return '';
+  const blockedCountryCodes = restrictions?.blockedCountryCodes ?? [];
+  const blockedPlatformFamilies = restrictions?.blockedPlatformFamilies ?? [];
+  const hasConfiguredRestrictions = Boolean(
+    restrictions && (
+      restrictions.minimumPurchaseAge !== undefined
+      || blockedCountryCodes.length > 0
+      || blockedPlatformFamilies.length > 0
+    ),
+  );
+  if (!hasConfiguredRestrictions) return '';
+
   const lines: string[] = [];
-  for (const country of restrictions.blockedCountryCodes ?? []) lines.push(`        CountryCode <> "${escapeVerseString(country)}"`);
-  for (const platform of restrictions.blockedPlatformFamilies ?? []) lines.push(`        PlatformFamily <> "${escapeVerseString(platform)}"`);
-  // Verse expression bodies return their final expression implicitly. `return`
-  // is not valid here, and was emitted for every restricted offer variant.
-  if (restrictions.minimumPurchaseAge !== undefined) lines.push(`        ${restrictions.minimumPurchaseAge}`);
-  else lines.push('        0');
+  for (const country of blockedCountryCodes) lines.push(`            CountryCode <> "${escapeVerseString(country)}"`);
+  for (const platform of blockedPlatformFamilies) lines.push(`            PlatformFamily <> "${escapeVerseString(platform)}"`);
+  lines.push(`            return ${restrictions?.minimumPurchaseAge ?? 0}`);
   return [
     '        GetMinPurchaseAge<override>(CountryCode:string, SubdivisionCode:string, PlatformFamily:string)<decides><computes>:int =',
     ...lines,

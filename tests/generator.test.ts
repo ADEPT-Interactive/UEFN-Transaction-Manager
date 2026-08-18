@@ -7,7 +7,7 @@ import { toPascalCase, validateEntireProject } from '../src/services/validator';
 import { duplicateEntitlement } from '../src/services/duplicateEntitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../src/constants/offerRestrictions';
 import { DEFAULT_PRESETS } from '../src/constants/presets';
-import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from '../src/types/entitlement';
+import { BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../src/types/entitlement';
 
 const config: ProjectConfig = {
   contentFolderPath: 'C:\\UEFN\\Project\\Content', targetVerseFileName: 'managed_transactions.verse',
@@ -42,6 +42,33 @@ const bundles: BundleOffer[] = [{
   description: 'Two offers sold together.', priceVBucks: 550, iconTexture: 'EntitlementIcons.StarterBundle',
   items: [{ entitlementId: 'vip', quantity: 1 }, { entitlementId: 'crate', quantity: 1 }],
 }];
+
+function offerClassBlock(source: string, generatedOfferKey: string): string {
+  const marker = `    ${generatedOfferKey}<public> := class`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`Generated offer class not found: ${generatedOfferKey}`);
+  const remainder = source.slice(start + marker.length);
+  const nextTopLevelLine = remainder.search(/\n {4}\S/);
+  return source.slice(start, start + marker.length + (nextTopLevelLine < 0 ? remainder.length : nextTopLevelLine));
+}
+
+function restrictionMethod(source: string, generatedOfferKey: string): string | undefined {
+  const block = offerClassBlock(source, generatedOfferKey);
+  const marker = '        GetMinPurchaseAge<override>';
+  const start = block.indexOf(marker);
+  if (start < 0) return undefined;
+  const end = block.indexOf('\n\n', start);
+  return block.slice(start, end < 0 ? block.length : end).replace(/\n$/, '');
+}
+
+function expectedRestrictionMethod(restrictions: OfferRestrictions): string {
+  return [
+    '        GetMinPurchaseAge<override>(CountryCode:string, SubdivisionCode:string, PlatformFamily:string)<decides><computes>:int =',
+    ...restrictions.blockedCountryCodes.map(country => `            CountryCode <> "${country}"`),
+    ...restrictions.blockedPlatformFamilies.map(platform => `            PlatformFamily <> "${platform}"`),
+    `            return ${restrictions.minimumPurchaseAge ?? 0}`,
+  ].join('\n');
+}
 
 test('generated Verse embeds a lossless managed manifest', () => {
   const source = generateVerseCode(items, bundles, config);
@@ -135,15 +162,72 @@ test('new marketplace safeguards and public helpers are generated', () => {
   const source = generateVerseCode(featureItems, featureBundles, featureConfig);
   assert.match(source, /ShowOffersDialog\(Player/);
   assert.match(source, /GetMinPurchaseAge<override>/);
-  assert.match(source, /CountryCode <> "CN"\n        PlatformFamily <> "Android"\n        13/);
-  assert.match(source, /CountryCode <> "US"\n        PlatformFamily <> "Windows"\n        18/);
-  assert.doesNotMatch(source, /\breturn\s+(?:0|\d+)/);
+  assert.equal(restrictionMethod(source, 'vip_pass_offer'), expectedRestrictionMethod(featureItems[0].offerRestrictions!));
+  assert.equal(restrictionMethod(source, 'starter_bundle_offer'), expectedRestrictionMethod(featureBundles[0].restrictions!));
+  assert.equal(restrictionMethod(source, 'vip_pass_mobile_offer'), undefined);
   assert.match(source, /VipPassEntitlementGrantedEvent<public>:event\(tuple\(player, int\)\)/);
   assert.match(source, /GrantVipPass<public>/);
   assert.match(source, /ConsumeMysteryCrate<public>/);
   assert.match(source, /vip_pass_mobile_offer<public>/);
   assert.match(source, /StorefrontButtons : \[\]button_device/);
   assert.match(source, /Shop zone entered; use a deliberate shop interaction/);
+});
+
+test('GetMinPurchaseAge emits every configured restriction with a return and omits no-op overrides', () => {
+  const cases: Array<{ name: string; restrictions?: OfferRestrictions }> = [
+    { name: 'country only', restrictions: { blockedCountryCodes: ['CG'], blockedPlatformFamilies: [] } },
+    { name: 'platform only', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: ['Xbox'] } },
+    { name: 'minimum age only', restrictions: { minimumPurchaseAge: 19, blockedCountryCodes: [], blockedPlatformFamilies: [] } },
+    { name: 'country and minimum age', restrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['CN'], blockedPlatformFamilies: [] } },
+    { name: 'platform and minimum age', restrictions: { minimumPurchaseAge: 16, blockedCountryCodes: [], blockedPlatformFamilies: ['Android'] } },
+    { name: 'country and platform', restrictions: { blockedCountryCodes: ['IR'], blockedPlatformFamilies: ['Windows'] } },
+    { name: 'country platform and minimum age', restrictions: { minimumPurchaseAge: 18, blockedCountryCodes: ['US', 'CA', 'GB'], blockedPlatformFamilies: ['Windows', 'Xbox', 'PlayStation'] } },
+    { name: 'minimum age zero with country and platform', restrictions: { minimumPurchaseAge: 0, blockedCountryCodes: ['CC'], blockedPlatformFamilies: ['Nintendo'] } },
+    { name: 'no restrictions' },
+    { name: 'empty restrictions object', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] } },
+  ];
+
+  for (const testCase of cases) {
+    const item = structuredClone(items[0]);
+    if (testCase.restrictions) item.offerRestrictions = testCase.restrictions;
+    const source = generateVerseCode([item], [], { ...config, generateStorefrontBinding: false });
+    const method = restrictionMethod(source, 'vip_pass_offer');
+
+    if (!testCase.restrictions || (testCase.restrictions.blockedCountryCodes.length === 0 && testCase.restrictions.blockedPlatformFamilies.length === 0 && testCase.restrictions.minimumPurchaseAge === undefined)) {
+      assert.equal(method, undefined, testCase.name);
+      continue;
+    }
+
+    assert.equal(method, expectedRestrictionMethod(testCase.restrictions), testCase.name);
+    assert.doesNotMatch(method!, /\n(?! {12})\S/);
+    assert.doesNotMatch(source, /GetMinPurchaseAge<override>[^\n]*\n(?:CountryCode|PlatformFamily|return)/);
+  }
+});
+
+test('GetMinPurchaseAge generation is consistent for alternate, static bundle, and dynamic bundle offers', () => {
+  const restrictedItem = structuredClone(items[0]);
+  restrictedItem.offerRestrictions = { minimumPurchaseAge: 12, blockedCountryCodes: ['CA'], blockedPlatformFamilies: ['Android'] };
+  restrictedItem.alternateOffers = [{
+    id: 'vip-restricted-alt', verseKey: 'vip_restricted_alt', name: 'VIP Restricted', shortDescription: 'Restricted VIP.', description: 'Restricted VIP access.',
+    priceVBucks: 400, iconTexture: 'EntitlementIcons.Icon_VIP', restrictions: { minimumPurchaseAge: 15, blockedCountryCodes: ['GB'], blockedPlatformFamilies: ['iOS'] },
+  }, {
+    id: 'vip-open-alt', verseKey: 'vip_open_alt', name: 'VIP Open', shortDescription: 'Open VIP.', description: 'Open VIP access.',
+    priceVBucks: 450, iconTexture: 'EntitlementIcons.Icon_VIP', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+  const restrictedBundle = { ...bundles[0], restrictions: { minimumPurchaseAge: 0, blockedCountryCodes: ['IR'], blockedPlatformFamilies: ['Xbox'] } };
+  const dynamicBundle = { ...restrictedBundle, id: 'dynamic-restricted', verseKey: 'dynamic_restricted', dynamicRemaining: true, items: [{ entitlementId: 'crate', quantity: 1 }] };
+  const source = generateVerseCode([restrictedItem, items[1]], [restrictedBundle, dynamicBundle], { ...config, generateStorefrontBinding: false });
+
+  assert.equal(restrictionMethod(source, 'vip_pass_offer'), expectedRestrictionMethod(restrictedItem.offerRestrictions));
+  assert.equal(restrictionMethod(source, 'vip_restricted_alt_offer'), expectedRestrictionMethod(restrictedItem.alternateOffers[0].restrictions));
+  assert.equal(restrictionMethod(source, 'vip_open_alt_offer'), undefined);
+  assert.equal(restrictionMethod(source, 'starter_bundle_offer'), expectedRestrictionMethod(restrictedBundle.restrictions));
+  assert.equal(restrictionMethod(source, 'dynamic_restricted_offer'), expectedRestrictionMethod(dynamicBundle.restrictions!));
+  assert.equal(restrictionMethod(source, 'dynamic_restricted_dynamic_offer'), expectedRestrictionMethod(dynamicBundle.restrictions!));
+
+  for (const generatedOfferKey of ['vip_pass_offer', 'vip_restricted_alt_offer', 'starter_bundle_offer', 'dynamic_restricted_offer', 'dynamic_restricted_dynamic_offer']) {
+    assert.doesNotMatch(restrictionMethod(source, generatedOfferKey)!, /GetMinPurchaseAge<override>[^\n]*\n(?:CountryCode|PlatformFamily|return)/);
+  }
 });
 
 test('validator does not inspect paid random disclosure format', () => {
@@ -227,6 +311,8 @@ test('dynamic remaining bundles are represented and validated', () => {
   const dynamic: BundleOffer = { ...bundles[0], id: 'dynamic', verseKey: 'dynamic_bundle', dynamicRemaining: true, items: [{ entitlementId: 'crate', quantity: 1 }] };
   const source = generateVerseCode(items, [dynamic], config);
   assert.match(source, /dynamic_bundle_dynamic_offer<public>/);
+  assert.equal(restrictionMethod(source, 'dynamic_bundle_offer'), undefined);
+  assert.equal(restrictionMethod(source, 'dynamic_bundle_dynamic_offer'), undefined);
   assert.match(source, /RemainingCount := 10 - OwnedCount/);
   assert.deepEqual(validateEntireProject(items, [dynamic], config).filter(issue => issue.severity === 'error'), []);
 });
