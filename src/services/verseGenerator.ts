@@ -277,10 +277,6 @@ function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: Entit
  * UEM does not generate creator-authored random redemption/use logic, so a
  * paid-random check belongs at that future redemption boundary, not here.
  */
-function purchaseEntryGuardLines(): string[] {
-  return ['        if (Active := PurchaseInFlight[Player], Active?):'];
-}
-
 export function generateVerseCode(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[] = [],
@@ -408,8 +404,7 @@ export function generateVerseCode(
     '    var PlayerJoinSubscription:?cancelable = false',
     '    var PlayerLeftSubscription:?cancelable = false',
     '    var DeviceSubscriptions:[]cancelable = array{}',
-    '    var PurchaseInFlight:[player]logic = map{}',
-    '    var StorefrontInFlight:[player]logic = map{}',
+    '    var MarketplaceUIInFlight:[player]logic = map{}',
     '',
   );
   for (const item of entitlements) {
@@ -464,8 +459,7 @@ export function generateVerseCode(
     '',
     '    OnPlayerRemoved(Player:player):void =',
     '        RemovePlayerSubscription(Player)',
-    '        ClearPurchaseInFlight(Player)',
-    '        ClearStorefrontInFlight(Player)',
+    '        ReleaseMarketplaceUI(Player)',
     '',
     '    RemovePlayerSubscription(Player:player):void =',
     '        if (Subscription := EntitlementChangeSubscriptions[Player]?):',
@@ -475,17 +469,20 @@ export function generateVerseCode(
     '            set RemainingSubscriptions = ConcatenateMaps(RemainingSubscriptions, map{Key => Value})',
     '        set EntitlementChangeSubscriptions = RemainingSubscriptions',
     '',
-    '    ClearPurchaseInFlight(Player:player):void =',
-    '        var RemainingPurchases:[player]logic = map{}',
-    '        for (Key -> Value : PurchaseInFlight, Key <> Player):',
-    '            set RemainingPurchases = ConcatenateMaps(RemainingPurchases, map{Key => Value})',
-    '        set PurchaseInFlight = RemainingPurchases',
+    '    TryAcquireMarketplaceUI(Player:player):logic =',
+    '        if (Active := MarketplaceUIInFlight[Player], Active?):',
+    '            Print("Marketplace UI already active for this player")',
+    '            return false',
+    '        if (set MarketplaceUIInFlight[Player] = true):',
+    '            return true',
+    '        Print("Unable to start Marketplace UI")',
+    '        false',
     '',
-    '    ClearStorefrontInFlight(Player:player):void =',
-    '        var RemainingStorefronts:[player]logic = map{}',
-    '        for (Key -> Value : StorefrontInFlight, Key <> Player):',
-    '            set RemainingStorefronts = ConcatenateMaps(RemainingStorefronts, map{Key => Value})',
-    '        set StorefrontInFlight = RemainingStorefronts',
+    '    ReleaseMarketplaceUI(Player:player):void =',
+    '        var RemainingMarketplaceUI:[player]logic = map{}',
+    '        for (Key -> Value : MarketplaceUIInFlight, Key <> Player):',
+    '            set RemainingMarketplaceUI = ConcatenateMaps(RemainingMarketplaceUI, map{Key => Value})',
+    '        set MarketplaceUIInFlight = RemainingMarketplaceUI',
     '',
     '    OnEntitlementsChanged(Player:player, Changes:[]entitlement_change(entitlement)):void =',
     '        for (EntitlementChange : Changes, ChangedEntitlement := EntitlementChange.Entitlement):',
@@ -581,10 +578,22 @@ export function generateVerseCode(
       );
   }
 
+  push(
+    '    ExecutePurchase(Player:player, OfferToBuy:offer, OfferLabel:string)<suspends>:void =',
+    '        WasPurchased := BuyOffer(Player, OfferToBuy)',
+    '        if (not WasPurchased?):',
+    '            Print("Purchase dialog closed without buying {OfferLabel}")',
+    '        ReleaseMarketplaceUI(Player)',
+    '',
+    '    ExecuteStorefront(Player:player, OffersToShow:[]offer, Title:message)<suspends>:void =',
+    '        ShowOffersDialog(Player, OffersToShow, ?Title := Title)',
+    '        ReleaseMarketplaceUI(Player)',
+    '',
+  );
+
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
-    const purchaseGuard = purchaseEntryGuardLines();
     const purchaseEntryName = `Open${pascal}Purchase`;
     if (item.triggers.generateTriggerBinding) {
       push(
@@ -605,36 +614,16 @@ export function generateVerseCode(
     }
     push(
       `    ${purchaseEntryName}<public>(Player:player):void =`,
-      ...purchaseGuard,
-      '            Print("A purchase dialog is already open for this player")',
-      '        else if (set PurchaseInFlight[Player] = true):',
-      `            spawn{ExecuteBuy${pascal}(Player)}`,
-      '        else:',
-      '            Print("Unable to start a purchase dialog")',
-      '',
-      `    ExecuteBuy${pascal}(Player:player)<suspends>:void =`,
-      `        WasPurchased := BuyOffer(Player, ${offersModule}.${item.verseKey}_offer{})`,
-      '        if (not WasPurchased?):',
-      `            Print("Purchase dialog closed without buying ${printableName}")`,
-      '        ClearPurchaseInFlight(Player)',
+      '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+      `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,
       '',
     );
     for (const alternate of item.alternateOffers ?? []) {
       const altPascal = toVerseApiStem(alternate.verseKey);
       push(
         `    Open${altPascal}Purchase<public>(Player:player):void =`,
-        ...purchaseGuard,
-        '            Print("A purchase dialog is already open for this player")',
-        '        else if (set PurchaseInFlight[Player] = true):',
-        `            spawn{ExecuteBuy${altPascal}(Player)}`,
-        '        else:',
-        '            Print("Unable to start a purchase dialog")',
-        '',
-        `    ExecuteBuy${altPascal}(Player:player)<suspends>:void =`,
-        `        WasPurchased := BuyOffer(Player, ${offersModule}.${alternate.verseKey}_offer{})`,
-        '        if (not WasPurchased?):',
-        `            Print("Purchase dialog closed without buying ${escapeVerseString(alternate.name)}")`,
-        '        ClearPurchaseInFlight(Player)',
+        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        `            spawn{ExecutePurchase(Player, ${offersModule}.${alternate.verseKey}_offer{}, "${escapeVerseString(alternate.name)}")}`,
         '',
       );
     }
@@ -644,24 +633,17 @@ export function generateVerseCode(
     const pascal = toVerseApiStem(bundle.verseKey);
     const printableName = escapeVerseString(bundle.name);
     const dynamic = Boolean(bundle.dynamicRemaining && bundle.items[0] && bundle.items[0].entitlementId);
-    const bundlePurchaseGuard = purchaseEntryGuardLines();
     const purchaseEntryName = `Open${pascal}Purchase`;
-    push(
-      `    ${purchaseEntryName}<public>(Player:player):void =`,
-      ...bundlePurchaseGuard,
-      '            Print("A purchase dialog is already open for this player")',
-      '        else if (set PurchaseInFlight[Player] = true):',
-      `            spawn{ExecuteBuy${pascal}(Player)}`,
-      '        else:',
-      '            Print("Unable to start a purchase dialog")',
-      '',
-      `    ExecuteBuy${pascal}(Player:player)<suspends>:void =`,
-    );
     if (dynamic) {
       const entry = bundle.items[0];
       const item = entitlements.find(candidate => candidate.id === entry.entitlementId)!;
       const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles)}`;
       push(
+        `    ${purchaseEntryName}<public>(Player:player):void =`,
+        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        `            spawn{ExecuteDynamicPurchase${pascal}(Player)}`,
+        '',
+        `    ExecuteDynamicPurchase${pascal}(Player:player)<suspends>:void =`,
         `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${item.verseKey}_entitlement)`,
         '        var OwnedCount:int = 0',
         '        if (Purchase := Purchases[0]):',
@@ -670,40 +652,32 @@ export function generateVerseCode(
         '        if (RemainingCount > 0):',
         `            DynamicOffer := ${offersModule}.${bundle.verseKey}_dynamic_offer{}`,
         `            set DynamicOffer.Offers = array{(${offerReference}, RemainingCount)}`,
-        '            WasPurchased := BuyOffer(Player, DynamicOffer)',
-        '            if (not WasPurchased?):',
-        `                Print("Purchase dialog closed without buying ${printableName}")`,
+        `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
         `            Print("${escapeVerseString(item.name)} is already at its maximum owned quantity")`,
+        '            ReleaseMarketplaceUI(Player)',
+        '',
       );
     } else {
       push(
-        `        WasPurchased := BuyOffer(Player, ${offersModule}.${bundle.verseKey}_offer{})`,
-        '        if (not WasPurchased?):',
-        `            Print("Purchase dialog closed without buying ${printableName}")`,
+        `    ${purchaseEntryName}<public>(Player:player):void =`,
+        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        `            spawn{ExecutePurchase(Player, ${offersModule}.${bundle.verseKey}_offer{}, "${printableName}")}`,
+        '',
       );
     }
-    push('        ClearPurchaseInFlight(Player)', '');
   }
 
   const allOffers = allOfferReferences(entitlements, bundles, offersModule);
   push('    AllOffersStoreTitle<localizes>:message = "All Offers"', '');
   push('    ShowAllOffers(Player:player)<suspends>:void =');
-  if (allOffers.length) push(`        ShowOffersDialog(Player, array{${allOffers.join(', ')}}, ?Title := AllOffersStoreTitle)`);
-  else push('        Print("No transaction offers are configured")');
+  if (allOffers.length) push(`        ExecuteStorefront(Player, array{${allOffers.join(', ')}}, AllOffersStoreTitle)`);
+  else push('        Print("No transaction offers are configured")', '        ReleaseMarketplaceUI(Player)');
   push(
     '',
-    '    ShowAllOffersAndRelease(Player:player)<suspends>:void =',
-    '        ShowAllOffers(Player)',
-    '        ClearStorefrontInFlight(Player)',
-    '',
     '    OpenAllOffersStore<public>(Player:player):void =',
-    '        if (Active := StorefrontInFlight[Player], Active?):',
-    '            Print("The storefront is already open for this player")',
-    '        else if (set StorefrontInFlight[Player] = true):',
-    '            spawn{ShowAllOffersAndRelease(Player)}',
-    '        else:',
-    '            Print("Unable to open the storefront")',
+    '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+    '            spawn{ShowAllOffers(Player)}',
     '',
   );
   if (config.generateStorefrontBinding) push('    OnStorefrontButtonInteracted(Agent:agent):void =', '        if (Player := player[Agent]):', '            OpenAllOffersStore(Player)', '');
@@ -715,19 +689,11 @@ export function generateVerseCode(
       `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
       '',
       `    Show${pascal}Offers(Player:player)<suspends>:void =`,
-      `        ShowOffersDialog(Player, array{${references.join(', ')}}, ?Title := ${pascal}Title)`,
-      '',
-      `    Show${pascal}OffersAndRelease(Player:player)<suspends>:void =`,
-      `        Show${pascal}Offers(Player)`,
-      '        ClearStorefrontInFlight(Player)',
+      `        ExecuteStorefront(Player, array{${references.join(', ')}}, ${pascal}Title)`,
       '',
       `    Open${pascal}<public>(Player:player):void =`,
-      '        if (Active := StorefrontInFlight[Player], Active?):',
-      '            Print("A storefront is already open for this player")',
-      '        else if (set StorefrontInFlight[Player] = true):',
-      `            spawn{Show${pascal}OffersAndRelease(Player)}`,
-      '        else:',
-      '            Print("Unable to open the storefront")',
+      '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+      `            spawn{Show${pascal}Offers(Player)}`,
       '',
     );
     if (group.generateTriggerBinding) push(`    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`, '        if (Agent := MaybeAgent?):', '            if (Player := player[Agent]):', `                Open${pascal}(Player)`, '');

@@ -56,7 +56,7 @@ test('UEFN editables are present while device plumbing remains private', () => {
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered|automatic zone prompt/i);
   assert.doesNotMatch(source, /AccessPassTriggers|AccessPassButtons|AccessPassZones|CoinStoreTriggers|Phase4StorefrontButtons/);
-  for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'ExecuteBuyAccessPass', 'ShowAllOffersAndRelease', 'ShowCoinStoreOffersAndRelease', 'ReconcilePlayerEntitlements']) {
+  for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'ShowCoinStoreOffers', 'ReconcilePlayerEntitlements']) {
     const line = source.split(/\r?\n/).find(candidate => candidate.includes(`${internal}(`) || candidate.includes(`${internal}:`));
     assert.ok(line, `missing generated internal helper ${internal}`);
     assert.equal(line!.includes('<public>'), false, `${internal} unexpectedly became public`);

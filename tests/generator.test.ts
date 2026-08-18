@@ -105,9 +105,64 @@ test('generated device uses authoritative deltas, lifecycle cleanup, and transac
   assert.match(source, /PaidRandomItem<override>:logic = true/);
   assert.equal(source.includes(paidRandomRestrictionName), false);
   assert.match(source, /Odds: Common: 75%, Rare: 25%/);
-  assert.match(source, /else if \(set PurchaseInFlight\[Player\] = true\):/);
-  assert.match(source, /ClearPurchaseInFlight\(Player\)/);
+  assert.match(source, /var MarketplaceUIInFlight:\[player\]logic = map\{\}/);
+  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void/);
+  assert.match(source, /ExecuteStorefront\(Player:player, OffersToShow:\[\]offer, Title:message\)<suspends>:void/);
+  assert.doesNotMatch(source, /PurchaseInFlight|StorefrontInFlight|ClearPurchaseInFlight|ClearStorefrontInFlight/);
   assert.doesNotMatch(source, /BeginPurchase\(Player\)/);
+});
+
+test('Marketplace UI execution is unified and acquired before spawning', () => {
+  const source = generateVerseCode(items, bundles, config, [
+    { id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: true, entries: [{ entitlementId: 'crate' }] },
+  ]);
+
+  assert.equal((source.match(/BuyOffer\(/g) ?? []).length, 1);
+  assert.equal((source.match(/ShowOffersDialog\(/g) ?? []).length, 1);
+  assert.equal((source.match(/^    ExecutePurchase\(/gm) ?? []).length, 1);
+  assert.equal((source.match(/^    ExecuteStorefront\(/gm) ?? []).length, 1);
+  assert.equal((source.match(/^    ExecuteBuy/gm) ?? []).length, 0);
+  assert.equal((source.match(/OffersAndRelease/g) ?? []).length, 0);
+  assert.doesNotMatch(source, /PurchaseInFlight|StorefrontInFlight/);
+
+  for (const helper of [
+    'OpenVipPassPurchase', 'OpenMysteryCratePurchase', 'OpenStarterBundlePurchase', 'OpenAllOffersStore', 'OpenCoinStore',
+  ]) {
+    const block = source.slice(source.indexOf(`    ${helper}<public>`), source.indexOf('\n\n', source.indexOf(`    ${helper}<public>`)));
+    assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):\\n            spawn\\{`));
+  }
+
+  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(not WasPurchased\?\):\n            Print\("Purchase dialog closed without buying \{OfferLabel\}"\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /ExecuteStorefront\(Player:player, OffersToShow:\[\]offer, Title:message\)<suspends>:void =\n        ShowOffersDialog\(Player, OffersToShow, \?Title := Title\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /OnPlayerRemoved\(Player:player\):void =\n        RemovePlayerSubscription\(Player\)\n        ReleaseMarketplaceUI\(Player\)/);
+});
+
+test('dynamic preflight and non-UI helpers cannot strand or acquire the UI lock', () => {
+  const dynamicBundle: BundleOffer = {
+    ...structuredClone(bundles[0]),
+    id: 'dynamic', verseKey: 'dynamic_bundle', name: 'Dynamic Bundle', dynamicRemaining: true,
+    items: [{ entitlementId: 'crate', quantity: 1 }],
+  };
+  const source = generateVerseCode(items, [dynamicBundle], config);
+  const dynamicStart = source.indexOf('    ExecuteDynamicPurchaseDynamicBundle');
+  const dynamicEnd = source.indexOf('\n\n', dynamicStart);
+  const dynamicBody = source.slice(dynamicStart, dynamicEnd);
+  assert.match(dynamicBody, /RemainingCount > 0\)[\s\S]+ExecutePurchase\(Player, DynamicOffer, "Dynamic Bundle"\)/);
+  assert.match(dynamicBody, /else:[\s\S]+ReleaseMarketplaceUI\(Player\)/);
+
+  const bodyOf = (name: string): string => {
+    const start = source.indexOf(`    ${name}`);
+    assert.notEqual(start, -1, `missing ${name}`);
+    const remainder = source.slice(start + 1);
+    const next = remainder.search(/\n    [A-Za-z_]/);
+    return source.slice(start, next < 0 ? source.length : start + 1 + next);
+  };
+  for (const helper of ['GrantVipPass', 'ConsumeMysteryCrate', 'GetVipPassCount', 'HasVipPass', 'ReconcilePlayerEntitlements']) {
+    assert.doesNotMatch(bodyOf(helper), /MarketplaceUIInFlight|TryAcquireMarketplaceUI|ReleaseMarketplaceUI/);
+  }
+
+  const emptyStore = generateVerseCode([], [], config);
+  assert.match(emptyStore, /ShowAllOffers\(Player:player\)<suspends>:void =\n        Print\("No transaction offers are configured"\)\n        ReleaseMarketplaceUI\(Player\)/);
 });
 
 test('voluntary purchase flows are not guarded by creator-messaging restrictions', () => {
@@ -118,11 +173,11 @@ test('voluntary purchase flows are not guarded by creator-messaging restrictions
   for (const source of [regularSource, mixedSource]) {
     assert.equal(source.includes(directPromptRestrictionName), false);
   }
-  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):/);
+  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):/);
   assert.equal(mixedSource.includes(paidRandomRestrictionName), false);
-  assert.match(regularSource, /WasPurchased := BuyOffer\(Player, ManagedOffers\.vip_pass_offer\{\}\)/);
-  assert.match(mixedSource, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
+  assert.match(regularSource, /spawn\{ExecutePurchase\(Player, ManagedOffers\.vip_pass_offer\{\}, "VIP \\"Pass\\""\)\}/);
+  assert.match(mixedSource, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
 });
 
 test('paid-random metadata, not a manual guard, covers every generated Marketplace purchase path', () => {
@@ -158,14 +213,12 @@ test('paid-random metadata, not a manual guard, covers every generated Marketpla
   assert.equal(source.includes(paidRandomRestrictionName), false);
   assert.match(source, /vip_pass_entitlement<public> := class<concrete>/);
   assert.match(source, /PaidRandomItem<override>:logic = true/);
-  assert.match(source, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(source, /OpenMysteryCrateMobilePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(source, /OpenVipOnlyBundlePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(source, /OpenRandomMultiBundlePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(source, /OpenDynamicRandomBundlePurchase<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(source, /WasPurchased := BuyOffer\(Player, DynamicOffer\)/);
-  assert.match(source, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}, ManagedOffers\.dynamic_random_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
-  assert.match(source, /ShowRandomStoreOffers\(Player:player\)<suspends>:void =\n        ShowOffersDialog\(Player, array\{ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, \?Title := RandomStoreTitle\)/);
+  for (const helper of ['OpenMysteryCratePurchase', 'OpenMysteryCrateMobilePurchase', 'OpenVipOnlyBundlePurchase', 'OpenRandomMultiBundlePurchase', 'OpenDynamicRandomBundlePurchase']) {
+    assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):`));
+  }
+  assert.match(source, /ExecutePurchase\(Player, DynamicOffer, "Dynamic Random Bundle"\)/);
+  assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}, ManagedOffers\.dynamic_random_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
+  assert.match(source, /ShowRandomStoreOffers\(Player:player\)<suspends>:void =\n        ExecuteStorefront\(Player, array\{ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, RandomStoreTitle\)/);
   assert.match(source, /ConsumeMysteryCrate<public>/);
 });
 
@@ -296,7 +349,7 @@ test('bundle metadata and offer references are generated', () => {
   assert.match(source, /\(vip_pass_offer\{\}, 1\)/);
   assert.match(source, /\(mystery_crate_offer\{\}, 1\)/);
   assert.match(source, /OpenStarterBundlePurchase<public>/);
-  assert.match(source, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
+  assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
   assert.match(source, /Starter Bundle.*Odds: Mystery Crate: Common: 75%, Rare: 25%/s);
   assert.doesNotMatch(source, /VipPassOwnershipVerifiedEvent/);
 });
@@ -554,7 +607,7 @@ test('focused offer displays generate titled storefronts without becoming bundle
   assert.match(source, /CoinStore_OpenTriggers : \[\]trigger_device/);
   assert.doesNotMatch(source, /ShowCoinStore<public>\(Player:player\)<suspends>:void/);
   assert.match(source, /ShowCoinStoreOffers\(Player:player\)<suspends>:void/);
-  assert.match(source, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := CoinStoreTitle\)/);
+  assert.match(source, /ShowCoinStoreOffers\(Player:player\)<suspends>:void =\n        ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, CoinStoreTitle\)/);
   assert.match(source, /OpenCoinStore<public>\(Player:player\):void/);
   assert.match(source, /TriggeredEvent\.Subscribe\(OnCoinStoreTriggerActivated\)/);
   assert.doesNotMatch(source, /OnCoinStoreStoreTriggerActivated/);

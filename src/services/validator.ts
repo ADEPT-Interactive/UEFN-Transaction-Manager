@@ -410,9 +410,9 @@ export function validateEntireProject(
   };
   [
     'EntitlementChangeSubscriptions', 'PlayerJoinSubscription', 'PlayerLeftSubscription', 'DeviceSubscriptions',
-    'PurchaseInFlight', 'StorefrontInFlight', 'AllOffersStoreTitle', 'OnBegin', 'OnEnd', 'SubscribeToPlayer',
+    'MarketplaceUIInFlight', 'AllOffersStoreTitle', 'OnBegin', 'OnEnd', 'SubscribeToPlayer',
     'UnsubscribeFromPlayer', 'OnPlayerAdded', 'OnPlayerRemoved', 'TrackSubscription', 'CancelAllSubscriptions',
-    'ClearPurchaseInFlight', 'ClearStorefrontInFlight', 'ShowAllOffers', 'ShowAllOffersAndRelease', 'OpenAllOffersStore',
+    'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'OpenAllOffersStore',
   ].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
   memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {
@@ -427,12 +427,10 @@ export function validateEntireProject(
     registerMember(`Process${pascal}Removal`, item, 'verseKey');
     registerMember(`Grant${pascal}`, item, 'verseKey');
     registerMember(`Open${pascal}Purchase`, item, 'verseKey');
-    registerMember(`ExecuteBuy${pascal}`, item, 'verseKey');
     if (item.itemType === 'consumable') registerMember(`Consume${pascal}`, item, 'verseKey');
     (item.alternateOffers ?? []).forEach(offer => {
       const offerPascal = toPascalCase(offer.verseKey);
       registerMember(`Open${offerPascal}Purchase`, item, 'alternateOffers');
-      registerMember(`ExecuteBuy${offerPascal}`, item, 'alternateOffers');
     });
     if (item.triggers.generateTriggerBinding) registerMember(editableNames.purchaseTriggers, item, 'triggers');
     if (item.triggers.generateButtonBinding) registerMember(editableNames.purchaseButtons, item, 'triggers');
@@ -444,7 +442,6 @@ export function validateEntireProject(
     const pascal = toPascalCase(group.verseKey);
     registerGeneratedMember(`${pascal}Title`, 'generator');
     registerGeneratedMember(`Show${pascal}Offers`, 'generator');
-    registerGeneratedMember(`Show${pascal}OffersAndRelease`, 'generator');
     registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
     if (!group.generateTriggerBinding) return;
     const generatedName = storefrontEditableName(group.verseKey);

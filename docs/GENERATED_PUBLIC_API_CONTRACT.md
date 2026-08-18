@@ -53,7 +53,7 @@ One positive delta signals only `<Stem>_GrantedEvent`. One negative delta signal
 
 `Get<Stem>Count` queries current Marketplace state for the concrete entitlement and returns zero when no matching result exists. `Has<Stem>` returns whether that current count is greater than zero. Alternate offers share the parent entitlement queries; bundles and storefronts do not get ownership queries.
 
-`Open<Stem>Purchase` is the guarded purchase entry point for each entitlement, alternate offer, and bundle. Internal `ExecuteBuy…` functions perform the suspending Marketplace call. `OpenAllOffersStore` and `Open<StoreStem>` are guarded storefront entry points. Lower-level `Show…` functions used by those entry points remain internal and are not public compatibility APIs.
+`Open<Stem>Purchase` is the guarded purchase entry point for each entitlement, alternate offer, and bundle. Internal `ExecutePurchase` performs the shared suspending Marketplace call for every concrete offer, including dynamic offers after their remaining-quantity preflight. `OpenAllOffersStore` and `Open<StoreStem>` are guarded storefront entry points. Lower-level `Show…` functions and shared execution helpers remain internal and are not public compatibility APIs.
 
 Paid-random classification remains on entitlement metadata. Odds are optional inside UEM and are included in generated descriptions only when supplied; accurate odds must still be disclosed to players before purchase through UEM or another clear island disclosure.
 
