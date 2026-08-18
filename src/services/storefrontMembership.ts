@@ -17,16 +17,16 @@ export function resolveStorefrontEntry(
   bundles: BundleOffer[],
 ): ResolvedStorefrontOffer | undefined {
   if (entry.bundleId && !entry.entitlementId) {
-    const bundle = bundles.find(candidate => candidate.id === entry.bundleId);
+    const bundle = bundles.find(candidate => candidate.id.toLowerCase() === entry.bundleId!.toLowerCase() || candidate.verseKey.toLowerCase() === entry.bundleId!.toLowerCase());
     return bundle ? { kind: 'bundle', bundle, entry, offerVerseKey: bundle.verseKey } : undefined;
   }
   if (!entry.entitlementId || entry.bundleId) return undefined;
-  const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
+  const item = entitlements.find(candidate => candidate.id.toLowerCase() === entry.entitlementId!.toLowerCase() || candidate.verseKey.toLowerCase() === entry.entitlementId!.toLowerCase());
   if (!item) return undefined;
-  if (!entry.offerVerseKey || entry.offerVerseKey === item.verseKey) {
+  if (!entry.offerVerseKey || entry.offerVerseKey.toLowerCase() === item.verseKey.toLowerCase()) {
     return { kind: 'primary', item, entry: { entitlementId: item.id }, offerVerseKey: item.verseKey };
   }
-  const offer = item.alternateOffers?.find(candidate => candidate.verseKey === entry.offerVerseKey || candidate.id === entry.offerVerseKey);
+  const offer = item.alternateOffers?.find(candidate => candidate.verseKey.toLowerCase() === entry.offerVerseKey!.toLowerCase() || candidate.id.toLowerCase() === entry.offerVerseKey!.toLowerCase());
   return offer ? { kind: 'alternate', item, offer, entry: { entitlementId: item.id, offerVerseKey: offer.verseKey }, offerVerseKey: offer.verseKey } : undefined;
 }
 

@@ -21,6 +21,7 @@ import { sanitizeVerseIdentifier, validateEntitlement } from '../services/valida
 import { createVerseKeyAllocator, draftVerseKeyForName } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { PAID_RANDOM_ITEM_GUIDANCE_URL } from '../constants/docs';
+import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { ConfirmedTextureImport, ImageUploadZone, ImageUploadZoneHandle } from './ImageUploadZone';
 import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
 import { VBucksIcon } from './VBucksIcon';
@@ -121,7 +122,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   // Handle price quick-select
   const setPrice = (amount: number) => {
-    setFormData(prev => ({ ...prev, priceVBucks: Math.max(50, Math.min(5000, amount)) }));
+    setFormData(prev => ({ ...prev, priceVBucks: amount }));
   };
 
   // Drafts may follow their display name. Persisted keys never do.
@@ -293,7 +294,6 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   id="offer-display-name"
                   type="text"
                   required
-                  maxLength={50}
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. ⭐ VIP Pass or +10 Strength Boost"
@@ -324,13 +324,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label htmlFor="offer-short-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Short Description (Storefront Popup)
+                     Short Description (up to {MARKETPLACE_CONSTRAINTS.shortDescriptionMaxCharacters} characters)
                   </label>
                   <input
                     id="offer-short-description"
                     type="text"
                     required
-                    maxLength={100}
                     value={formData.shortDescription}
                     onChange={(e) => setFormData(prev => ({ ...prev, shortDescription: e.target.value }))}
                     placeholder="e.g. Unlock exclusive VIP conveyors & badge!"
@@ -340,13 +339,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
                 <div>
                   <label htmlFor="offer-full-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Full Description
+                     Full Description (up to {MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters} characters before generated disclosures)
                   </label>
                   <textarea
                     id="offer-full-description"
                     rows={2}
                     required
-                    maxLength={500}
                     value={formData.description}
                     onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="Detailed explanation of the entitlement and its in-game effects..."
@@ -355,7 +353,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 </div>
                 <div>
                   <label htmlFor="offer-duration" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Duration disclosure (if time-limited)</label>
-                  <input id="offer-duration" type="text" maxLength={100} value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400" />
+                  <input id="offer-duration" type="text" value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400" />
                 </div>
               </div>
 
@@ -364,7 +362,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 <div className="flex items-center justify-between">
                   <label htmlFor="offer-price" className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                     <VBucksIcon className="h-4 w-4 text-sky-400" />
-                    <span>Price in V-Bucks (50 – 5,000 VB, Step 50)</span>
+                    <span>Price in V-Bucks ({MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to {MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} VB, step {MARKETPLACE_CONSTRAINTS.priceStepVBucks})</span>
                   </label>
                   <span className="font-mono text-base font-extrabold text-sky-400">
                     <span className="inline-flex items-center gap-1.5"><VBucksIcon className="h-4 w-4" />{formData.priceVBucks} V-Bucks</span>
@@ -376,19 +374,19 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <input
                     id="offer-price"
                     type="number"
-                    min={50}
-                    max={5000}
-                    step={50}
+                    min={MARKETPLACE_CONSTRAINTS.priceMinVBucks}
+                    max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks}
+                    step={MARKETPLACE_CONSTRAINTS.priceStepVBucks}
                     value={formData.priceVBucks}
-                    onChange={(e) => setFormData(prev => ({ ...prev, priceVBucks: parseInt(e.target.value, 10) || 50 }))}
+                    onChange={(e) => setFormData(prev => ({ ...prev, priceVBucks: Number(e.target.value) }))}
                     className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-sky-400 text-center"
                   />
                   <input
                     aria-label="Offer price in V-Bucks"
                     type="range"
-                    min={50}
-                    max={5000}
-                    step={50}
+                    min={MARKETPLACE_CONSTRAINTS.priceMinVBucks}
+                    max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks}
+                    step={MARKETPLACE_CONSTRAINTS.priceStepVBucks}
                     value={formData.priceVBucks}
                     onChange={(e) => setFormData(prev => ({ ...prev, priceVBucks: parseInt(e.target.value, 10) }))}
                     className="flex-1 accent-sky-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
@@ -397,7 +395,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
                 {/* Quick Price Buttons */}
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[50, 100, 150, 200, 400, 500, 1000, 2000, 5000].map(amount => (
+                  {[MARKETPLACE_CONSTRAINTS.priceMinVBucks, 100, 150, 200, 400, 500, 1000, 2000, MARKETPLACE_CONSTRAINTS.priceMaxVBucks].map(amount => (
                     <button
                       key={amount}
                       type="button"
@@ -426,7 +424,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                       <input aria-label={`Variant ${index + 1} Verse key`} value={offer.verseKey} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, verseKey: sanitizeVerseIdentifier(e.target.value) } : candidate) }))} placeholder="variant_key" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono text-cyan-300" />
-                      <input aria-label={`Variant ${index + 1} price in V-Bucks`} type="number" min={50} max={5000} step={50} value={offer.priceVBucks} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: Number(e.target.value) } : candidate) }))} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <input aria-label={`Variant ${index + 1} price in V-Bucks`} type="number" min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} value={offer.priceVBucks} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: Number(e.target.value) } : candidate) }))} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                       <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
                     </div>
                     <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
@@ -520,10 +518,10 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     </div>
                     <input
                       type="number"
-                      min={1}
-                      max={10000000}
+                      min={MARKETPLACE_CONSTRAINTS.maxCountMin}
+                      max={MARKETPLACE_CONSTRAINTS.maxCount}
                       value={formData.maxCount}
-                      onChange={(e) => setFormData(prev => ({ ...prev, maxCount: parseInt(e.target.value, 10) || 1 }))}
+                      onChange={(e) => setFormData(prev => ({ ...prev, maxCount: Number(e.target.value) }))}
                       className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-white text-center"
                     />
                   </div>

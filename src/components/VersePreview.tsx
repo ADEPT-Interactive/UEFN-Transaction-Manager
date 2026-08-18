@@ -35,12 +35,14 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleCopy = () => {
+    if (hasErrors) return;
     navigator.clipboard.writeText(verseCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = () => {
+    if (hasErrors) return;
     const blob = new Blob([verseCode], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -76,7 +78,9 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
           {/* Copy Button */}
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            disabled={hasErrors}
+            title={hasErrors ? 'Resolve validation errors before copying generated Verse.' : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
             <span>{copied ? 'Copied!' : 'Copy Code'}</span>
@@ -85,7 +89,9 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
           {/* Download File Button */}
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            disabled={hasErrors}
+            title={hasErrors ? 'Resolve validation errors before downloading generated Verse.' : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
             <span>Download</span>

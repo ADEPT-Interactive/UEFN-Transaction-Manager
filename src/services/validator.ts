@@ -1,19 +1,13 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
+import { characterCount, generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
-const MAX_ENTITLEMENTS = 100;
-const MAX_NAME_LENGTH = 50;
-const MAX_SHORT_DESCRIPTION_LENGTH = 100;
-const MAX_DESCRIPTION_LENGTH = 500;
-const MAX_BUNDLE_OFFERS = 100;
-const MAX_ENTITLEMENT_COUNT = 10_000_000;
-const MAX_ALTERNATE_OFFERS = 20;
 const BANNED_TERMS = [
   'aura', 'backbling', 'contrail', 'drift trail', 'emoticon', 'glider',
   'harvesting tool', 'pickaxe', 'jam track', 'kicks', 'sidekick', 'spray',
@@ -25,6 +19,8 @@ const VALID_COUNTRY_CODE_SET = new Set<string>(COUNTRY_CODE_OPTIONS);
 const MODERATION_LEET_REPLACEMENTS: Record<string, string> = {
   '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's',
 };
+
+const safeText = (value: unknown): string => typeof value === 'string' ? value : '';
 
 export function validateVerseIdentifier(identifier: string): boolean {
   return isValidVerseIdentifier(identifier);
@@ -48,16 +44,19 @@ function issue(
   return { id, severity, message, ruleName, field, entitlementId, bundleId };
 }
 
-function generatedDescriptionWithOdds(description: string, odds: string): string {
-  const normalizedOdds = odds.trim();
-  return normalizedOdds ? `${description}\nOdds: ${normalizedOdds}` : description;
-}
-
-function validatePrice(ownerId: string, value: number, bundleId?: string): ValidationIssue[] {
-  if (!Number.isInteger(value) || value < 50 || value > 5000 || value % 50 !== 0) {
+function validatePrice(
+  label: string,
+  ownerId: string,
+  value: number,
+  bundleId?: string,
+): ValidationIssue[] {
+  if (!Number.isInteger(value)
+    || value < MARKETPLACE_CONSTRAINTS.priceMinVBucks
+    || value > MARKETPLACE_CONSTRAINTS.priceMaxVBucks
+    || value % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) {
     return [issue(
       `${ownerId}-price`, 'error',
-      'Price must be an integer from 50 to 5,000 V-Bucks in exact increments of 50.',
+      `${label} price must be an integer from ${MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to ${MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} V-Bucks in exact increments of ${MARKETPLACE_CONSTRAINTS.priceStepVBucks}. Current value: ${String(value)}.`,
       'price_bounds_and_step', 'priceVBucks', bundleId ? undefined : ownerId, bundleId,
     )];
   }
@@ -66,19 +65,38 @@ function validatePrice(ownerId: string, value: number, bundleId?: string): Valid
 
 function validateTextLengths(
   ownerId: string,
+  label: string,
   name: string,
   shortDescription: string,
   description: string,
+  durationDescription = '',
+  odds = '',
   bundleId?: string,
+  generatedDescriptionRuleName = 'description_length',
+  targetEntitlementId?: string,
+  descriptionField = 'description',
+  fieldPrefix = '',
 ): ValidationIssue[] {
-  const target = bundleId ? { bundleId } : { entitlementId: ownerId };
+  const target = bundleId ? { bundleId } : { entitlementId: targetEntitlementId ?? ownerId };
+  const fieldName = fieldPrefix ? `${fieldPrefix}.name` : 'name';
+  const fieldShortDescription = fieldPrefix ? `${fieldPrefix}.shortDescription` : 'shortDescription';
+  const fieldDescription = fieldPrefix ? `${fieldPrefix}.${descriptionField}` : descriptionField;
   const result: ValidationIssue[] = [];
-  if (!name.trim()) result.push(issue(`${ownerId}-name-required`, 'error', 'Display name is required.', 'name_required', 'name', target.entitlementId, target.bundleId));
-  if (name.length > MAX_NAME_LENGTH) result.push(issue(`${ownerId}-name-length`, 'error', `Display name must be ${MAX_NAME_LENGTH} characters or fewer.`, 'name_length', 'name', target.entitlementId, target.bundleId));
-  if (!shortDescription.trim()) result.push(issue(`${ownerId}-short-required`, 'error', 'Short description is required.', 'short_description_required', 'shortDescription', target.entitlementId, target.bundleId));
-  if (shortDescription.length > MAX_SHORT_DESCRIPTION_LENGTH) result.push(issue(`${ownerId}-short-length`, 'error', `Short description must be ${MAX_SHORT_DESCRIPTION_LENGTH} characters or fewer.`, 'short_description_length', 'shortDescription', target.entitlementId, target.bundleId));
-  if (!description.trim()) result.push(issue(`${ownerId}-description-required`, 'error', 'Description is required.', 'description_required', 'description', target.entitlementId, target.bundleId));
-  if (description.length > MAX_DESCRIPTION_LENGTH) result.push(issue(`${ownerId}-description-length`, 'error', `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'description_length', 'description', target.entitlementId, target.bundleId));
+  if (!name.trim()) result.push(issue(`${ownerId}-name-required`, 'error', 'Display name is required.', 'name_required', fieldName, target.entitlementId, target.bundleId));
+  if (characterCount(name) > MARKETPLACE_CONSTRAINTS.nameMaxCharacters) result.push(issue(`${ownerId}-name-length`, 'error', `${label} name is ${characterCount(name)} characters, which exceeds Epic's limit of ${MARKETPLACE_CONSTRAINTS.nameMaxCharacters}.`, 'name_length', fieldName, target.entitlementId, target.bundleId));
+  if (!shortDescription.trim()) result.push(issue(`${ownerId}-short-required`, 'error', 'Short description is required.', 'short_description_required', fieldShortDescription, target.entitlementId, target.bundleId));
+  if (characterCount(shortDescription) > MARKETPLACE_CONSTRAINTS.shortDescriptionMaxCharacters) result.push(issue(`${ownerId}-short-length`, 'error', `${label} short description is ${characterCount(shortDescription)} characters, which exceeds Epic's limit of ${MARKETPLACE_CONSTRAINTS.shortDescriptionMaxCharacters}.`, 'short_description_length', fieldShortDescription, target.entitlementId, target.bundleId));
+  if (!description.trim()) result.push(issue(`${ownerId}-description-required`, 'error', 'Description is required.', 'description_required', fieldDescription, target.entitlementId, target.bundleId));
+  const generatedDescription = generatedOfferDescription(description, durationDescription, odds);
+  const generatedLength = characterCount(generatedDescription);
+  if (generatedLength > MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters) {
+    const suffixes = [durationDescription.trim() ? 'duration disclosure' : '', odds.trim() ? 'paid-random odds disclosure' : ''].filter(Boolean).join(' and ');
+    result.push(issue(
+      `${ownerId}-description-length`, 'error',
+      `${label} final generated description is ${generatedLength} characters, exceeding Epic's limit of ${MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters}${suffixes ? ` after adding the ${suffixes}` : ''}. Remove ${generatedLength - MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters} characters from the source text or generated disclosure.`,
+      generatedDescriptionRuleName, fieldDescription, target.entitlementId, target.bundleId,
+    ));
+  }
   return result;
 }
 
@@ -86,14 +104,22 @@ function validateRestrictions(ownerId: string, restrictions: OfferRestrictions |
   const issues: ValidationIssue[] = [];
   const target = bundleId ? { bundleId } : { entitlementId };
   const age = restrictions?.minimumPurchaseAge;
-  if (age !== undefined && (!Number.isInteger(age) || age < 0 || age > 99)) {
-    issues.push(issue(`${ownerId}-minimum-age`, 'error', 'Minimum purchase age must be an integer from 0 to 99.', 'minimum_purchase_age', `${field}.minimumPurchaseAge`, target.entitlementId, target.bundleId));
+  if (age !== undefined && (!Number.isSafeInteger(age) || age < 0)) {
+    issues.push(issue(`${ownerId}-minimum-age`, 'error', 'Minimum purchase age must be a non-negative integer. Epic does not publish a smaller UEM-specific upper bound.', 'minimum_purchase_age', `${field}.minimumPurchaseAge`, target.entitlementId, target.bundleId));
   }
-  for (const code of restrictions?.blockedCountryCodes ?? []) {
+  const countryCodes = restrictions?.blockedCountryCodes ?? [];
+  const seenCountries = new Set<string>();
+  for (const code of countryCodes) {
     if (!VALID_COUNTRY_CODE_SET.has(code)) issues.push(issue(`${ownerId}-country-${code}`, 'error', `Blocked country code "${code}" must be an ISO-3166-1 alpha-2 code supported by the country picker.`, 'country_code', `${field}.blockedCountryCodes`, target.entitlementId, target.bundleId));
+    if (seenCountries.has(code)) issues.push(issue(`${ownerId}-country-duplicate-${code}`, 'warning', `${code} is listed more than once in the blocked-country restrictions. Remove the duplicate; UEM emits each restriction once.`, 'restriction_duplicate', `${field}.blockedCountryCodes`, target.entitlementId, target.bundleId));
+    seenCountries.add(code);
   }
-  for (const platform of restrictions?.blockedPlatformFamilies ?? []) {
+  const platforms = restrictions?.blockedPlatformFamilies ?? [];
+  const seenPlatforms = new Set<string>();
+  for (const platform of platforms) {
     if (!VALID_PLATFORM_FAMILY_SET.has(platform)) issues.push(issue(`${ownerId}-platform-${platform}`, 'error', `Platform family "${platform}" is not an official Epic Marketplace platform ID.`, 'platform_family', `${field}.blockedPlatformFamilies`, target.entitlementId, target.bundleId));
+    if (seenPlatforms.has(platform)) issues.push(issue(`${ownerId}-platform-duplicate-${platform}`, 'warning', `${platform} is listed more than once in the blocked-platform restrictions. Remove the duplicate; UEM emits each restriction once.`, 'restriction_duplicate', `${field}.blockedPlatformFamilies`, target.entitlementId, target.bundleId));
+    seenPlatforms.add(platform);
   }
   return issues;
 }
@@ -147,69 +173,121 @@ function validateDuration(ownerId: string, description: string, durationDescript
   return [];
 }
 
+function paidRandomDisclosuresForBundle(
+  bundle: BundleOffer,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  visited = new Set<string>(),
+): string[] {
+  if (visited.has(bundle.id)) return [];
+  const next = new Set(visited).add(bundle.id);
+  const disclosures: string[] = [];
+  for (const entry of bundle.items ?? []) {
+    const item = entry.entitlementId ? entitlements.find(candidate => candidate.id === entry.entitlementId) : undefined;
+    const odds = item?.flags?.paidRandomItem === true ? safeText(item.flags.paidRandomItemOdds).trim() : '';
+    if (item?.flags?.paidRandomItem === true && odds) disclosures.push(`${safeText(item.name)}: ${odds}`);
+    const nested = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
+    if (nested) disclosures.push(...paidRandomDisclosuresForBundle(nested, entitlements, bundles, next));
+  }
+  return [...new Set(disclosures)];
+}
+
 export function validateEntitlement(item: EntitlementItem, allItems: EntitlementItem[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const id = item.id;
+  const id = safeText(item.id);
+  const name = safeText(item.name);
+  const shortDescription = safeText(item.shortDescription);
+  const description = safeText(item.description);
+  const verseKey = safeText(item.verseKey);
+  const durationDescription = safeText(item.durationDescription);
+  const flags = item.flags ?? {} as EntitlementItem['flags'];
+  const paidRandomItem = flags.paidRandomItem === true;
+  const paidRandomItemOdds = safeText(flags.paidRandomItemOdds);
+  const label = name || verseKey || id;
 
-  if (!validateVerseIdentifier(item.verseKey)) {
+  if (!id.trim()) issues.push(issue('entitlement-id-required', 'error', `${label || 'Entitlement'} must have a stable record identifier.`, 'entitlement_id_required', 'id', id || undefined));
+  if (!validateVerseIdentifier(verseKey)) {
     issues.push(issue(`${id}-key`, 'error', 'Verse key must be a valid Verse identifier.', 'identifier_format', 'verseKey', id));
   }
-  if (allItems.some(other => other.id !== id && other.verseKey.toLowerCase() === item.verseKey.toLowerCase())) {
-    issues.push(issue(`${id}-key-duplicate`, 'error', `Duplicate Verse key "${item.verseKey}".`, 'identifier_unique', 'verseKey', id));
+  if (allItems.some(other => other.id !== id && safeText(other.verseKey).toLowerCase() === verseKey.toLowerCase())) {
+    issues.push(issue(`${id}-key-duplicate`, 'error', `Duplicate Verse key "${verseKey}".`, 'identifier_unique', 'verseKey', id));
+  }
+  if (item.itemType !== 'durable' && item.itemType !== 'consumable') {
+    issues.push(issue(`${id}-type`, 'error', `${label || 'Entitlement'} must use a supported entitlement type: durable or consumable.`, 'entitlement_type', 'itemType', id));
   }
 
-  issues.push(...validateTextLengths(id, item.name, item.shortDescription, item.description));
-  issues.push(...validatePrice(id, item.priceVBucks));
+  issues.push(...validateTextLengths(
+    id,
+    label,
+    name,
+    shortDescription,
+    description,
+    durationDescription,
+    paidRandomItem ? paidRandomItemOdds : '',
+    undefined,
+    paidRandomItem && paidRandomItemOdds.trim() ? 'random_item_description_length' : 'description_length',
+  ));
+  issues.push(...validatePrice(label, id, item.priceVBucks));
 
   if (item.itemType === 'durable' && item.maxCount !== 1) {
     issues.push(issue(`${id}-durable-count`, 'error', 'Durable entitlements must have MaxCount 1.', 'durable_maxcount_one', 'maxCount', id));
   }
-  if (item.itemType === 'consumable' && (!Number.isInteger(item.maxCount) || item.maxCount < 1 || item.maxCount > MAX_ENTITLEMENT_COUNT)) {
-    issues.push(issue(`${id}-consumable-count`, 'error', `Consumable MaxCount must be a positive integer no greater than ${MAX_ENTITLEMENT_COUNT.toLocaleString()}.`, 'consumable_maxcount', 'maxCount', id));
+  if (item.itemType === 'consumable' && (!Number.isSafeInteger(item.maxCount) || item.maxCount < MARKETPLACE_CONSTRAINTS.maxCountMin || item.maxCount > MARKETPLACE_CONSTRAINTS.maxCount)) {
+    issues.push(issue(`${id}-consumable-count`, 'error', `${label} MaxCount must be an integer from ${MARKETPLACE_CONSTRAINTS.maxCountMin} to ${MARKETPLACE_CONSTRAINTS.maxCount.toLocaleString()}. Current value: ${String(item.maxCount)}.`, 'consumable_maxcount', 'maxCount', id));
   }
   if (item.itemType === 'durable' && item.autoConsume) {
     issues.push(issue(`${id}-durable-consume`, 'error', 'Durable entitlements cannot be auto-consumed.', 'durable_not_consumable', 'autoConsume', id));
   }
-  if (!validateTextureExpression(item.iconTexture.trim())) {
+  if (!validateTextureExpression(safeText(item.iconTexture).trim())) {
     issues.push(issue(`${id}-icon`, 'error', 'Icon must be a dotted Verse texture expression such as EntitlementIcons.VipPass.', 'icon_expression', 'iconTexture', id));
   }
-  if (item.flags.paidRandomItem) {
-    const odds = item.flags.paidRandomItemOdds.trim();
-    if (generatedDescriptionWithOdds(item.description, odds).length > MAX_DESCRIPTION_LENGTH) {
-      issues.push(issue(`${id}-odds-length`, 'error', `Description plus the generated odds disclosure must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'random_item_description_length', 'description', id));
-    }
+  if (paidRandomItem) {
+    const odds = paidRandomItemOdds.trim();
+    if (!odds) issues.push(issue(`${id}-odds-required-warning`, 'warning', `${label} is marked Paid Random Item, but no odds were entered in UEM. Before purchase, disclose accurate numerical odds in the offer or clearly direct players to where they are visible.`, 'paid_random_odds_required', 'flags.paidRandomItemOdds', id));
   }
 
-  if (!item.flags.paidRandomItem && item.flags.paidRandomItemOdds.trim()) {
+  if (!paidRandomItem && paidRandomItemOdds.trim()) {
     issues.push(issue(`${id}-odds-unused`, 'warning', 'Odds are present but Paid Random Item is disabled.', 'random_item_odds_unused', 'flags.paidRandomItemOdds', id));
   }
-  issues.push(...validateDuration(id, item.description, item.durationDescription ?? '', id));
+  issues.push(...validateDuration(id, description, durationDescription, id));
   issues.push(...validateRestrictions(id, item.offerRestrictions, 'offerRestrictions', id));
-  issues.push(...validateCompliance(id, [item.name, item.shortDescription, item.description, item.durationDescription ?? '', item.flags.paidRandomItemOdds], id));
+  issues.push(...validateCompliance(id, [name, shortDescription, description, durationDescription, paidRandomItemOdds], id));
 
-  const alternateOffers = item.alternateOffers ?? [];
-  if (alternateOffers.length > MAX_ALTERNATE_OFFERS) {
-    issues.push(issue(`${id}-alternate-max`, 'error', `An entitlement may have at most ${MAX_ALTERNATE_OFFERS} alternate offers.`, 'alternate_offer_max', 'alternateOffers', id));
-  }
+  const alternateOffers = Array.isArray(item.alternateOffers) ? item.alternateOffers : [];
   const alternateKeys = new Set<string>();
   alternateOffers.forEach((offer, index) => {
     const offerId = `${id}-alternate-${index}`;
-    if (!validateVerseIdentifier(offer.verseKey)) issues.push(issue(`${offerId}-key`, 'error', 'Alternate offer Verse key must be a valid Verse identifier.', 'alternate_offer_identifier', `alternateOffers.${index}.verseKey`, id));
-    const normalized = offer.verseKey.toLowerCase();
-    if (alternateKeys.has(normalized) || normalized === item.verseKey.toLowerCase()) issues.push(issue(`${offerId}-key-duplicate`, 'error', `Alternate offer Verse key "${offer.verseKey}" conflicts with another offer.`, 'alternate_offer_identifier_unique', `alternateOffers.${index}.verseKey`, id));
+    const offerLabel = safeText(offer.name) || safeText(offer.verseKey) || `alternate offer ${index + 1}`;
+    if (!safeText(offer.id).trim()) issues.push(issue(`${offerId}-id-required`, 'error', `${offerLabel} must have a stable alternate-offer record identifier.`, 'alternate_offer_id_required', `alternateOffers.${index}.id`, id));
+    const alternateVerseKey = safeText(offer.verseKey);
+    const alternateName = safeText(offer.name);
+    const alternateShortDescription = safeText(offer.shortDescription);
+    const alternateDescription = safeText(offer.description);
+    const alternateDurationDescription = safeText(offer.durationDescription);
+    const alternateIconTexture = safeText(offer.iconTexture);
+    if (!validateVerseIdentifier(alternateVerseKey)) issues.push(issue(`${offerId}-key`, 'error', 'Alternate offer Verse key must be a valid Verse identifier.', 'alternate_offer_identifier', `alternateOffers.${index}.verseKey`, id));
+    const normalized = alternateVerseKey.toLowerCase();
+    if (alternateKeys.has(normalized) || normalized === verseKey.toLowerCase()) issues.push(issue(`${offerId}-key-duplicate`, 'error', `Alternate offer Verse key "${alternateVerseKey}" conflicts with another offer.`, 'alternate_offer_identifier_unique', `alternateOffers.${index}.verseKey`, id));
     alternateKeys.add(normalized);
-    issues.push(...validateTextLengths(offerId, offer.name, offer.shortDescription, offer.description));
-    issues.push(...validatePrice(offerId, offer.priceVBucks));
-    issues.push(...validateDuration(offerId, offer.description, offer.durationDescription ?? '', id));
-    if (item.flags.paidRandomItem) {
-      const odds = item.flags.paidRandomItemOdds.trim();
-      if (generatedDescriptionWithOdds(offer.description, odds).length > MAX_DESCRIPTION_LENGTH) {
-        issues.push(issue(`${offerId}-odds-length`, 'error', `Description plus the generated odds disclosure must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'random_item_description_length', `alternateOffers.${index}.description`, id));
-      }
-    }
-    if (!validateTextureExpression(offer.iconTexture.trim())) issues.push(issue(`${offerId}-icon`, 'error', 'Alternate offer icon must be a dotted Verse texture expression.', 'alternate_offer_icon_expression', `alternateOffers.${index}.iconTexture`, id));
+    issues.push(...validateTextLengths(
+      offerId,
+      offerLabel,
+      alternateName,
+      alternateShortDescription,
+      alternateDescription,
+      alternateDurationDescription,
+      paidRandomItem ? paidRandomItemOdds : '',
+      undefined,
+      paidRandomItem && paidRandomItemOdds.trim() ? 'random_item_description_length' : 'description_length',
+      id,
+      'description',
+      `alternateOffers.${index}`,
+    ));
+    issues.push(...validatePrice(offerLabel, offerId, offer.priceVBucks));
+    issues.push(...validateDuration(offerId, alternateDescription, alternateDurationDescription, id));
+    if (!validateTextureExpression(alternateIconTexture.trim())) issues.push(issue(`${offerId}-icon`, 'error', 'Alternate offer icon must be a dotted Verse texture expression.', 'alternate_offer_icon_expression', `alternateOffers.${index}.iconTexture`, id));
     issues.push(...validateRestrictions(offerId, offer.restrictions, `alternateOffers.${index}.restrictions`, id));
-    issues.push(...validateCompliance(offerId, [offer.name, offer.shortDescription, offer.description, offer.durationDescription ?? ''], id));
+    issues.push(...validateCompliance(offerId, [alternateName, alternateShortDescription, alternateDescription, alternateDurationDescription], id));
   });
 
   return issues;
@@ -217,33 +295,51 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
 
 export function validateBundleOffer(bundle: BundleOffer, entitlements: EntitlementItem[], allBundles: BundleOffer[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const id = bundle.id;
+  const id = safeText(bundle.id);
+  const name = safeText(bundle.name);
+  const shortDescription = safeText(bundle.shortDescription);
+  const description = safeText(bundle.description);
+  const verseKey = safeText(bundle.verseKey);
+  const durationDescription = safeText(bundle.durationDescription);
+  const iconTexture = safeText(bundle.iconTexture);
+  const bundleEntries = Array.isArray(bundle.items) ? bundle.items : [];
+  const label = name || verseKey || id;
   const entitlementById = new Map(entitlements.map(item => [item.id, item]));
 
-  if (!validateVerseIdentifier(bundle.verseKey)) {
+  if (!id.trim()) issues.push(issue('bundle-id-required', 'error', `${label || 'Bundle'} must have a stable record identifier.`, 'bundle_id_required', 'id', undefined, id || undefined));
+  if (!validateVerseIdentifier(verseKey)) {
     issues.push(issue(`${id}-key`, 'error', 'Bundle Verse key must be a valid Verse identifier.', 'bundle_identifier', 'verseKey', undefined, id));
   }
-  if (allBundles.some(other => other.id !== id && other.verseKey.toLowerCase() === bundle.verseKey.toLowerCase()) ||
-      entitlements.some(item => item.verseKey.toLowerCase() === bundle.verseKey.toLowerCase())) {
-    issues.push(issue(`${id}-key-duplicate`, 'error', `Bundle Verse key "${bundle.verseKey}" conflicts with another offer.`, 'bundle_identifier_unique', 'verseKey', undefined, id));
+  if (allBundles.some(other => safeText(other.id) !== id && safeText(other.verseKey).toLowerCase() === verseKey.toLowerCase()) ||
+      entitlements.some(item => safeText(item.verseKey).toLowerCase() === verseKey.toLowerCase())) {
+    issues.push(issue(`${id}-key-duplicate`, 'error', `Bundle Verse key "${verseKey}" conflicts with another offer.`, 'bundle_identifier_unique', 'verseKey', undefined, id));
   }
-  issues.push(...validateTextLengths(id, bundle.name, bundle.shortDescription, bundle.description, id));
-  issues.push(...validatePrice(id, bundle.priceVBucks, id));
-  issues.push(...validateDuration(id, bundle.description, bundle.durationDescription ?? '', undefined, id));
+  const normalizedBundle = { ...bundle, id, name, shortDescription, description, verseKey, durationDescription, iconTexture, items: bundleEntries };
+  const randomDisclosures = paidRandomDisclosuresForBundle(normalizedBundle, entitlements, allBundles).join('; ');
+  issues.push(...validateTextLengths(
+    id,
+    label,
+    name,
+    shortDescription,
+    description,
+    durationDescription,
+    randomDisclosures,
+    id,
+    randomDisclosures ? 'bundle_random_item_description_length' : 'description_length',
+  ));
+  issues.push(...validatePrice(label, id, bundle.priceVBucks, id));
+  issues.push(...validateDuration(id, description, durationDescription, undefined, id));
   issues.push(...validateRestrictions(id, bundle.restrictions, 'restrictions', undefined, id));
-  issues.push(...validateCompliance(id, [bundle.name, bundle.shortDescription, bundle.description, bundle.durationDescription ?? ''], undefined, id));
-  if (!validateTextureExpression(bundle.iconTexture.trim())) {
+  issues.push(...validateCompliance(id, [name, shortDescription, description, durationDescription], undefined, id));
+  if (!validateTextureExpression(iconTexture.trim())) {
     issues.push(issue(`${id}-icon`, 'error', 'Bundle icon must be a dotted Verse texture expression.', 'bundle_icon_expression', 'iconTexture', undefined, id));
   }
-  if (!bundle.dynamicRemaining && bundle.items.length < 2) {
-    issues.push(issue(`${id}-items-min`, 'error', 'A bundle must contain at least two offer entries.', 'bundle_items_min', 'items', undefined, id));
-  }
-  if (bundle.items.length > MAX_BUNDLE_OFFERS) {
-    issues.push(issue(`${id}-items-max`, 'error', `A bundle may contain at most ${MAX_BUNDLE_OFFERS} direct offer entries.`, 'bundle_items_max', 'items', undefined, id));
+  if (bundleEntries.length < 1) {
+    issues.push(issue(`${id}-items-min`, 'error', `${label} must contain at least one entitlement offer entry.`, 'bundle_items_min', 'items', undefined, id));
   }
 
   const seen = new Set<string>();
-  bundle.items.forEach((entry, index) => {
+  bundleEntries.forEach((entry, index) => {
     const entitlement = entry.entitlementId ? entitlementById.get(entry.entitlementId) : undefined;
     const nestedBundle = entry.bundleId ? allBundles.find(candidate => candidate.id === entry.bundleId) : undefined;
     if ((!entitlement && !nestedBundle) || (entitlement && nestedBundle) || (!entry.entitlementId && !entry.bundleId)) {
@@ -259,41 +355,24 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     if (entitlement && entry.offerVerseKey && !(entitlement.alternateOffers ?? []).some(offer => offer.verseKey.toLowerCase() === entry.offerVerseKey!.toLowerCase())) {
       issues.push(issue(`${id}-item-${index}-offer`, 'error', 'Bundle offer variant does not exist on the referenced entitlement.', 'bundle_offer_variant_exists', 'items', undefined, id));
     }
-    if (!Number.isInteger(entry.quantity) || entry.quantity < 1 || (entitlement && entry.quantity > entitlement.maxCount)) {
+    if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || (entitlement && entry.quantity > entitlement.maxCount)) {
       const maxText = entitlement ? ` and its MaxCount (${entitlement.maxCount})` : '';
-      issues.push(issue(`${id}-item-${index}-quantity`, 'error', `Bundle quantity must be a positive integer${maxText}.`, 'bundle_quantity', 'items', undefined, id));
+      issues.push(issue(`${id}-item-${index}-quantity`, 'error', `${label} entry ${index + 1} quantity must be a positive safe integer${maxText}. Current value: ${String(entry.quantity)}.`, 'bundle_quantity', 'items', undefined, id));
     }
   });
-  const collectRandomDisclosures = (candidate: BundleOffer, visited = new Set<string>()): string[] => {
-    if (visited.has(candidate.id)) return [];
-    const next = new Set(visited).add(candidate.id);
-    const disclosures: string[] = [];
-    for (const entry of candidate.items) {
-      const item = entry.entitlementId ? entitlementById.get(entry.entitlementId) : undefined;
-      const odds = item?.flags.paidRandomItem ? item.flags.paidRandomItemOdds.trim() : '';
-      if (item?.flags.paidRandomItem && odds) disclosures.push(`${item.name}: ${odds}`);
-      const nested = entry.bundleId ? allBundles.find(other => other.id === entry.bundleId) : undefined;
-      if (nested) disclosures.push(...collectRandomDisclosures(nested, next));
-    }
-    return [...new Set(disclosures)];
-  };
-  const randomDisclosures = collectRandomDisclosures(bundle).join('; ');
-  if (randomDisclosures && `${bundle.description}\nOdds: ${randomDisclosures}`.length > MAX_DESCRIPTION_LENGTH) {
-    issues.push(issue(`${id}-random-description-length`, 'error', `Bundle description plus included paid-random-item odds must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'bundle_random_item_description_length', 'description', undefined, id));
-  }
-  if (bundle.dynamicRemaining && bundle.items.some(entry => entry.bundleId)) {
+  if (bundle.dynamicRemaining && bundleEntries.some(entry => entry.bundleId)) {
     issues.push(issue(`${id}-dynamic-nested`, 'error', 'Dynamic remaining bundles currently support entitlement entries only.', 'dynamic_bundle_nested', 'dynamicRemaining', undefined, id));
   }
-  if (bundle.dynamicRemaining && (bundle.items.length !== 1 || !bundle.items[0]?.entitlementId)) {
+  if (bundle.dynamicRemaining && (bundleEntries.length !== 1 || !bundleEntries[0]?.entitlementId)) {
     issues.push(issue(`${id}-dynamic-shape`, 'error', 'A dynamic remaining bundle must contain exactly one entitlement entry.', 'dynamic_bundle_shape', 'items', undefined, id));
   }
-  if (bundle.dynamicRemaining && bundle.items.length === 1 && bundle.items[0]?.entitlementId && bundle.items[0].quantity !== 1) {
+  if (bundle.dynamicRemaining && bundleEntries.length === 1 && bundleEntries[0]?.entitlementId && bundleEntries[0].quantity !== 1) {
     issues.push(issue(`${id}-dynamic-quantity`, 'error', 'A dynamic remaining bundle must use quantity 1; the purchase-time remaining quantity replaces this entry quantity.', 'dynamic_bundle_quantity', 'items', undefined, id));
   }
   const depth = (candidate: BundleOffer, path: Set<string>): number | undefined => {
     if (path.has(candidate.id)) return undefined;
     const nextPath = new Set(path).add(candidate.id);
-    const childDepths = candidate.items
+    const childDepths = (candidate.items ?? [])
       .map(entry => entry.bundleId ? allBundles.find(other => other.id === entry.bundleId) : undefined)
       .filter((child): child is BundleOffer => Boolean(child))
       .map(child => depth(child, nextPath));
@@ -301,14 +380,14 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     const numericDepths = childDepths.filter((value): value is number => value !== undefined);
     return 1 + (numericDepths.length ? Math.max(...numericDepths) : 0);
   };
-  const bundleDepth = depth(bundle, new Set());
+  const bundleDepth = depth(normalizedBundle, new Set());
   if (bundleDepth === undefined) issues.push(issue(`${id}-cycle`, 'error', 'Nested bundle references must not form a cycle.', 'bundle_cycle', 'items', undefined, id));
-  else if (bundleDepth > 5) issues.push(issue(`${id}-depth`, 'error', 'Nested bundles may be at most five levels deep.', 'bundle_depth', 'items', undefined, id));
+  else if (bundleDepth > MARKETPLACE_CONSTRAINTS.maxNestedBundleDepth) issues.push(issue(`${id}-depth`, 'error', `Nested bundles may be at most ${MARKETPLACE_CONSTRAINTS.maxNestedBundleDepth} levels deep under Epic's Marketplace rules.`, 'bundle_depth', 'items', undefined, id));
   const leafEntitlements = (candidate: BundleOffer, visited = new Set<string>()): Set<string> => {
     if (visited.has(candidate.id)) return new Set();
     const next = new Set(visited).add(candidate.id);
     const result = new Set<string>();
-    for (const entry of candidate.items) {
+    for (const entry of candidate.items ?? []) {
       if (entry.entitlementId) result.add(entry.entitlementId);
       else if (entry.bundleId) {
         const nested = allBundles.find(other => other.id === entry.bundleId);
@@ -317,13 +396,17 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     }
     return result;
   };
-  if (leafEntitlements(bundle).size > 100) issues.push(issue(`${id}-entitlement-identifiers`, 'error', 'An offer may contain at most 100 distinct entitlement identifiers, including nested bundles.', 'bundle_entitlement_identifier_limit', 'items', undefined, id));
+  if (leafEntitlements(normalizedBundle).size > MARKETPLACE_CONSTRAINTS.maxDistinctEntitlementIdentifiersPerOffer) issues.push(issue(`${id}-entitlement-identifiers`, 'error', `An offer may contain at most ${MARKETPLACE_CONSTRAINTS.maxDistinctEntitlementIdentifiersPerOffer} distinct entitlement identifiers, including nested bundles.`, 'bundle_entitlement_identifier_limit', 'items', undefined, id));
   const effectiveQuantities = (candidate: BundleOffer, multiplier = 1, visited = new Set<string>()): Map<string, number> => {
     if (visited.has(candidate.id)) return new Map();
     const next = new Set(visited).add(candidate.id);
     const result = new Map<string, number>();
-    for (const entry of candidate.items) {
-      if (entry.entitlementId) result.set(entry.entitlementId, (result.get(entry.entitlementId) ?? 0) + multiplier * entry.quantity);
+    for (const entry of candidate.items ?? []) {
+      if (entry.entitlementId) {
+        const added = multiplier * entry.quantity;
+        const nextQuantity = (result.get(entry.entitlementId) ?? 0) + added;
+        result.set(entry.entitlementId, nextQuantity);
+      }
       else if (entry.bundleId) {
         const nested = allBundles.find(other => other.id === entry.bundleId);
         if (nested) for (const [entitlementId, quantity] of effectiveQuantities(nested, multiplier * entry.quantity, next)) result.set(entitlementId, (result.get(entitlementId) ?? 0) + quantity);
@@ -331,36 +414,45 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     }
     return result;
   };
-  for (const [entitlementId, quantity] of effectiveQuantities(bundle)) {
+  for (const [entitlementId, quantity] of effectiveQuantities(normalizedBundle)) {
     const item = entitlementById.get(entitlementId);
-    if (item && quantity > item.maxCount) issues.push(issue(`${id}-effective-quantity-${entitlementId}`, 'error', `Nested bundle quantity for ${item.name} exceeds its MaxCount (${item.maxCount}).`, 'bundle_effective_quantity', 'items', undefined, id));
+    if (!Number.isSafeInteger(quantity)) {
+      issues.push(issue(`${id}-effective-quantity-overflow-${entitlementId}`, 'error', `${label} has an effective quantity too large for UEM to represent safely. Reduce a nested or direct bundle quantity.`, 'bundle_effective_quantity_overflow', 'items', undefined, id));
+    } else if (item && quantity > item.maxCount) {
+      issues.push(issue(`${id}-effective-quantity-${entitlementId}`, 'error', `Nested bundle quantity for ${item.name} exceeds its MaxCount (${item.maxCount}).`, 'bundle_effective_quantity', 'items', undefined, id));
+    }
   }
   return issues;
 }
 
 export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements: EntitlementItem[], bundles: BundleOffer[], allGroups: OfferDisplayGroup[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  if (!validateVerseIdentifier(group.verseKey)) issues.push(issue(`${group.id}-key`, 'error', 'Offer display Verse key must be a valid Verse identifier.', 'offer_display_identifier', 'verseKey'));
-  if (allGroups.some(candidate => candidate.id !== group.id && candidate.verseKey.toLowerCase() === group.verseKey.toLowerCase())) issues.push(issue(`${group.id}-key-duplicate`, 'error', `Offer display Verse key "${group.verseKey}" is already used.`, 'offer_display_identifier_unique', 'verseKey'));
-  if (!group.name.trim() || group.name.length > MAX_NAME_LENGTH) issues.push(issue(`${group.id}-name`, 'error', `Offer display title is required and must be ${MAX_NAME_LENGTH} characters or fewer.`, 'offer_display_name', 'name'));
-  if (group.entries.length === 0) issues.push(issue(`${group.id}-entries-min`, 'warning', 'This storefront is empty and will show no offers until membership is configured.', 'offer_display_entries_min', 'entries'));
-  if (group.entries.length > 100) issues.push(issue(`${group.id}-entries-max`, 'error', 'An offer display may contain at most 100 offers.', 'offer_display_entries_max', 'entries'));
+  const groupId = safeText(group.id);
+  const groupVerseKey = safeText(group.verseKey);
+  const groupName = safeText(group.name);
+  const groupEntries = Array.isArray(group.entries) ? group.entries : [];
+  if (!groupId.trim()) issues.push(issue('storefront-id-required', 'error', `${groupName || 'Storefront'} must have a stable record identifier.`, 'offer_display_id_required', 'id'));
+  if (!validateVerseIdentifier(groupVerseKey)) issues.push(issue(`${groupId}-key`, 'error', 'Offer display Verse key must be a valid Verse identifier.', 'offer_display_identifier', 'verseKey'));
+  if (allGroups.some(candidate => safeText(candidate.id) !== groupId && safeText(candidate.verseKey).toLowerCase() === groupVerseKey.toLowerCase())) issues.push(issue(`${groupId}-key-duplicate`, 'error', `Offer display Verse key "${groupVerseKey}" is already used.`, 'offer_display_identifier_unique', 'verseKey'));
+  if (!groupName.trim()) issues.push(issue(`${groupId}-name-required`, 'error', 'Storefront title is required.', 'offer_display_name', 'name'));
+  if (characterCount(groupName) > MARKETPLACE_CONSTRAINTS.nameMaxCharacters) issues.push(issue(`${groupId}-name-length`, 'error', `Storefront title is ${characterCount(groupName)} characters, which exceeds the generated Verse title limit of ${MARKETPLACE_CONSTRAINTS.nameMaxCharacters}.`, 'offer_display_name', 'name'));
+  if (groupEntries.length === 0) issues.push(issue(`${groupId}-entries-min`, 'warning', 'This storefront is empty and will show no offers until membership is configured.', 'offer_display_entries_min', 'entries'));
   const seen = new Set<string>();
-  for (const [index, entry] of group.entries.entries()) {
+  for (const [index, entry] of groupEntries.entries()) {
     const item = entry.entitlementId ? entitlements.find(candidate => candidate.id === entry.entitlementId) : undefined;
     const bundle = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
     if ((!item && !bundle) || Boolean(item) === Boolean(bundle)) {
-      issues.push(issue(`${group.id}-entry-${index}-missing`, 'error', 'Offer display entries must reference exactly one existing entitlement offer or bundle.', 'offer_display_reference_exists', 'entries'));
+      issues.push(issue(`${groupId}-entry-${index}-missing`, 'error', 'Offer display entries must reference exactly one existing entitlement offer or bundle.', 'offer_display_reference_exists', 'entries'));
       continue;
     }
     if (bundle?.dynamicRemaining) {
-      issues.push(issue(`${group.id}-entry-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only because a storefront cannot calculate player-specific remaining quantity.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, group.id));
+      issues.push(issue(`${groupId}-entry-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only because a storefront cannot calculate player-specific remaining quantity.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, groupId));
     }
-    if (item && entry.offerVerseKey && entry.offerVerseKey !== item.verseKey && !(item.alternateOffers ?? []).some(offer => offer.verseKey === entry.offerVerseKey)) {
-      issues.push(issue(`${group.id}-entry-${index}-variant`, 'error', 'Offer display variant does not exist on the referenced entitlement.', 'offer_display_variant_exists', 'entries'));
+    if (item && entry.offerVerseKey && entry.offerVerseKey.toLowerCase() !== item.verseKey.toLowerCase() && !(item.alternateOffers ?? []).some(offer => offer.verseKey.toLowerCase() === entry.offerVerseKey!.toLowerCase() || offer.id.toLowerCase() === entry.offerVerseKey!.toLowerCase())) {
+      issues.push(issue(`${groupId}-entry-${index}-variant`, 'error', 'Offer display variant does not exist on the referenced entitlement.', 'offer_display_variant_exists', 'entries'));
     }
-    const key = bundle ? `bundle:${bundle.id}` : `entitlement:${item!.id}:${entry.offerVerseKey ?? item!.verseKey}`;
-    if (seen.has(key)) issues.push(issue(`${group.id}-entry-${index}-duplicate`, 'error', 'Offer displays cannot contain the same offer more than once.', 'offer_display_reference_unique', 'entries'));
+    const key = bundle ? `bundle:${bundle.id}` : `entitlement:${item!.id}:${entry.offerVerseKey?.toLowerCase() ?? item!.verseKey.toLowerCase()}`;
+    if (seen.has(key)) issues.push(issue(`${groupId}-entry-${index}-duplicate`, 'error', 'Offer displays cannot contain the same offer more than once.', 'offer_display_reference_unique', 'entries'));
     seen.add(key);
   }
   return issues;
@@ -420,7 +512,6 @@ export function validateEntireProject(
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (entitlements.length === 0) issues.push(issue('project-empty', 'error', 'Add at least one entitlement before generating Verse.', 'entitlements_min'));
-  if (entitlements.length > MAX_ENTITLEMENTS) issues.push(issue('project-max-entitlements', 'error', `Projects may define at most ${MAX_ENTITLEMENTS} distinct entitlements.`, 'entitlements_max'));
   entitlements.forEach(item => issues.push(...validateEntitlement(item, entitlements)));
   bundles.forEach(bundle => issues.push(...validateBundleOffer(bundle, entitlements, bundles)));
   const storefrontMembership = Array.isArray(storefrontInput)
@@ -549,5 +640,22 @@ export function validateEntireProject(
     if (offerDisplayIds.has(group.id)) issues.push(issue(`${group.id}-id-duplicate`, 'error', 'Offer display record IDs must be unique.', 'offer_display_id_unique'));
     offerDisplayIds.add(group.id);
   });
+
+  const stableRecordOwners = new Map<string, string>();
+  const registerStableRecord = (recordId: string, owner: string, field: string, entitlementId?: string, bundleId?: string) => {
+    const normalized = safeText(recordId).toLowerCase();
+    const previous = stableRecordOwners.get(normalized);
+    if (previous && previous !== owner) {
+      issues.push(issue(`record-id-${normalized}-${owner}`, 'error', `Stable record identifier "${recordId}" is used by both ${previous} and ${owner}. Give each project object a unique identifier.`, 'stable_record_identifier_unique', field, entitlementId, bundleId));
+    } else {
+      stableRecordOwners.set(normalized, owner);
+    }
+  };
+  entitlements.forEach(item => {
+    registerStableRecord(item.id, `entitlement "${item.name || item.verseKey}"`, 'id', item.id);
+    (item.alternateOffers ?? []).forEach((offer, index) => registerStableRecord(offer.id, `alternate offer ${index + 1} of "${item.name || item.verseKey}"`, `alternateOffers.${index}.id`, item.id));
+  });
+  bundles.forEach(bundle => registerStableRecord(bundle.id, `bundle "${bundle.name || bundle.verseKey}"`, 'id', undefined, bundle.id));
+  storefrontMembership.focused.forEach(group => registerStableRecord(group.id, `storefront "${group.name || group.verseKey}"`, 'id'));
   return issues;
 }

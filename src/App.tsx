@@ -311,7 +311,6 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, storefrontMembership, retiredVerseKeys), [entitlements, bundles, config, storefrontMembership, retiredVerseKeys]);
   const validationIssues = useMemo(() => {
     const issues = validateEntireProject(entitlements, bundles, config, storefrontMembership, retiredVerseKeys);
     if (projectDataDiagnostics.length) issues.unshift({
@@ -325,6 +324,10 @@ export const App: React.FC = () => {
     return issues;
   }, [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
+  const verseCode = useMemo(() => hasErrors
+    ? '# Generation is blocked until the Validation report has no errors.\n'
+    : generateVerseCode(entitlements, bundles, config, storefrontMembership, retiredVerseKeys),
+  [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, hasErrors]);
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
   const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;

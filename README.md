@@ -63,6 +63,12 @@ The release is a portable Windows x64 app. It does not need an installer, admini
 
 UEM creates the transaction interface, but your project remains responsible for granting gameplay benefits and reconciling saved player state.
 
+## Marketplace validation
+
+UEM validates known Marketplace and generator constraints before it writes generated Verse. Errors block generated-file save and compilation, while warnings keep the project usable and call out responsibilities that UEM cannot verify, such as external paid-random odds disclosure. The manager does not round prices, truncate text, or require odds to be entered in its optional paid-random field.
+
+The current checks follow Epic's [Creating Items and Offers](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite) and [In-Island Transactions Restrictions](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-restrictions-in-fortnite) guidance for price, text, MaxCount, bundle depth, entitlement identifiers, restrictions, and paid-random classification. UEM-specific validation also protects stable Verse identifiers, generated symbols, explicit storefront membership, and the supported dynamic bundle shape: one entitlement at quantity 1, direct purchase only, with no nested contents.
+
 ## Generated Verse API
 
 Projects generate canonical symbols from each persisted `verseKey`, so changing a display name does not rename the integration surface. For an entitlement with key `durable_entitlement`, use:

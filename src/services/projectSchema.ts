@@ -33,7 +33,10 @@ export function normalizeOfferRestrictions(value: unknown): OfferRestrictions {
   const record = isRecord(value) ? value : {};
   const age = numberValue(record.minimumPurchaseAge, Number.NaN);
   return {
-    minimumPurchaseAge: Number.isInteger(age) && age >= 0 && age <= 99 ? age : undefined,
+    // Epic documents this as an integer input but does not publish a smaller
+    // UEM-specific upper bound. Preserve finite malformed numbers so the
+    // validator can explain them instead of silently dropping them.
+    minimumPurchaseAge: Number.isFinite(age) ? age : undefined,
     blockedCountryCodes: normalizeStringArray(record.blockedCountryCodes, true),
     blockedPlatformFamilies: normalizeStringArray(record.blockedPlatformFamilies),
   };
@@ -69,7 +72,9 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
   const verseKey = rawKey || sanitizeVerseIdentifier(fallbackName);
   const flags = isRecord(value.flags) ? value.flags : {};
   const triggers = isRecord(value.triggers) ? value.triggers : {};
-  const itemType = value.itemType === 'consumable' ? 'consumable' : 'durable';
+  const itemType = value.itemType === undefined
+    ? 'durable'
+    : value.itemType;
 
   return {
     id: stringValue(value.id, `ent-${verseKey}-${index}`),
@@ -78,9 +83,9 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
     shortDescription: stringValue(value.shortDescription),
     description: stringValue(value.description),
     priceVBucks: numberValue(value.priceVBucks, 100),
-    itemType,
-    maxCount: itemType === 'durable' ? 1 : numberValue(value.maxCount, 1),
-    autoConsume: itemType === 'consumable' && booleanValue(value.autoConsume),
+    itemType: itemType as EntitlementItem['itemType'],
+    maxCount: numberValue(value.maxCount, 1),
+    autoConsume: booleanValue(value.autoConsume),
     iconTexture: stringValue(value.iconTexture, `EntitlementIcons.${verseKey}`),
     iconImageData: stringValue(value.iconImageData) || undefined,
     iconFileName: stringValue(value.iconFileName) || undefined,

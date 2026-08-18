@@ -2,6 +2,7 @@ import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDis
 import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup, normalizeStorefrontMembership } from './projectSchema';
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
+import { generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
 import {
   EDITABLE_CATEGORY_LABELS,
@@ -48,8 +49,7 @@ function manifestLines(
 }
 
 function displayedDescription(description: string, durationDescription = '', odds = ''): string {
-  const normalizedOdds = odds.trim();
-  return [description, durationDescription ? `Duration: ${durationDescription}` : '', normalizedOdds ? `Odds: ${normalizedOdds}` : ''].filter(Boolean).join('\n');
+  return generatedOfferDescription(description, durationDescription, odds);
 }
 
 type EditableDescriptor = {
@@ -180,8 +180,8 @@ function metadataModule(key: string, name: string, description: string, shortDes
 }
 
 function restrictionLines(restrictions: OfferRestrictions | undefined): string {
-  const blockedCountryCodes = restrictions?.blockedCountryCodes ?? [];
-  const blockedPlatformFamilies = restrictions?.blockedPlatformFamilies ?? [];
+  const blockedCountryCodes = [...new Set(restrictions?.blockedCountryCodes ?? [])];
+  const blockedPlatformFamilies = [...new Set(restrictions?.blockedPlatformFamilies ?? [])];
   const hasConfiguredRestrictions = Boolean(
     restrictions && (
       restrictions.minimumPurchaseAge !== undefined
@@ -277,13 +277,75 @@ function dynamicRemainingEntry(bundle: BundleOffer): BundleOfferItem | undefined
   return entry;
 }
 
+function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles: BundleOffer[]): void {
+  for (const item of entitlements) {
+    if (item.itemType !== 'durable' && item.itemType !== 'consumable') {
+      throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an unsupported entitlement type. Fix it in Validation.`);
+    }
+    if (!Number.isInteger(item.priceVBucks)
+      || item.priceVBucks < MARKETPLACE_CONSTRAINTS.priceMinVBucks
+      || item.priceVBucks > MARKETPLACE_CONSTRAINTS.priceMaxVBucks
+      || item.priceVBucks % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) {
+      throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an invalid V-Bucks price. Fix it in Validation.`);
+    }
+    if (item.itemType === 'durable' && (item.maxCount !== 1 || item.autoConsume)) {
+      throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an invalid durable MaxCount or auto-consume setting. Fix it in Validation.`);
+    }
+    if (item.itemType === 'consumable' && (!Number.isSafeInteger(item.maxCount) || item.maxCount < MARKETPLACE_CONSTRAINTS.maxCountMin || item.maxCount > MARKETPLACE_CONSTRAINTS.maxCount)) {
+      throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an invalid consumable MaxCount. Fix it in Validation.`);
+    }
+  }
+  const entitlementById = new Set(entitlements.map(item => item.id));
+  const bundleById = new Map(bundles.map(bundle => [bundle.id, bundle]));
+  if (entitlementById.size !== entitlements.length || bundleById.size !== bundles.length) {
+    throw new Error('Cannot generate Verse: project records contain duplicate stable identifiers. Fix the duplicate records in Validation.');
+  }
+  for (const bundle of bundles) {
+    if (bundle.dynamicRemaining && !dynamicRemainingEntry(bundle)) continue;
+    for (const [index, entry] of bundle.items.entries()) {
+      const hasEntitlement = Boolean(entry.entitlementId && entitlementById.has(entry.entitlementId));
+      const nestedBundle = entry.bundleId ? bundleById.get(entry.bundleId) : undefined;
+      if (hasEntitlement === Boolean(nestedBundle) || (!hasEntitlement && !nestedBundle)) {
+        throw new Error(`Cannot generate Verse: ${bundle.name || bundle.verseKey} has an unresolved bundle reference at entry ${index + 1}. Fix the bundle contents in Validation.`);
+      }
+      if (nestedBundle?.dynamicRemaining && !dynamicRemainingEntry(nestedBundle)) {
+        throw new Error(`Cannot generate Verse: ${bundle.name || bundle.verseKey} references the invalid dynamic bundle ${nestedBundle.name || nestedBundle.verseKey}. Fix the dynamic bundle in Validation.`);
+      }
+      if (entry.offerVerseKey && hasEntitlement) {
+        const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
+        const reference = entry.offerVerseKey.toLowerCase();
+        const validVariant = item?.verseKey.toLowerCase() === reference
+          || item?.alternateOffers?.some(offer => offer.verseKey.toLowerCase() === reference || offer.id.toLowerCase() === reference);
+        if (!validVariant) throw new Error(`Cannot generate Verse: ${bundle.name || bundle.verseKey} references a missing offer variant at entry ${index + 1}. Fix the bundle contents in Validation.`);
+      }
+    }
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (bundle: BundleOffer): void => {
+    if (visiting.has(bundle.id)) throw new Error(`Cannot generate Verse: nested bundle cycle includes ${bundle.name || bundle.verseKey}. Fix the bundle cycle in Validation.`);
+    if (visited.has(bundle.id)) return;
+    visiting.add(bundle.id);
+    for (const entry of bundle.items) {
+      const nested = entry.bundleId ? bundleById.get(entry.bundleId) : undefined;
+      if (nested) visit(nested);
+    }
+    visiting.delete(bundle.id);
+    visited.add(bundle.id);
+  };
+  bundles.forEach(visit);
+}
+
 function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementItem[], bundles: BundleOffer[]): string {
   if (entry.bundleId) {
     const nested = bundles.find(bundle => bundle.id === entry.bundleId);
     return `${nested?.verseKey ?? 'invalid'}_offer{}`;
   }
   const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
-  const offerKey = entry.offerVerseKey || item?.verseKey || 'invalid';
+  const reference = entry.offerVerseKey?.toLowerCase();
+  const alternate = reference ? item?.alternateOffers?.find(offer => offer.verseKey.toLowerCase() === reference || offer.id.toLowerCase() === reference) : undefined;
+  const primary = reference && item?.verseKey.toLowerCase() === reference ? item.verseKey : undefined;
+  const offerKey = alternate?.verseKey || primary || (entry.offerVerseKey ? entry.offerVerseKey : item?.verseKey) || 'invalid';
   return `${offerKey}_offer{}`;
 }
 
@@ -331,6 +393,7 @@ export function generateVerseCode(
   const storefrontMembership = Array.isArray(storefrontInput)
     ? legacyStorefrontMembership(entitlements, bundles, storefrontInput.map(normalizeOfferDisplayGroup))
     : normalizeStorefrontMembership(storefrontInput, entitlements, bundles).membership;
+  assertRenderableConfiguration(entitlements, bundles);
   const offerDisplayGroups = storefrontMembership.focused;
   const infoModule = config.infoModuleName;
   const entModule = config.entitlementsModuleName;
@@ -403,6 +466,7 @@ export function generateVerseCode(
     }
   }
   for (const bundle of bundles) {
+    if (bundle.dynamicRemaining && !dynamicRemainingEntry(bundle)) continue;
     const bundleSource = generatedBundleOffer(bundle, infoModule, priceModule);
     const entries = bundle.items.map(entry => `(${resolveBundleEntry(entry, entitlements, bundles)}, ${entry.quantity})`).join(', ');
     push(bundleOfferClass(bundleSource, `array{${entries}}`));
