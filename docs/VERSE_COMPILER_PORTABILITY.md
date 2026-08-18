@@ -101,3 +101,15 @@ Automated mocked tests cover no UEFN, endpoint validation, process-owned listene
 The available non-C project inventory did not contain a safe project that could be opened without expanding the test scope, so non-C live compilation is `NOT TESTED`. Unit path fixtures cover non-C drives, spaces, Unicode, apostrophes, and separator/case normalization. The official VS Code window available during the investigation was in Restricted Mode and did not expose the Verse Workflow command, so an official VS Code compile was not treated as a successful acceptance result.
 
 The future repository should use a neutral name such as `uefn-verse-compiler`. It should state that it is an independent interoperability client for locally installed UEFN tooling, is not an Epic Games product, and does not redistribute Epic binaries or source. Publication, package release, and the standalone repository belong to Phase 24.
+
+## Phase 24 standalone boundary
+
+The reusable compiler/discovery implementation is now published separately at [ADEPT-Interactive/uefn-verse-compiler](https://github.com/ADEPT-Interactive/uefn-verse-compiler). It is the authoritative standalone implementation and includes the typed library API, CLI, generic tests, compatibility documentation, and agent skill.
+
+UEM 4.0.0 intentionally retains its local Phase 23 copy for this release. UEM was not switched to a remote package in the extraction phase because that would expand the application release surface and require a separate dependency-integration validation. Until that controlled migration is completed, the synchronization boundary is:
+
+- standalone core: `src/`
+- UEM compatibility implementation: `server/verseCompiler.ts`, `server/workflowClient.ts`, and `scripts/verse-compiler-cli.ts`
+- UEM coverage: `tests/workflowClient.test.ts`
+
+The next integration change should make UEM consume a versioned standalone package or another single authoritative build artifact, then run the full UEM release suite before removing the local copy. The UEM generator, entitlement schema, renderer, Electron lifecycle, installer, and updater architecture were not changed by the extraction.
