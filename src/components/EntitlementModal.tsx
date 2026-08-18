@@ -129,19 +129,10 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
     setFormData(prev => {
       const isExisting = !item.id.startsWith('new-');
       const nextKey = draftVerseKeyForName(prev.verseKey, prev.name, newName, isExisting);
-      const defaultTrigger = `${prev.verseKey}_OfferTriggers`;
-      const defaultButton = `${prev.verseKey}_Buttons`;
-      const defaultZone = `${prev.verseKey}_Zones`;
       return {
         ...prev,
         name: newName,
         verseKey: nextKey,
-        triggers: {
-          ...prev.triggers,
-          triggerDeviceName: !isExisting && prev.triggers.triggerDeviceName === defaultTrigger ? `${nextKey}_OfferTriggers` : prev.triggers.triggerDeviceName,
-          buttonDeviceName: !isExisting && prev.triggers.buttonDeviceName === defaultButton ? `${nextKey}_Buttons` : prev.triggers.buttonDeviceName,
-          mutatorZoneName: !isExisting && prev.triggers.mutatorZoneName === defaultZone ? `${nextKey}_Zones` : prev.triggers.mutatorZoneName,
-        },
       };
     });
   };
@@ -674,7 +665,6 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         triggers: {
                           ...prev.triggers,
                           generateTriggerBinding: e.target.checked,
-                          triggerDeviceName: e.target.checked ? (prev.triggers.triggerDeviceName || `${prev.verseKey}_OfferTriggers`) : undefined,
                         },
                       }))}
                       className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
@@ -682,18 +672,6 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <span className="text-xs font-semibold text-white">Expose Trigger Devices for this offer</span>
                   </label>
                   <p className="mt-1 pl-6 text-[11px] text-slate-400">Recommended: assign one or more Trigger devices in UEFN. A player-triggered event opens this offer.</p>
-                  {formData.triggers.generateTriggerBinding && (
-                    <input
-                      type="text"
-                      value={formData.triggers.triggerDeviceName || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        triggers: { ...prev.triggers, triggerDeviceName: e.target.value },
-                      }))}
-                      className="mt-2 ml-6 w-52 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-cyan-300"
-                      placeholder="Offer Trigger Array"
-                    />
-                  )}
                 </div>
 
                 {/* Button Device Trigger */}
@@ -707,25 +685,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         triggers: {
                           ...prev.triggers,
                           generateButtonBinding: e.target.checked,
-                          buttonDeviceName: e.target.checked ? `${prev.verseKey}_Buttons` : undefined,
                         },
                       }))}
                       className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
                     />
                     <span className="text-xs font-semibold text-white">Generate Button Devices Array Binding</span>
                   </label>
-                  {formData.triggers.generateButtonBinding && (
-                    <input
-                      type="text"
-                      value={formData.triggers.buttonDeviceName || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        triggers: { ...prev.triggers, buttonDeviceName: e.target.value },
-                      }))}
-                      className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-cyan-300"
-                      placeholder="Button Array Name"
-                    />
-                  )}
                 </div>
 
                 {/* Mutator Zone Trigger */}
@@ -739,25 +704,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         triggers: {
                           ...prev.triggers,
                           generateZoneBinding: e.target.checked,
-                          mutatorZoneName: e.target.checked ? `${prev.verseKey}_Zones` : undefined,
                         },
                       }))}
                       className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
                     />
                     <span className="text-xs font-semibold text-white">Generate Mutator Zone Trigger Binding</span>
                   </label>
-                  {formData.triggers.generateZoneBinding && (
-                    <input
-                      type="text"
-                      value={formData.triggers.mutatorZoneName || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        triggers: { ...prev.triggers, mutatorZoneName: e.target.value },
-                      }))}
-                      className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-cyan-300"
-                      placeholder="Zone Array Name"
-                    />
-                  )}
                 </div>
               </div>
             </div>

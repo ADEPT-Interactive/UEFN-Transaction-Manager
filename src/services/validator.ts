@@ -2,6 +2,7 @@ import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferR
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
+import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
@@ -210,16 +211,6 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
     issues.push(...validateCompliance(offerId, [offer.name, offer.shortDescription, offer.description, offer.durationDescription ?? ''], id));
   });
 
-  const bindingNames = [
-    ...(item.triggers.generateTriggerBinding ? [item.triggers.triggerDeviceName] : []),
-    ...(item.triggers.generateButtonBinding ? [item.triggers.buttonDeviceName] : []),
-    ...(item.triggers.generateZoneBinding ? [item.triggers.mutatorZoneName] : []),
-  ];
-  for (const name of bindingNames) {
-    if (!name || !validateVerseIdentifier(name)) {
-      issues.push(issue(`${id}-binding-${name ?? 'missing'}`, 'error', 'Enabled device bindings require a valid, non-empty Verse identifier.', 'device_binding_identifier', 'triggers', id));
-    }
-  }
   return issues;
 }
 
@@ -365,7 +356,6 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
     if (seen.has(key)) issues.push(issue(`${group.id}-entry-${index}-duplicate`, 'error', 'Offer displays cannot contain the same offer more than once.', 'offer_display_reference_unique', 'entries'));
     seen.add(key);
   }
-  if (group.generateTriggerBinding && !validateVerseIdentifier(group.triggerDeviceName ?? '')) issues.push(issue(`${group.id}-trigger`, 'error', 'Enabled offer-display triggers require a valid Verse identifier.', 'offer_display_trigger_identifier', 'triggerDeviceName'));
   return issues;
 }
 
@@ -387,9 +377,6 @@ export function validateProjectConfig(config: ProjectConfig): ValidationIssue[] 
   if (!/^[A-Za-z_][A-Za-z0-9_]*\.verse$/i.test(config.targetVerseFileName) || /[\\/]/.test(config.targetVerseFileName)) {
     issues.push(issue('config-file-name', 'error', 'Target filename must be a basename ending in .verse.', 'target_filename', 'targetVerseFileName'));
   }
-  if (config.generateStorefrontBinding && !validateVerseIdentifier(config.storefrontButtonDeviceName ?? '')) {
-    issues.push(issue('config-storefront-binding', 'error', 'The storefront button binding must be a valid Verse identifier when enabled.', 'storefront_binding_identifier', 'storefrontButtonDeviceName'));
-  }
   return issues;
 }
 
@@ -409,8 +396,7 @@ export function validateEntireProject(
   if (config) issues.push(...validateProjectConfig(config));
 
   const memberOwners = new Map<string, string>();
-  const registerMember = (name: string | undefined, owner: EntitlementItem, field: string) => {
-    if (!name) return;
+  const registerMember = (name: string, owner: EntitlementItem, field: string) => {
     const normalized = name.toLowerCase();
     const previous = memberOwners.get(normalized);
     if (previous) issues.push(issue(`${owner.id}-member-duplicate-${normalized}`, 'error', `Generated device member "${name}" conflicts with another generated member.`, 'device_member_unique', field, owner.id));
@@ -431,6 +417,7 @@ export function validateEntireProject(
   memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {
     const pascal = toPascalCase(item.verseKey);
+    const editableNames = entitlementEditableNames(item.verseKey);
     registerMember(`${pascal}_GrantedEvent`, item, 'verseKey');
     registerMember(`${pascal}_RemovedEvent`, item, 'verseKey');
     registerMember(`${pascal}_ReconciledEvent`, item, 'verseKey');
@@ -447,14 +434,12 @@ export function validateEntireProject(
       registerMember(`Open${offerPascal}Purchase`, item, 'alternateOffers');
       registerMember(`ExecuteBuy${offerPascal}`, item, 'alternateOffers');
     });
-    if (item.triggers.generateTriggerBinding) registerMember(item.triggers.triggerDeviceName, item, 'triggers.triggerDeviceName');
-    if (item.triggers.generateButtonBinding) registerMember(item.triggers.buttonDeviceName, item, 'triggers.buttonDeviceName');
-    if (item.triggers.generateZoneBinding) registerMember(item.triggers.mutatorZoneName, item, 'triggers.mutatorZoneName');
+    if (item.triggers.generateTriggerBinding) registerMember(editableNames.purchaseTriggers, item, 'triggers');
+    if (item.triggers.generateButtonBinding) registerMember(editableNames.purchaseButtons, item, 'triggers');
+    if (item.triggers.generateZoneBinding) registerMember(editableNames.purchaseZones, item, 'triggers');
   });
-  if (config?.generateStorefrontBinding && config.storefrontButtonDeviceName) {
-    const storefrontName = config.storefrontButtonDeviceName.toLowerCase();
-    if (memberOwners.has(storefrontName)) issues.push(issue('config-storefront-member-duplicate', 'error', `Generated storefront binding "${config.storefrontButtonDeviceName}" conflicts with another generated member.`, 'device_member_unique', 'storefrontButtonDeviceName'));
-    else memberOwners.set(storefrontName, 'config');
+  if (config?.generateStorefrontBinding) {
+    registerGeneratedMember(storefrontEditableName('AllOffersStore', 'openButtons'), 'config');
   }
   offerDisplayGroups.forEach(group => {
     const pascal = toPascalCase(group.verseKey);
@@ -462,9 +447,10 @@ export function validateEntireProject(
     registerGeneratedMember(`Show${pascal}Offers`, 'generator');
     registerGeneratedMember(`Show${pascal}OffersAndRelease`, 'generator');
     registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
-    if (!group.generateTriggerBinding || !group.triggerDeviceName) return;
-    const normalized = group.triggerDeviceName.toLowerCase();
-    if (memberOwners.has(normalized)) issues.push(issue(`${group.id}-member-duplicate-${normalized}`, 'error', `Generated offer-display member "${group.triggerDeviceName}" conflicts with another generated member.`, 'device_member_unique', 'triggerDeviceName'));
+    if (!group.generateTriggerBinding) return;
+    const generatedName = storefrontEditableName(group.verseKey);
+    const normalized = generatedName.toLowerCase();
+    if (memberOwners.has(normalized)) issues.push(issue(`${group.id}-member-duplicate-${normalized}`, 'error', `Generated offer-display member "${generatedName}" conflicts with another generated member.`, 'device_member_unique', 'verseKey'));
     else memberOwners.set(normalized, `offer-display.${group.id}`);
   });
 

@@ -44,7 +44,7 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
 
   const errors = issues.filter(i => i.severity === 'error');
   const warnings = issues.filter(i => i.severity === 'warning');
-  const isSettingsIssue = (issue: ValidationIssue) => Boolean(issue.field && (issue.field === 'targetVerseFileName' || issue.field === 'storefrontButtonDeviceName' || issue.field in { assetFolderName: true, deviceClassName: true, infoModuleName: true, entitlementsModuleName: true, pricesModuleName: true, offersModuleName: true }));
+  const isSettingsIssue = (issue: ValidationIssue) => Boolean(issue.field && (issue.field === 'targetVerseFileName' || issue.field in { assetFolderName: true, deviceClassName: true, infoModuleName: true, entitlementsModuleName: true, pricesModuleName: true, offersModuleName: true }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>

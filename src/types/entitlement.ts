@@ -42,11 +42,8 @@ export interface EntitlementItem {
   alternateOffers?: AlternateOffer[];
   triggers: {
     generateTriggerBinding: boolean;
-    triggerDeviceName?: string;
     generateButtonBinding: boolean;
-    buttonDeviceName?: string;
     generateZoneBinding: boolean;
-    mutatorZoneName?: string;
   };
 }
 
@@ -84,7 +81,6 @@ export interface OfferDisplayGroup {
   name: string;
   entries: OfferDisplayEntry[];
   generateTriggerBinding: boolean;
-  triggerDeviceName?: string;
 }
 
 export interface ProjectConfig {
@@ -99,7 +95,6 @@ export interface ProjectConfig {
   autoBackup: boolean;
   enableVerseWorkflowServer: boolean;
   generateStorefrontBinding?: boolean;
-  storefrontButtonDeviceName?: string;
   allowAutomaticZonePrompts?: boolean;
 }
 

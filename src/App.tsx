@@ -38,7 +38,6 @@ const DEFAULT_CONFIG: ProjectConfig = {
   autoBackup: true,
   enableVerseWorkflowServer: true,
   generateStorefrontBinding: false,
-  storefrontButtonDeviceName: 'TransactionStorefrontButtons',
   allowAutomaticZonePrompts: false,
 };
 
@@ -310,8 +309,8 @@ export const App: React.FC = () => {
   const validationIssues = useMemo(() => {
     const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys);
     if (projectDataDiagnostics.length) issues.unshift({
-      id: 'project-data-repair', severity: 'warning', ruleName: 'project_data_repair', field: 'verseKey',
-      message: `Project data was repaired while loading. Review: ${projectDataDiagnostics.join(' ')}`,
+      id: 'project-data-migration', severity: 'warning', ruleName: 'project_data_migration', field: 'verseKey',
+      message: `Project data was migrated or normalized while loading. Review: ${projectDataDiagnostics.join(' ')}`,
     });
     if (unmanagedTargetFile === config.targetVerseFileName) issues.unshift({
       id: 'unmanaged-target-file', severity: 'error', ruleName: 'managed_file_required', field: 'targetVerseFileName',
@@ -567,16 +566,11 @@ export const App: React.FC = () => {
     const draftVerseKey = shouldAllocateDraftKey ? allocator.allocate(item.name) : item.verseKey;
     if (!shouldAllocateDraftKey && isDraft) allocator.reserveExisting(item.verseKey);
     const persistedId = isDraft ? `ent-${crypto.randomUUID()}` : item.id;
-    const generatedTriggerNames = {
-      triggerDeviceName: item.triggers.triggerDeviceName === `${item.verseKey}_OfferTriggers` ? `${draftVerseKey}_OfferTriggers` : item.triggers.triggerDeviceName,
-      buttonDeviceName: item.triggers.buttonDeviceName === `${item.verseKey}_Buttons` ? `${draftVerseKey}_Buttons` : item.triggers.buttonDeviceName,
-      mutatorZoneName: item.triggers.mutatorZoneName === `${item.verseKey}_Zones` ? `${draftVerseKey}_Zones` : item.triggers.mutatorZoneName,
-    };
     const persistedItem = {
       ...item,
       id: persistedId,
       verseKey: draftVerseKey,
-      triggers: { ...item.triggers, ...generatedTriggerNames },
+      triggers: { ...item.triggers },
       alternateOffers: (item.alternateOffers ?? []).map(offer => {
         const isNewAlternate = offer.id.startsWith('new-alt-');
         const verseKey = isNewAlternate ? allocator.allocateAlternate(draftVerseKey) : offer.verseKey;
@@ -644,13 +638,7 @@ export const App: React.FC = () => {
       const shouldAllocate = isNew && group.verseKey === sanitizeVerseIdentifier(group.name);
       if (!shouldAllocate) return group;
       const nextKey = allocator.allocate(group.name);
-      return {
-        ...group,
-        verseKey: nextKey,
-        triggerDeviceName: group.triggerDeviceName === `${toPascalCase(group.verseKey)}Triggers`
-          ? `${toPascalCase(nextKey)}Triggers`
-          : group.triggerDeviceName,
-      };
+      return { ...group, verseKey: nextKey };
     });
     const retired = offerDisplayGroups.flatMap(previous => {
       const next = finalizedGroups.find(candidate => candidate.id === previous.id);

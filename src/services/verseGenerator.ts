@@ -2,6 +2,13 @@ import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDis
 import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup } from './projectSchema';
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
+import {
+  EDITABLE_CATEGORY_LABELS,
+  EDITABLE_METADATA_SYMBOLS,
+  editableMetadataSymbol,
+  entitlementEditableNames,
+  storefrontEditableName,
+} from './editableBindings';
 
 function escapeVerseString(value: string): string {
   return value
@@ -42,6 +49,134 @@ function manifestLines(
 function displayedDescription(description: string, durationDescription = '', odds = ''): string {
   const normalizedOdds = odds.trim();
   return [description, durationDescription ? `Duration: ${durationDescription}` : '', normalizedOdds ? `Odds: ${normalizedOdds}` : ''].filter(Boolean).join('\n');
+}
+
+type EditableDescriptor = {
+  key: string;
+  displayName: string;
+  propertyName: string;
+  type: string;
+  role: 'purchaseTriggers' | 'purchaseButtons' | 'purchaseZones' | 'openTriggers' | 'openButtons';
+  tooltip: string;
+  rootCategory: 'entitlements' | 'storefronts';
+};
+
+function editableCategorySymbol(key: string): string {
+  return editableMetadataSymbol(key, 'Category');
+}
+
+function editableDescriptors(
+  entitlements: EntitlementItem[],
+  config: ProjectConfig,
+  offerDisplayGroups: OfferDisplayGroup[],
+): EditableDescriptor[] {
+  const descriptors: EditableDescriptor[] = [];
+  for (const item of entitlements) {
+    const names = entitlementEditableNames(item.verseKey);
+    if (item.triggers.generateTriggerBinding) descriptors.push({
+      key: item.verseKey,
+      displayName: item.name || item.verseKey,
+      propertyName: names.purchaseTriggers,
+      type: '[]trigger_device',
+      role: 'purchaseTriggers',
+      tooltip: `Activating an assigned Trigger device opens Epic's purchase interface for ${item.name || item.verseKey}.`,
+      rootCategory: 'entitlements',
+    });
+    if (item.triggers.generateButtonBinding) descriptors.push({
+      key: item.verseKey,
+      displayName: item.name || item.verseKey,
+      propertyName: names.purchaseButtons,
+      type: '[]button_device',
+      role: 'purchaseButtons',
+      tooltip: `Interacting with an assigned Button device opens Epic's purchase interface for ${item.name || item.verseKey}.`,
+      rootCategory: 'entitlements',
+    });
+    if (item.triggers.generateZoneBinding) descriptors.push({
+      key: item.verseKey,
+      displayName: item.name || item.verseKey,
+      propertyName: names.purchaseZones,
+      type: '[]mutator_zone_device',
+      role: 'purchaseZones',
+      tooltip: `Entering an assigned Mutator Zone currently logs a shop-zone hint; it does not open purchase UI unless automatic zone prompts are enabled in UEM.`,
+      rootCategory: 'entitlements',
+    });
+  }
+  if (config.generateStorefrontBinding) descriptors.push({
+    key: 'AllOffersStore',
+    displayName: 'All Offers',
+    propertyName: storefrontEditableName('AllOffersStore', 'openButtons'),
+    type: '[]button_device',
+    role: 'openButtons',
+    tooltip: 'Interacting with an assigned Button device opens the all-offers storefront.',
+    rootCategory: 'storefronts',
+  });
+  for (const group of offerDisplayGroups) {
+    if (group.generateTriggerBinding) descriptors.push({
+      key: group.verseKey,
+      displayName: group.name || group.verseKey,
+      propertyName: storefrontEditableName(group.verseKey),
+      type: '[]trigger_device',
+      role: 'openTriggers',
+      tooltip: `Activating an assigned Trigger device opens the ${group.name || group.verseKey} storefront.`,
+      rootCategory: 'storefronts',
+    });
+  }
+  return descriptors;
+}
+
+function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
+  if (descriptors.length === 0) return [];
+  const messages = new Map<string, string>();
+  const add = (symbol: string, value: string) => { if (!messages.has(symbol)) messages.set(symbol, value); };
+  const roleSymbols: Record<EditableDescriptor['role'], string> = {
+    purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
+    purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
+    purchaseZones: EDITABLE_METADATA_SYMBOLS.purchaseZonesCategory,
+    openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
+    openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
+  };
+  const roleLabels: Record<EditableDescriptor['role'], string> = {
+    purchaseTriggers: EDITABLE_CATEGORY_LABELS.purchaseTriggers,
+    purchaseButtons: EDITABLE_CATEGORY_LABELS.purchaseButtons,
+    purchaseZones: EDITABLE_CATEGORY_LABELS.purchaseZones,
+    openTriggers: EDITABLE_CATEGORY_LABELS.openTriggers,
+    openButtons: EDITABLE_CATEGORY_LABELS.openButtons,
+  };
+  const rootSymbols = {
+    entitlements: EDITABLE_METADATA_SYMBOLS.entitlementsCategory,
+    storefronts: EDITABLE_METADATA_SYMBOLS.storefrontsCategory,
+  } as const;
+  const rootLabels = {
+    entitlements: EDITABLE_CATEGORY_LABELS.entitlements,
+    storefronts: EDITABLE_CATEGORY_LABELS.storefronts,
+  } as const;
+  for (const descriptor of descriptors) {
+    add(rootSymbols[descriptor.rootCategory], rootLabels[descriptor.rootCategory]);
+    add(editableCategorySymbol(descriptor.key), descriptor.displayName);
+    add(roleSymbols[descriptor.role], roleLabels[descriptor.role]);
+    add(editableMetadataSymbol(descriptor.key, `${descriptor.role}ToolTip`), descriptor.tooltip);
+  }
+  return [
+    '# Generated editable metadata for the UEFN Details panel.',
+    ...Array.from(messages.entries(), ([symbol, value]) => `${symbol}<localizes>:message = "${escapeVerseString(value)}"`),
+    '',
+  ];
+}
+
+function editableAttributeLines(descriptor: EditableDescriptor): string[] {
+  const roleCategories: Record<EditableDescriptor['role'], string> = {
+    purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
+    purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
+    purchaseZones: EDITABLE_METADATA_SYMBOLS.purchaseZonesCategory,
+    openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
+    openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
+  };
+  return [
+    '    @editable:',
+    `        ToolTip := ${editableMetadataSymbol(descriptor.key, `${descriptor.role}ToolTip`)}`,
+    `        Categories := array{${descriptor.rootCategory === 'entitlements' ? EDITABLE_METADATA_SYMBOLS.entitlementsCategory : EDITABLE_METADATA_SYMBOLS.storefrontsCategory}, ${editableCategorySymbol(descriptor.key)}, ${roleCategories[descriptor.role]}}`,
+    `    ${descriptor.propertyName} : ${descriptor.type} = array{}`,
+  ];
 }
 
 function metadataModule(key: string, name: string, description: string, shortDescription: string, durationDescription = '', odds = ''): string {
@@ -271,16 +406,14 @@ export function generateVerseCode(
     }
   }
 
+  const editableFields = editableDescriptors(entitlements, config, offerDisplayGroups);
+  push(...editableMetadataLines(editableFields));
   push(`${deviceClass} := class(creative_device):`, '');
-  for (const item of entitlements) {
-    if (item.triggers.generateTriggerBinding) push('    @editable', `    ${item.triggers.triggerDeviceName} : []trigger_device = array{}`, '');
-    if (item.triggers.generateButtonBinding) push('    @editable', `    ${item.triggers.buttonDeviceName} : []button_device = array{}`, '');
-    if (item.triggers.generateZoneBinding) push('    @editable', `    ${item.triggers.mutatorZoneName} : []mutator_zone_device = array{}`, '');
-  }
-  if (config.generateStorefrontBinding) push('    @editable', `    ${config.storefrontButtonDeviceName} : []button_device = array{}`, '');
-  for (const group of offerDisplayGroups) {
-    if (group.generateTriggerBinding) push('    @editable', `    ${group.triggerDeviceName} : []trigger_device = array{}`, '');
-  }
+  if (editableFields.some(field => field.rootCategory === 'entitlements')) push('    # Entitlement Purchase Bindings');
+  for (const field of editableFields.filter(candidate => candidate.rootCategory === 'entitlements')) push(...editableAttributeLines(field), '');
+  if (editableFields.some(field => field.rootCategory === 'storefronts')) push('    # Storefront Bindings');
+  for (const field of editableFields.filter(candidate => candidate.rootCategory === 'storefronts')) push(...editableAttributeLines(field), '');
+  const allOffersStoreButtons = storefrontEditableName('AllOffersStore', 'openButtons');
 
   push(
     '    var EntitlementChangeSubscriptions:[player]?cancelable = map{}',
@@ -312,13 +445,14 @@ export function generateVerseCode(
   );
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
-    if (item.triggers.generateTriggerBinding) push(`        for (Trigger : ${item.triggers.triggerDeviceName}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${pascal}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
-    if (item.triggers.generateButtonBinding) push(`        for (Button : ${item.triggers.buttonDeviceName}):`, `            Subscription := Button.InteractedWithEvent.Subscribe(On${pascal}ButtonInteracted)`, '            set DeviceSubscriptions += array{Subscription}');
-    if (item.triggers.generateZoneBinding) push(`        for (Zone : ${item.triggers.mutatorZoneName}):`, `            Subscription := Zone.AgentEntersEvent.Subscribe(On${pascal}ZoneEntered)`, '            set DeviceSubscriptions += array{Subscription}');
+    const names = entitlementEditableNames(item.verseKey);
+    if (item.triggers.generateTriggerBinding) push(`        for (Trigger : ${names.purchaseTriggers}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${pascal}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
+    if (item.triggers.generateButtonBinding) push(`        for (Button : ${names.purchaseButtons}):`, `            Subscription := Button.InteractedWithEvent.Subscribe(On${pascal}ButtonInteracted)`, '            set DeviceSubscriptions += array{Subscription}');
+    if (item.triggers.generateZoneBinding) push(`        for (Zone : ${names.purchaseZones}):`, `            Subscription := Zone.AgentEntersEvent.Subscribe(On${pascal}ZoneEntered)`, '            set DeviceSubscriptions += array{Subscription}');
   }
-  if (config.generateStorefrontBinding) push(`        for (Button : ${config.storefrontButtonDeviceName}):`, '            Subscription := Button.InteractedWithEvent.Subscribe(OnStorefrontButtonInteracted)', '            set DeviceSubscriptions += array{Subscription}');
+  if (config.generateStorefrontBinding) push(`        for (Button : ${allOffersStoreButtons}):`, '            Subscription := Button.InteractedWithEvent.Subscribe(OnStorefrontButtonInteracted)', '            set DeviceSubscriptions += array{Subscription}');
   for (const group of offerDisplayGroups) {
-    if (group.generateTriggerBinding) push(`        for (Trigger : ${group.triggerDeviceName}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${toVerseApiStem(group.verseKey)}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
+    if (group.generateTriggerBinding) push(`        for (Trigger : ${storefrontEditableName(group.verseKey)}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${toVerseApiStem(group.verseKey)}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
   }
   push('');
 

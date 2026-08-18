@@ -48,7 +48,6 @@ export const publicApiConfig: ProjectConfig = {
   autoBackup: false,
   enableVerseWorkflowServer: true,
   generateStorefrontBinding: true,
-  storefrontButtonDeviceName: 'Phase4StorefrontButtons',
   allowAutomaticZonePrompts: false,
 };
 
@@ -58,23 +57,23 @@ export const publicApiItems: EntitlementItem[] = [
     iconTexture: 'EntitlementIcons.AccessPass',
     flags: { paidArea: true, consequentialToGameplay: true },
     offerRestrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['CA'], blockedPlatformFamilies: ['Android'] },
-    triggers: { generateTriggerBinding: true, triggerDeviceName: 'AccessPassTriggers', generateButtonBinding: true, buttonDeviceName: 'AccessPassButtons', generateZoneBinding: true, mutatorZoneName: 'AccessPassZones' },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true },
   }),
   entitlement({
     id: 'season', verseKey: 'season_pass', name: 'Season Pass', priceVBucks: 1000,
     iconTexture: 'EntitlementIcons.SeasonPass',
-    triggers: { generateTriggerBinding: false, generateButtonBinding: true, buttonDeviceName: 'SeasonPassButtons' },
+    triggers: { generateTriggerBinding: false, generateButtonBinding: true },
   }),
   entitlement({
     id: 'coins', verseKey: 'coin_pack', name: 'Coin Pack', priceVBucks: 100,
     itemType: 'consumable', maxCount: 25, iconTexture: 'EntitlementIcons.CoinPack',
-    triggers: { generateTriggerBinding: true, triggerDeviceName: 'CoinPackTriggers' },
+    triggers: { generateTriggerBinding: true },
   }),
   entitlement({
     id: 'random', verseKey: 'mystery_item', name: 'Mystery Item', priceVBucks: 150,
     itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryItem',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: false, generateButtonBinding: true, buttonDeviceName: 'MysteryItemButtons', generateZoneBinding: true, mutatorZoneName: 'MysteryItemZones' },
+    triggers: { generateTriggerBinding: false, generateButtonBinding: true, generateZoneBinding: true },
     alternateOffers: [{
       id: 'random-mobile', verseKey: 'mystery_item_mobile', name: 'Mystery Item Mobile',
       shortDescription: 'The mobile storefront variant.', description: 'The same disclosed random item for mobile.',
@@ -106,7 +105,7 @@ export const publicApiBundles: BundleOffer[] = [
 export const publicApiDisplayGroups: OfferDisplayGroup[] = [
   {
     id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: true,
-    triggerDeviceName: 'CoinStoreTriggers', entries: [{ entitlementId: 'coins' }, { entitlementId: 'random', offerVerseKey: 'mystery_item_mobile' }],
+    entries: [{ entitlementId: 'coins' }, { entitlementId: 'random', offerVerseKey: 'mystery_item_mobile' }],
   },
   {
     id: 'bundle-store', verseKey: 'bundle_store', name: 'Bundle Store', generateTriggerBinding: false,

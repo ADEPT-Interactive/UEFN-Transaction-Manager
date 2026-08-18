@@ -51,7 +51,11 @@ test('complex generated output has one locked canonical public declaration basel
 
 test('UEFN editables are present while device plumbing remains private', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
-  for (const editable of ['AccessPassTriggers : []trigger_device', 'AccessPassButtons : []button_device', 'AccessPassZones : []mutator_zone_device', 'SeasonPassButtons : []button_device', 'CoinPackTriggers : []trigger_device', 'MysteryItemButtons : []button_device', 'MysteryItemZones : []mutator_zone_device', 'Phase4StorefrontButtons : []button_device', 'CoinStoreTriggers : []trigger_device']) assert.ok(source.includes(`@editable\n    ${editable}`), `missing editable ${editable}`);
+  for (const editable of ['AccessPass_PurchaseTriggers : []trigger_device', 'AccessPass_PurchaseButtons : []button_device', 'AccessPass_PurchaseZones : []mutator_zone_device', 'SeasonPass_PurchaseButtons : []button_device', 'CoinPack_PurchaseTriggers : []trigger_device', 'MysteryItem_PurchaseButtons : []button_device', 'MysteryItem_PurchaseZones : []mutator_zone_device', 'AllOffersStore_OpenButtons : []button_device', 'CoinStore_OpenTriggers : []trigger_device']) assert.ok(source.includes(`    ${editable}`), `missing editable ${editable}`);
+  assert.match(source, /@editable:\n        ToolTip := UEM_AccessPass_purchaseTriggersToolTip\n        Categories := array\{UEM_EntitlementsCategory, UEM_AccessPass_Category, UEM_PurchaseTriggersCategory\}\n    AccessPass_PurchaseTriggers : \[\]trigger_device/);
+  assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
+  assert.match(source, /Entering an assigned Mutator Zone currently logs a shop-zone hint/);
+  assert.doesNotMatch(source, /AccessPassTriggers|AccessPassButtons|AccessPassZones|CoinStoreTriggers|Phase4StorefrontButtons/);
   for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'OnAccessPassZoneEntered', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'ExecuteBuyAccessPass', 'ShowAllOffersAndRelease', 'ShowCoinStoreOffersAndRelease', 'ReconcilePlayerEntitlements']) {
     const line = source.split(/\r?\n/).find(candidate => candidate.includes(`${internal}(`) || candidate.includes(`${internal}:`));
     assert.ok(line, `missing generated internal helper ${internal}`);

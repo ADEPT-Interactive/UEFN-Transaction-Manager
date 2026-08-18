@@ -35,11 +35,6 @@ export function duplicateEntitlement(
       blockedCountryCodes: [...item.offerRestrictions.blockedCountryCodes],
       blockedPlatformFamilies: [...item.offerRestrictions.blockedPlatformFamilies],
     } : undefined,
-    triggers: {
-      ...item.triggers,
-      triggerDeviceName: item.triggers.generateTriggerBinding ? `${verseKey}_OfferTriggers` : undefined,
-      buttonDeviceName: item.triggers.generateButtonBinding ? `${verseKey}_Buttons` : undefined,
-      mutatorZoneName: item.triggers.generateZoneBinding ? `${verseKey}_Zones` : undefined,
-    },
+    triggers: { ...item.triggers },
   };
 }

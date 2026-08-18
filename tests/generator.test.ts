@@ -15,7 +15,7 @@ const config: ProjectConfig = {
   infoModuleName: 'ManagedEntitlementInfo', entitlementsModuleName: 'ManagedEntitlements',
   pricesModuleName: 'ManagedTransactionPrices', offersModuleName: 'ManagedOffers',
   autoBackup: true, enableVerseWorkflowServer: true,
-  generateStorefrontBinding: true, storefrontButtonDeviceName: 'TransactionStorefrontButtons',
+  generateStorefrontBinding: true,
 };
 
 const items: EntitlementItem[] = [
@@ -24,14 +24,14 @@ const items: EntitlementItem[] = [
     description: 'Unlocks VIP access.', priceVBucks: 500, itemType: 'durable', maxCount: 1,
     autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, triggerDeviceName: 'VipPassOfferTriggers', generateButtonBinding: true, buttonDeviceName: 'VipPassButtons', generateZoneBinding: true, mutatorZoneName: 'VipPassZones' },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true },
   },
   {
     id: 'crate', verseKey: 'mystery_crate', name: 'Mystery Crate', shortDescription: 'One disclosed random reward.',
     description: 'Contains one reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10,
     autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', paidArea: false, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, triggerDeviceName: 'MysteryCrateOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
   },
 ];
 
@@ -99,7 +99,7 @@ test('generated device uses authoritative deltas, lifecycle cleanup, and transac
   assert.match(source, /OnEnd<override>\(\):void/);
   assert.match(source, /Subscription\.Cancel\(\)/);
   assert.match(source, /DeviceSubscriptions:\[\]cancelable/);
-  assert.match(source, /VipPassOfferTriggers : \[\]trigger_device/);
+  assert.match(source, /VipPass_PurchaseTriggers : \[\]trigger_device/);
   assert.match(source, /TriggeredEvent\.Subscribe\(OnVipPassTriggerActivated\)/);
   assert.match(source, /OnVipPassTriggerActivated\(MaybeAgent:\?agent\):void/);
   assert.match(source, /PaidRandomItem<override>:logic = true/);
@@ -186,18 +186,15 @@ test('only actual odds values are appended across direct, alternate, and bundle 
   regularA.id = 'regular-a';
   regularA.verseKey = 'regular_a';
   regularA.name = 'Regular A';
-  regularA.triggers.triggerDeviceName = 'RegularAOfferTriggers';
   const regularB = structuredClone(regularA);
   regularB.id = 'regular-b';
   regularB.verseKey = 'regular_b';
   regularB.name = 'Regular B';
-  regularB.triggers.triggerDeviceName = 'RegularBOfferTriggers';
 
   const supplied = structuredClone(items[1]);
   supplied.id = 'random-supplied';
   supplied.verseKey = 'random_supplied';
   supplied.name = 'Random Supplied';
-  supplied.triggers.triggerDeviceName = 'RandomSuppliedOfferTriggers';
   supplied.alternateOffers = [{
     id: 'random-supplied-alt', verseKey: 'random_supplied_alt', name: 'Random Supplied Alt',
     shortDescription: 'Alternate disclosed random reward.', description: 'Contains one reward.',
@@ -209,7 +206,6 @@ test('only actual odds values are appended across direct, alternate, and bundle 
   empty.id = 'random-empty';
   empty.verseKey = 'random_empty';
   empty.name = 'Random Empty';
-  empty.triggers.triggerDeviceName = 'RandomEmptyOfferTriggers';
   empty.flags.paidRandomItemOdds = '';
   empty.alternateOffers = [{
     id: 'random-empty-alt', verseKey: 'random_empty_alt', name: 'Random Empty Alt',
@@ -265,11 +261,9 @@ test('saved paid-random odds survive manifest reopen and regeneration for old an
   const supplied = structuredClone(items[1]);
   supplied.id = 'saved-supplied';
   supplied.verseKey = 'saved_supplied';
-  supplied.triggers.triggerDeviceName = 'SavedSuppliedOfferTriggers';
   const empty = structuredClone(items[1]);
   empty.id = 'saved-empty';
   empty.verseKey = 'saved_empty';
-  empty.triggers.triggerDeviceName = 'SavedEmptyOfferTriggers';
   empty.flags.paidRandomItemOdds = '';
 
   const source = generateVerseCode([supplied, empty], [], config);
@@ -292,7 +286,7 @@ test('saved paid-random odds survive manifest reopen and regeneration for old an
 test('missing trigger settings migrate to the default offer trigger binding', () => {
   const normalized = normalizeEntitlement({ ...items[0], triggers: { generateButtonBinding: false, generateZoneBinding: false } }, 0);
   assert.equal(normalized.triggers.generateTriggerBinding, true);
-  assert.equal(normalized.triggers.triggerDeviceName, 'vip_pass_OfferTriggers');
+  assert.equal('triggerDeviceName' in normalized.triggers, false);
 });
 
 test('bundle metadata and offer references are generated', () => {
@@ -334,7 +328,7 @@ test('new marketplace safeguards and public helpers are generated', () => {
     id: 'vip-alt', verseKey: 'vip_pass_mobile', name: 'VIP Mobile', shortDescription: 'Mobile VIP access.', description: 'VIP access for mobile.', priceVBucks: 400,
     iconTexture: 'EntitlementIcons.Icon_VIP', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
   }];
-  const featureConfig = { ...config, generateStorefrontBinding: true, storefrontButtonDeviceName: 'StorefrontButtons' };
+  const featureConfig = { ...config, generateStorefrontBinding: true };
   const source = generateVerseCode(featureItems, featureBundles, featureConfig);
   assert.match(source, /ShowOffersDialog\(Player/);
   assert.match(source, /GetMinPurchaseAge<override>/);
@@ -345,7 +339,7 @@ test('new marketplace safeguards and public helpers are generated', () => {
   assert.match(source, /GrantVipPass<public>/);
   assert.match(source, /ConsumeMysteryCrate<public>/);
   assert.match(source, /vip_pass_mobile_offer<public>/);
-  assert.match(source, /StorefrontButtons : \[\]button_device/);
+  assert.match(source, /AllOffersStore_OpenButtons : \[\]button_device/);
   assert.match(source, /Shop zone entered; use a deliberate shop interaction/);
 });
 
@@ -368,7 +362,7 @@ test('canonical ownership and count helpers query entitlement state once and exc
   }];
   const source = generateVerseCode([itemWithAlternate, items[1]], bundles, config, [{
     id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: false,
-    triggerDeviceName: 'CoinStoreTriggers', entries: [{ entitlementId: 'vip' }, { bundleId: 'starter' }],
+    entries: [{ entitlementId: 'vip' }, { bundleId: 'starter' }],
   }]);
 
   for (const [stem, verseKey] of [['VipPass', 'vip_pass'], ['MysteryCrate', 'mystery_crate']] as const) {
@@ -554,10 +548,10 @@ test('managed imports accept supported schemas and reject ambiguous or future da
 test('focused offer displays generate titled storefronts without becoming bundles', () => {
   const groups: OfferDisplayGroup[] = [{
     id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: true,
-    triggerDeviceName: 'CoinStoreTriggers', entries: [{ entitlementId: 'vip' }, { bundleId: 'starter' }],
+    entries: [{ entitlementId: 'vip' }, { bundleId: 'starter' }],
   }];
   const source = generateVerseCode(items, bundles, config, groups);
-  assert.match(source, /CoinStoreTriggers : \[\]trigger_device/);
+  assert.match(source, /CoinStore_OpenTriggers : \[\]trigger_device/);
   assert.doesNotMatch(source, /ShowCoinStore<public>\(Player:player\)<suspends>:void/);
   assert.match(source, /ShowCoinStoreOffers\(Player:player\)<suspends>:void/);
   assert.match(source, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := CoinStoreTitle\)/);
@@ -578,7 +572,7 @@ test('duplicating a configured offer regenerates every global identity and compi
     description: 'Mobile-specific VIP offer.', priceVBucks: 400, iconTexture: 'EntitlementIcons.Icon_VIP',
     restrictions: { blockedCountryCodes: ['US'], blockedPlatformFamilies: ['Windows'] },
   }];
-  configured.triggers = { generateTriggerBinding: true, triggerDeviceName: 'VipTriggers', generateButtonBinding: true, buttonDeviceName: 'VipButtons', generateZoneBinding: true, mutatorZoneName: 'VipZones' };
+  configured.triggers = { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true };
   let id = 0;
   const copy = duplicateEntitlement(configured, [configured, items[1]], bundles, () => `id-${++id}`);
 
@@ -586,9 +580,7 @@ test('duplicating a configured offer regenerates every global identity and compi
   assert.notEqual(copy.verseKey, configured.verseKey);
   assert.notEqual(copy.alternateOffers![0].id, configured.alternateOffers[0].id);
   assert.notEqual(copy.alternateOffers![0].verseKey, configured.alternateOffers[0].verseKey);
-  assert.notEqual(copy.triggers.triggerDeviceName, configured.triggers.triggerDeviceName);
-  assert.notEqual(copy.triggers.buttonDeviceName, configured.triggers.buttonDeviceName);
-  assert.notEqual(copy.triggers.mutatorZoneName, configured.triggers.mutatorZoneName);
+  assert.deepEqual(copy.triggers, configured.triggers);
   assert.notEqual(copy.alternateOffers![0].restrictions.blockedCountryCodes, configured.alternateOffers[0].restrictions.blockedCountryCodes);
 
   const complete = [configured, items[1], copy];

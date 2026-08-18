@@ -5,6 +5,10 @@ import {
   normalizeRetiredVerseKeys,
   sanitizeVerseIdentifier,
 } from './verseIdentity';
+import {
+  entitlementEditableNames,
+  storefrontEditableName,
+} from './editableBindings';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -91,14 +95,12 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       ? { alternateOffers: value.alternateOffers.map((entry, offerIndex) => normalizeAlternateOffer(entry, verseKey, offerIndex)) }
       : {}),
     triggers: {
-      // Trigger devices are the default, low-code way to open each offer. Keep
-      // old saved projects compatible by supplying a predictable editable name.
+      // Trigger devices are the default, low-code way to open each offer.
+      // Editable property identifiers are derived from the stable Verse key by
+      // the generator and are intentionally not persisted as user input.
       generateTriggerBinding: booleanValue(triggers.generateTriggerBinding, true),
-      triggerDeviceName: stringValue(triggers.triggerDeviceName) || `${verseKey}_OfferTriggers`,
       generateButtonBinding: booleanValue(triggers.generateButtonBinding),
-      buttonDeviceName: stringValue(triggers.buttonDeviceName) || undefined,
       generateZoneBinding: booleanValue(triggers.generateZoneBinding),
-      mutatorZoneName: stringValue(triggers.mutatorZoneName) || undefined,
     },
   };
 }
@@ -156,8 +158,37 @@ export function normalizeOfferDisplayGroup(value: unknown, index: number): Offer
     name: stringValue(value.name, verseKey),
     entries,
     generateTriggerBinding: booleanValue(value.generateTriggerBinding, true),
-    triggerDeviceName: stringValue(value.triggerDeviceName) || `${verseKey}_StoreTriggers`,
   };
+}
+
+function legacyEditableNameDiagnostics(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  const diagnostics: string[] = [];
+  const add = (objectLabel: string, oldName: unknown, canonicalName: string) => {
+    if (typeof oldName !== 'string' || !oldName.trim() || oldName === canonicalName) return;
+    diagnostics.push(`Legacy editable name "${oldName}" for ${objectLabel} is ignored. UEM now generates "${canonicalName}" from the stable Verse key; existing UEFN assignments may need to be reassigned after regeneration.`);
+  };
+
+  if (Array.isArray(value.entitlements)) {
+    value.entitlements.forEach((rawItem, index) => {
+      if (!isRecord(rawItem)) return;
+      const item = normalizeEntitlement(rawItem, index);
+      const names = entitlementEditableNames(item.verseKey);
+      const triggers = isRecord(rawItem.triggers) ? rawItem.triggers : {};
+      const label = item.name || item.verseKey || `entitlement ${index + 1}`;
+      add(`${label} purchase triggers`, triggers.triggerDeviceName, names.purchaseTriggers);
+      add(`${label} purchase buttons`, triggers.buttonDeviceName, names.purchaseButtons);
+      add(`${label} purchase zones`, triggers.mutatorZoneName, names.purchaseZones);
+    });
+  }
+  if (Array.isArray(value.offerDisplayGroups)) {
+    value.offerDisplayGroups.forEach((rawGroup, index) => {
+      if (!isRecord(rawGroup)) return;
+      const group = normalizeOfferDisplayGroup(rawGroup, index);
+      add(`${group.name || group.verseKey} storefront triggers`, rawGroup.triggerDeviceName, storefrontEditableName(group.verseKey));
+    });
+  }
+  return diagnostics;
 }
 
 interface RepairedManagedData {
@@ -260,7 +291,7 @@ export function parseManagedData(value: unknown): {
   return {
     ...repaired,
     retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys),
-    projectDataDiagnostics: [...new Set(repaired.projectDataDiagnostics)],
+    projectDataDiagnostics: [...new Set([...legacyEditableNameDiagnostics(value), ...repaired.projectDataDiagnostics])],
   };
 }
 
@@ -278,7 +309,6 @@ export function normalizeProjectConfig(value: unknown, fallback: ProjectConfig):
     autoBackup: booleanValue(value.autoBackup, fallback.autoBackup),
     enableVerseWorkflowServer: booleanValue(value.enableVerseWorkflowServer, fallback.enableVerseWorkflowServer),
     generateStorefrontBinding: booleanValue(value.generateStorefrontBinding, fallback.generateStorefrontBinding),
-    storefrontButtonDeviceName: stringValue(value.storefrontButtonDeviceName, fallback.storefrontButtonDeviceName),
     allowAutomaticZonePrompts: booleanValue(value.allowAutomaticZonePrompts, fallback.allowAutomaticZonePrompts),
     // The active launcher-provided root is authoritative; presets cannot redirect disk access.
     contentFolderPath: fallback.contentFolderPath,
