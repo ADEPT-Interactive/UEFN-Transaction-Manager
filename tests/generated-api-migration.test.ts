@@ -55,6 +55,8 @@ test('canonical event semantics collapse redundant legacy families', () => {
 test('migrated API-v2 output dual-signals reproducible v1 events and wraps old purchase helpers', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], migratedApiV2);
   assert.equal(publicDeclarationCount(source), 129);
+  assert.match(source, /GrantAccessPass<public>\(Player:player, Quantity:int\)<suspends>:logic/);
+  assert.match(source, /ConsumeCoinPack<public>\(Player:player, Quantity:int\)<suspends>:logic/);
   assert.match(source, /AccessPass_GrantedEvent<public>/);
   assert.match(source, /GetAccessPassCount<public>\(Player:player\)<suspends>:int/);
   assert.match(source, /HasAccessPass<public>\(Player:player\)<suspends>:logic/);
@@ -69,6 +71,8 @@ test('migrated API-v2 output dual-signals reproducible v1 events and wraps old p
   assert.match(source, /ShowStorefront<public>\(Player:player\)<suspends>:void =\n        ShowAllOffers\(Player\)/);
   assert.match(source, /ShowCoinStore<public>\(Player:player\)<suspends>:void =\n        ShowCoinStoreOffers\(Player\)/);
   assert.equal((source.match(/ProcessAccessPassGrant\(Player:player, Quantity:int\):void =/g) ?? []).length, 1);
+  assert.equal((source.match(/GrantAccessPass<public>/g) ?? []).length, 1);
+  assert.doesNotMatch(source, /GrantAccessPassLegacy|LegacyGrantAccessPass/);
 });
 
 test('API-version parsing defaults old manifests to v1 and migration is idempotent', () => {

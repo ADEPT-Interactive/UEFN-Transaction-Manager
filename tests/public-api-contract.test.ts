@@ -142,6 +142,37 @@ test('public helper signatures preserve current return and suspension contracts'
   assert.match(source, /OpenStorefront<public>\(Player:player\):void/);
 });
 
+test('canonical operation helpers return native Marketplace results without coupling events', () => {
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], canonicalApiOptions);
+  for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
+    assert.match(source, new RegExp(`Grant${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
+    assert.match(source, new RegExp(`Grant${stem}<public>[\\s\\S]+GrantEntitlement\\(Player, Phase4PublicApiEntitlements\\.${stem.replace(/[A-Z]/g, match => `_${match.toLowerCase()}`).replace(/^_/, '')}_entitlement, \\?Count := Quantity\\)[\\s\\S]+return Result[\\s\\S]+return false`));
+  }
+  for (const stem of ['CoinPack', 'MysteryItem']) {
+    assert.match(source, new RegExp(`Consume${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
+    assert.match(source, new RegExp(`Consume${stem}<public>[\\s\\S]+ConsumeEntitlement\\(Player, Phase4PublicApiEntitlements\\.${stem.replace(/[A-Z]/g, match => `_${match.toLowerCase()}`).replace(/^_/, '')}_entitlement, \\?Count := Quantity\\)[\\s\\S]+return Result[\\s\\S]+return false`));
+  }
+  assert.doesNotMatch(source, /ConsumeAccessPass<public>|ConsumeSeasonPass<public>/);
+  assert.doesNotMatch(source, /GrantMysteryItemMobile<public>|ConsumeMysteryItemMobile<public>/);
+  assert.doesNotMatch(source, /GrantStarterBundle<public>|ConsumeStarterBundle<public>/);
+  assert.equal((source.match(/GrantAccessPass<public>/g) ?? []).length, 1);
+  assert.equal((source.match(/GrantMysteryItem<public>/g) ?? []).length, 1);
+  assert.equal((source.match(/ConsumeMysteryItem<public>/g) ?? []).length, 1);
+  assert.match(source, /Grant quantity must be positive/);
+  assert.match(source, /Consume quantity must be positive/);
+  assert.match(source, /ProcessMysteryItemGrant\(Player:player, Quantity:int\):void =\n[\s\S]+spawn\{AutoConsumeMysteryItem\(Player, Quantity\)\}/);
+  assert.match(source, /AutoConsumeMysteryItem\(Player:player, Quantity:int\)<suspends>:void =\n        ConsumeMysteryItem\(Player, Quantity\)/);
+  assert.match(source, /Grant and Consume return the native Marketplace operation result/);
+
+  for (const declaration of ['GrantAccessPass', 'ConsumeCoinPack', 'GrantMysteryItem', 'ConsumeMysteryItem']) {
+    const start = source.indexOf(`    ${declaration}<public>`);
+    assert.notEqual(start, -1, `missing ${declaration}`);
+    const nextDeclaration = source.slice(start + 1).search(/\n    [A-Za-z_][A-Za-z0-9_]*(?:<|\()/);
+    const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
+    assert.doesNotMatch(body, /\.Signal\(/, `${declaration} must not signal entitlement events directly`);
+  }
+});
+
 test('canonical ownership query helpers are public, suspending, and entitlement-scoped', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], canonicalApiOptions);
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {

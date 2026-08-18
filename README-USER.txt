@@ -23,6 +23,13 @@ DurableEntitlement_GrantedEvent. Existing API-v1 projects retain compatible
 legacy names during migration where their historical identity is reproducible.
 Use Get<StableKeyStem>Count and Has<StableKeyStem> from your own Verse to query
 current Marketplace ownership; do not edit the managed file.
+In API v2, Grant<StableKeyStem> and consumable Consume<StableKeyStem> are
+suspending helpers that return the native Marketplace operation result as logic.
+Non-positive quantities return false without calling Marketplace. That result is
+not a replacement for listening to the canonical entitlement delta events, which
+remain the gameplay-state signal. Explicit API-v1 output keeps its historical
+void Grant/Consume signatures; migrated API-v1 projects receive the canonical
+API-v2 result-returning functions plus their legacy compatibility symbols.
 
 Test purchases, cancellations, refunds, consumption, saved state, and rejoin
 behavior in a real UEFN session before publishing.

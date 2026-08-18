@@ -428,6 +428,15 @@ export function generateVerseCode(
     '',
   );
 
+  push(
+    canonicalApi
+      ? '    # Grant and Consume return the native Marketplace operation result; true does not mean gameplay state has already been processed.'
+      : '    # Grant and Consume retain the historical API-v1 void contract; use the generated entitlement events for gameplay state.',
+    '    # Direct grants bypass offer disclosures and the purchase flow. Use them only for deliberate free grants.',
+    '    # Apply gameplay changes from the generated entitlement delta events or current-state query helpers in external Verse.',
+    '',
+  );
+
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
@@ -442,7 +451,9 @@ export function generateVerseCode(
       ...(preserveLegacyApi && legacyNames.has(item.purchaseEventName) ? [`        ${item.purchaseEventName}.Signal(Player)`] : []),
       ...(preserveLegacyApi && legacyNames.has(legacyGrantedName) ? [`        ${legacyGrantedName}.Signal((Player, Quantity))`] : []),
       ...(canonicalApi ? [`        ${pascal}_GrantedEvent.Signal((Player, Quantity))`] : []),
-      ...(item.itemType === 'consumable' && item.autoConsume ? [`        spawn{Consume${pascal}(Player, Quantity)}`] : []),
+      ...(item.itemType === 'consumable' && item.autoConsume
+        ? [`        spawn{${canonicalApi ? `AutoConsume${pascal}` : `Consume${pascal}`}(Player, Quantity)}`]
+        : []),
       '',
       `    Process${pascal}Removal(Player:player, Quantity:int):void =`,
       `        Print("${item.itemType === 'durable' ? 'Ownership removed for' : 'Inventory decreased for'} ${printableName} x{Quantity}; reconcile saved state")`,
@@ -452,28 +463,63 @@ export function generateVerseCode(
       '',
     );
     if (item.itemType === 'consumable') {
+      if (canonicalApi) {
+        push(
+          `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
+          '        if (Quantity > 0):',
+          `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+          '            if (not Result?):',
+          `                Print("Failed to consume ${printableName}")`,
+          '            return Result',
+          '        Print("Consume quantity must be positive")',
+          '        return false',
+          '',
+        );
+        if (item.autoConsume) {
+          push(
+            `    # Auto-consume intentionally discards Consume${pascal}'s operation result; the public helper logs failures before returning it.`,
+            `    AutoConsume${pascal}(Player:player, Quantity:int)<suspends>:void =`,
+            `        Consume${pascal}(Player, Quantity)`,
+            '',
+          );
+        }
+      } else {
+        push(
+          `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
+          '        if (Quantity > 0):',
+          `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+          '            if (not Result?):',
+          `                Print("Failed to consume ${printableName}")`,
+          '        else:',
+          '            Print("Consume quantity must be positive")',
+          '',
+        );
+      }
+    }
+    if (canonicalApi) {
       push(
-        `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
+        `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
         '        if (Quantity > 0):',
-        `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+        `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
         '            if (not Result?):',
-        `                Print("Failed to consume ${printableName}")`,
+        `                Print("Failed to grant ${printableName}")`,
+        '            return Result',
+        '        Print("Grant quantity must be positive")',
+        '        return false',
+        '',
+      );
+    } else {
+      push(
+        `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
+        '        if (Quantity > 0):',
+        `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+        '            if (not Result?):',
+        `                Print("Failed to grant ${printableName}")`,
         '        else:',
-        '            Print("Consume quantity must be positive")',
+        '            Print("Grant quantity must be positive")',
         '',
       );
     }
-    push(
-      '    # Direct grants bypass offer disclosures and the purchase flow. Use only for deliberate free grants.',
-      `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
-      '        if (Quantity > 0):',
-      `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-      '            if (not Result?):',
-      `                Print("Failed to grant ${printableName}")`,
-      '        else:',
-      '            Print("Grant quantity must be positive")',
-      '',
-    );
   }
 
   if (canonicalApi) {

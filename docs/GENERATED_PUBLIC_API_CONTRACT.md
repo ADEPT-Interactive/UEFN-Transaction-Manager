@@ -56,8 +56,8 @@ These are the deliberate integration points for creator-authored Verse:
 - `${Stem}_GrantedEvent<public>:event(tuple(player, int))`.
 - `${Stem}_RemovedEvent<public>:event(tuple(player, int))`.
 - `${Stem}_ReconciledEvent<public>:event(tuple(player, int))`.
-- `Grant${Pascal}<public>(Player:player, Quantity:int)<suspends>:void`.
-- `Consume${Pascal}<public>(Player:player, Quantity:int)<suspends>:void` for consumables.
+- API-v2 `Grant${Pascal}<public>(Player:player, Quantity:int)<suspends>:logic`; explicit API-v1 retains the historical `:void` signature.
+- API-v2 `Consume${Pascal}<public>(Player:player, Quantity:int)<suspends>:logic` for consumables; explicit API-v1 retains the historical `:void` signature.
 - `Get${Stem}Count<public>(Player:player)<suspends>:int` for each managed entitlement.
 - `Has${Stem}<public>(Player:player)<suspends>:logic` for each managed entitlement, including consumables.
 - `Open${Stem}Purchase<public>(Player:player):void`, including alternate and bundle variants.
@@ -132,11 +132,19 @@ Query helpers and reconciliation events serve different purposes. `Get${Stem}Cou
 
 ## Grant and consume helpers
 
-`Grant${Pascal}` calls `GrantEntitlement(Player, Entitlement, ?Count := Quantity)`. `Consume${Pascal}` calls `ConsumeEntitlement(Player, Entitlement, ?Count := Quantity)`. Both public helpers validate that the requested quantity is positive, are suspending functions, return `void`, and print a failure message when the underlying optional result is not successful. The underlying result is intentionally discarded by the public contract.
+For API v2, `Grant${Pascal}<public>(Player:player, Quantity:int)<suspends>:logic` calls `GrantEntitlement(Player, Entitlement, ?Count := Quantity)` and returns the native Marketplace operation result. `Consume${Pascal}<public>(Player:player, Quantity:int)<suspends>:logic` is generated only for consumables, calls `ConsumeEntitlement(Player, Entitlement, ?Count := Quantity)`, and returns that native result. Both helpers reject non-positive quantities without calling Marketplace, print the existing diagnostic, and return `false`; positive quantities preserve the native success/failure result and print the existing failure diagnostic when it is false. A returned `true` means only that the Marketplace operation reported success. It does not mean gameplay effects or entitlement-event subscribers have already processed the change.
+
+Explicit API-v1 generation retains the historical `void` Grant/Consume signatures. A migrated API-v1 project generates the canonical API-v2 result-returning functions alongside its legacy event and purchase compatibility symbols; the Grant/Consume names are not duplicated because Verse cannot overload a function by return type. Verse permits a returned value to be ignored in a standalone call, so existing calls such as `Transactions.GrantAccessPass(Player, 1)` remain valid at the call site. New integrations may assign or branch on the result, for example:
+
+```verse
+GrantSucceeded := Transactions.GrantAccessPass(Player, 1)
+if (GrantSucceeded?):
+    Print("Marketplace grant accepted")
+```
+
+Grant and Consume do not directly signal `${Pascal}_GrantedEvent` or `${Pascal}_RemovedEvent`. Use those canonical entitlement delta events, plus `Get${Pascal}Count` or `Has${Pascal}` when an explicit current-state query is needed, to drive gameplay state. Auto-consume uses a private suspending fire-and-forget helper that intentionally ignores the public result after the public helper has logged any failure.
 
 The helpers do not directly signal the generated events. The event path is the authoritative `GetEntitlementsChangedEvent` subscription. Direct grants are deliberately outside the purchase flow and do not create an offer disclosure or a V-Bucks purchase.
-
-The current `void` return type is compatibility-sensitive. Changing it to expose the underlying result would alter the callable signature and could affect existing calls, stored function values, or future wrappers. This phase makes no return-type change.
 
 ## Purchase helper semantics
 
