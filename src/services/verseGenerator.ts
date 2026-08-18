@@ -56,7 +56,7 @@ type EditableDescriptor = {
   displayName: string;
   propertyName: string;
   type: string;
-  role: 'purchaseTriggers' | 'purchaseButtons' | 'purchaseZones' | 'openTriggers' | 'openButtons';
+  role: 'purchaseTriggers' | 'purchaseButtons' | 'openTriggers' | 'openButtons';
   tooltip: string;
   rootCategory: 'entitlements' | 'storefronts';
 };
@@ -79,7 +79,7 @@ function editableDescriptors(
       propertyName: names.purchaseTriggers,
       type: '[]trigger_device',
       role: 'purchaseTriggers',
-      tooltip: `Activating an assigned Trigger device opens Epic's purchase interface for ${item.name || item.verseKey}.`,
+      tooltip: `Activating an assigned Trigger device opens Epic's purchase interface for ${item.name || item.verseKey}. Use it only with a deliberate player purchase interaction.`,
       rootCategory: 'entitlements',
     });
     if (item.triggers.generateButtonBinding) descriptors.push({
@@ -89,15 +89,6 @@ function editableDescriptors(
       type: '[]button_device',
       role: 'purchaseButtons',
       tooltip: `Interacting with an assigned Button device opens Epic's purchase interface for ${item.name || item.verseKey}.`,
-      rootCategory: 'entitlements',
-    });
-    if (item.triggers.generateZoneBinding) descriptors.push({
-      key: item.verseKey,
-      displayName: item.name || item.verseKey,
-      propertyName: names.purchaseZones,
-      type: '[]mutator_zone_device',
-      role: 'purchaseZones',
-      tooltip: `Entering an assigned Mutator Zone currently logs a shop-zone hint; it does not open purchase UI unless automatic zone prompts are enabled in UEM.`,
       rootCategory: 'entitlements',
     });
   }
@@ -117,7 +108,7 @@ function editableDescriptors(
       propertyName: storefrontEditableName(group.verseKey),
       type: '[]trigger_device',
       role: 'openTriggers',
-      tooltip: `Activating an assigned Trigger device opens the ${group.name || group.verseKey} storefront.`,
+      tooltip: `Activating an assigned Trigger device opens the ${group.name || group.verseKey} storefront. Use it with a deliberate player interaction.`,
       rootCategory: 'storefronts',
     });
   }
@@ -131,14 +122,12 @@ function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
   const roleSymbols: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
-    purchaseZones: EDITABLE_METADATA_SYMBOLS.purchaseZonesCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
   const roleLabels: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_CATEGORY_LABELS.purchaseTriggers,
     purchaseButtons: EDITABLE_CATEGORY_LABELS.purchaseButtons,
-    purchaseZones: EDITABLE_CATEGORY_LABELS.purchaseZones,
     openTriggers: EDITABLE_CATEGORY_LABELS.openTriggers,
     openButtons: EDITABLE_CATEGORY_LABELS.openButtons,
   };
@@ -167,7 +156,6 @@ function editableAttributeLines(descriptor: EditableDescriptor): string[] {
   const roleCategories: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
-    purchaseZones: EDITABLE_METADATA_SYMBOLS.purchaseZonesCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
@@ -448,7 +436,6 @@ export function generateVerseCode(
     const names = entitlementEditableNames(item.verseKey);
     if (item.triggers.generateTriggerBinding) push(`        for (Trigger : ${names.purchaseTriggers}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${pascal}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
     if (item.triggers.generateButtonBinding) push(`        for (Button : ${names.purchaseButtons}):`, `            Subscription := Button.InteractedWithEvent.Subscribe(On${pascal}ButtonInteracted)`, '            set DeviceSubscriptions += array{Subscription}');
-    if (item.triggers.generateZoneBinding) push(`        for (Zone : ${names.purchaseZones}):`, `            Subscription := Zone.AgentEntersEvent.Subscribe(On${pascal}ZoneEntered)`, '            set DeviceSubscriptions += array{Subscription}');
   }
   if (config.generateStorefrontBinding) push(`        for (Button : ${allOffersStoreButtons}):`, '            Subscription := Button.InteractedWithEvent.Subscribe(OnStorefrontButtonInteracted)', '            set DeviceSubscriptions += array{Subscription}');
   for (const group of offerDisplayGroups) {
@@ -613,14 +600,6 @@ export function generateVerseCode(
         `    On${pascal}ButtonInteracted(Agent:agent):void =`,
         `        if (Player := player[Agent]):`,
         `            ${purchaseEntryName}(Player)`,
-        '',
-      );
-    }
-    if (item.triggers.generateZoneBinding) {
-      push(
-        `    On${pascal}ZoneEntered(Agent:agent):void =`,
-        `        if (Player := player[Agent]):`,
-        ...(config.allowAutomaticZonePrompts ? [`            ${purchaseEntryName}(Player)`] : ['            Print("Shop zone entered; use a deliberate shop interaction to open the storefront")']),
         '',
       );
     }

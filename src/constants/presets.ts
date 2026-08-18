@@ -26,7 +26,7 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
     description: 'Grants a persistent entitlement defined by the game integration.', priceVBucks: 100,
     itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.DurableEntitlement',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
   {
     presetTitle: 'Consumable entitlement',
@@ -36,7 +36,7 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
     description: 'Provides a consumable entitlement whose use is handled by the game integration.', priceVBucks: 100,
     itemType: 'consumable', maxCount: 10, autoConsume: false, iconTexture: 'EntitlementIcons.ConsumableEntitlement',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
   {
     presetTitle: 'Time-limited entitlement',
@@ -47,7 +47,7 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
     itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.TimeLimitedEntitlement',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
     durationDescription: 'Define the player-facing duration in the game integration.',
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
   {
     presetTitle: 'Paid random item',
@@ -57,7 +57,7 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
     description: 'Provides a paid random item with outcomes disclosed to players.', priceVBucks: 100,
     itemType: 'consumable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.PaidRandomItem',
     flags: { paidRandomItem: true, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: false },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
   {
     presetTitle: 'Access entitlement',
@@ -67,6 +67,6 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
     description: 'Grants access to an area or feature defined by the game integration.', priceVBucks: 100,
     itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.AccessEntitlement',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: false },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
 ];

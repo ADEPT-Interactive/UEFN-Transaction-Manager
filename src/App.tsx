@@ -14,7 +14,7 @@ import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
 import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
 import { EditorStatus, FileService } from './services/fileService';
-import { cleanManagedData, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray } from './services/projectSchema';
+import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray } from './services/projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
 import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
@@ -38,7 +38,6 @@ const DEFAULT_CONFIG: ProjectConfig = {
   autoBackup: true,
   enableVerseWorkflowServer: true,
   generateStorefrontBinding: false,
-  allowAutomaticZonePrompts: false,
 };
 
 const STORAGE_NAMESPACE = FileService.getStorageNamespace(launchContext.contentFolderPath);
@@ -537,7 +536,7 @@ export const App: React.FC = () => {
         setBundles(data.bundles);
         setOfferDisplayGroups(data.offerDisplayGroups);
         setRetiredVerseKeys(data.retiredVerseKeys);
-        setProjectDataDiagnostics(data.projectDataDiagnostics);
+        setProjectDataDiagnostics([...new Set([...data.projectDataDiagnostics, ...legacyProjectConfigDiagnostics(raw)])]);
         setConfig(nextConfig);
         setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays. Review validation before saving.` });
       } catch (error) {

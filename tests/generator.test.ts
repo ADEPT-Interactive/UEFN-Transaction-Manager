@@ -24,14 +24,14 @@ const items: EntitlementItem[] = [
     description: 'Unlocks VIP access.', priceVBucks: 500, itemType: 'durable', maxCount: 1,
     autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true },
   },
   {
     id: 'crate', verseKey: 'mystery_crate', name: 'Mystery Crate', shortDescription: 'One disclosed random reward.',
     description: 'Contains one reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10,
     autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', paidArea: false, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
   },
 ];
 
@@ -284,7 +284,7 @@ test('saved paid-random odds survive manifest reopen and regeneration for old an
 });
 
 test('missing trigger settings migrate to the default offer trigger binding', () => {
-  const normalized = normalizeEntitlement({ ...items[0], triggers: { generateButtonBinding: false, generateZoneBinding: false } }, 0);
+  const normalized = normalizeEntitlement({ ...items[0], triggers: { generateButtonBinding: false } }, 0);
   assert.equal(normalized.triggers.generateTriggerBinding, true);
   assert.equal('triggerDeviceName' in normalized.triggers, false);
 });
@@ -340,7 +340,7 @@ test('new marketplace safeguards and public helpers are generated', () => {
   assert.match(source, /ConsumeMysteryCrate<public>/);
   assert.match(source, /vip_pass_mobile_offer<public>/);
   assert.match(source, /AllOffersStore_OpenButtons : \[\]button_device/);
-  assert.match(source, /Shop zone entered; use a deliberate shop interaction/);
+  assert.doesNotMatch(source, /ZoneEntered|mutator_zone_device|Shop zone entered|automatic zone prompt/i);
 });
 
 test('generated managed-file guidance keeps gameplay integration in external Verse', () => {
@@ -572,7 +572,7 @@ test('duplicating a configured offer regenerates every global identity and compi
     description: 'Mobile-specific VIP offer.', priceVBucks: 400, iconTexture: 'EntitlementIcons.Icon_VIP',
     restrictions: { blockedCountryCodes: ['US'], blockedPlatformFamilies: ['Windows'] },
   }];
-  configured.triggers = { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true };
+  configured.triggers = { generateTriggerBinding: true, generateButtonBinding: true };
   let id = 0;
   const copy = duplicateEntitlement(configured, [configured, items[1]], bundles, () => `id-${++id}`);
 

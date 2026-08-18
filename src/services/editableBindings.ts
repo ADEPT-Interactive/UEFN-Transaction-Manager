@@ -5,7 +5,6 @@ export type StorefrontEditableRole = 'openTriggers' | 'openButtons';
 export interface EntitlementEditableNames {
   purchaseTriggers: string;
   purchaseButtons: string;
-  purchaseZones: string;
 }
 
 export const ALL_OFFERS_STORE_STEM = 'AllOffersStore';
@@ -15,7 +14,6 @@ export function entitlementEditableNames(verseKey: string): EntitlementEditableN
   return {
     purchaseTriggers: `${stem}_PurchaseTriggers`,
     purchaseButtons: `${stem}_PurchaseButtons`,
-    purchaseZones: `${stem}_PurchaseZones`,
   };
 }
 
@@ -33,7 +31,6 @@ export const EDITABLE_METADATA_SYMBOLS = {
   storefrontsCategory: 'UEM_StorefrontsCategory',
   purchaseTriggersCategory: 'UEM_PurchaseTriggersCategory',
   purchaseButtonsCategory: 'UEM_PurchaseButtonsCategory',
-  purchaseZonesCategory: 'UEM_PurchaseZonesCategory',
   openTriggersCategory: 'UEM_OpenTriggersCategory',
   openButtonsCategory: 'UEM_OpenButtonsCategory',
 } as const;
@@ -43,7 +40,6 @@ export const EDITABLE_CATEGORY_LABELS = {
   storefronts: 'STOREFRONTS',
   purchaseTriggers: 'Purchase Triggers',
   purchaseButtons: 'Purchase Buttons',
-  purchaseZones: 'Purchase Zones',
   openTriggers: 'Open Triggers',
   openButtons: 'Open Buttons',
 } as const;

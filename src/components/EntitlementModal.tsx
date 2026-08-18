@@ -39,7 +39,7 @@ const EMPTY_ENTITLEMENT: EntitlementItem = {
   id: '', verseKey: '', name: '', shortDescription: '', description: '', priceVBucks: 100,
   itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: '',
   flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
-  triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
+  triggers: { generateTriggerBinding: true, generateButtonBinding: false },
 };
 
 const EMPTY_RESTRICTIONS: OfferRestrictions = { blockedCountryCodes: [], blockedPlatformFamilies: [] };
@@ -648,11 +648,11 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 <p className="text-[11px] text-slate-400">The device signals stable-key-based Granted, Removed, and Reconciled events after authoritative Marketplace changes. A positive event represents any positive entitlement delta, including a purchase or direct grant.</p>
               </div>
 
-              {/* Triggers (Trigger devices, Buttons & Mutator Zones) */}
+              {/* Deliberate purchase interactions */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Radio className="w-4 h-4 text-cyan-400" />
-                  <span>In-Game Triggers & Bindings</span>
+                  <span>Purchase Interactions</span>
                 </label>
 
                 <div className="border-b border-slate-800 pb-3">
@@ -669,13 +669,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                       }))}
                       className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
                     />
-                    <span className="text-xs font-semibold text-white">Expose Trigger Devices for this offer</span>
+                    <span className="text-xs font-semibold text-white">Purchase Trigger</span>
                   </label>
-                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Recommended: assign one or more Trigger devices in UEFN. A player-triggered event opens this offer.</p>
+                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Recommended. Use this only with a deliberate player purchase interaction. Activating an assigned Trigger device opens Epic&apos;s purchase interface for this offer.</p>
                 </div>
 
-                {/* Button Device Trigger */}
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                {/* Purchase Button */}
+                <div className="space-y-1 border-b border-slate-800 pb-2">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -689,27 +689,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                       }))}
                       className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
                     />
-                    <span className="text-xs font-semibold text-white">Generate Button Devices Array Binding</span>
+                    <span className="text-xs font-semibold text-white">Purchase Button</span>
                   </label>
-                </div>
-
-                {/* Mutator Zone Trigger */}
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.triggers.generateZoneBinding}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        triggers: {
-                          ...prev.triggers,
-                          generateZoneBinding: e.target.checked,
-                        },
-                      }))}
-                      className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
-                    />
-                    <span className="text-xs font-semibold text-white">Generate Mutator Zone Trigger Binding</span>
-                  </label>
+                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Interacting with an assigned Button device opens Epic&apos;s purchase interface for this offer.</p>
                 </div>
               </div>
             </div>

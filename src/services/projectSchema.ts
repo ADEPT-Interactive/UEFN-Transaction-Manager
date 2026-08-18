@@ -100,7 +100,6 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       // the generator and are intentionally not persisted as user input.
       generateTriggerBinding: booleanValue(triggers.generateTriggerBinding, true),
       generateButtonBinding: booleanValue(triggers.generateButtonBinding),
-      generateZoneBinding: booleanValue(triggers.generateZoneBinding),
     },
   };
 }
@@ -164,6 +163,7 @@ export function normalizeOfferDisplayGroup(value: unknown, index: number): Offer
 function legacyEditableNameDiagnostics(value: unknown): string[] {
   if (!isRecord(value)) return [];
   const diagnostics: string[] = [];
+  let hasObsoleteZoneBinding = false;
   const add = (objectLabel: string, oldName: unknown, canonicalName: string) => {
     if (typeof oldName !== 'string' || !oldName.trim() || oldName === canonicalName) return;
     diagnostics.push(`Legacy editable name "${oldName}" for ${objectLabel} is ignored. UEM now generates "${canonicalName}" from the stable Verse key; existing UEFN assignments may need to be reassigned after regeneration.`);
@@ -178,7 +178,9 @@ function legacyEditableNameDiagnostics(value: unknown): string[] {
       const label = item.name || item.verseKey || `entitlement ${index + 1}`;
       add(`${label} purchase triggers`, triggers.triggerDeviceName, names.purchaseTriggers);
       add(`${label} purchase buttons`, triggers.buttonDeviceName, names.purchaseButtons);
-      add(`${label} purchase zones`, triggers.mutatorZoneName, names.purchaseZones);
+      if (booleanValue(triggers.generateZoneBinding) || (typeof triggers.mutatorZoneName === 'string' && triggers.mutatorZoneName.trim())) {
+        hasObsoleteZoneBinding = true;
+      }
     });
   }
   if (Array.isArray(value.offerDisplayGroups)) {
@@ -188,7 +190,15 @@ function legacyEditableNameDiagnostics(value: unknown): string[] {
       add(`${group.name || group.verseKey} storefront triggers`, rawGroup.triggerDeviceName, storefrontEditableName(group.verseKey));
     });
   }
+  if (hasObsoleteZoneBinding) diagnostics.push('Purchase Zone bindings are no longer supported. Existing zone settings and assignments were ignored; use a deliberate Purchase Trigger or Purchase Button instead.');
   return diagnostics;
+}
+
+export function legacyProjectConfigDiagnostics(value: unknown): string[] {
+  if (!isRecord(value) || !isRecord(value.config)) return [];
+  return booleanValue(value.config.allowAutomaticZonePrompts)
+    ? ['Automatic zone prompts are no longer supported. The old setting was ignored; use a deliberate Purchase Trigger or Purchase Button instead.']
+    : [];
 }
 
 interface RepairedManagedData {
@@ -309,7 +319,6 @@ export function normalizeProjectConfig(value: unknown, fallback: ProjectConfig):
     autoBackup: booleanValue(value.autoBackup, fallback.autoBackup),
     enableVerseWorkflowServer: booleanValue(value.enableVerseWorkflowServer, fallback.enableVerseWorkflowServer),
     generateStorefrontBinding: booleanValue(value.generateStorefrontBinding, fallback.generateStorefrontBinding),
-    allowAutomaticZonePrompts: booleanValue(value.allowAutomaticZonePrompts, fallback.allowAutomaticZonePrompts),
     // The active launcher-provided root is authoritative; presets cannot redirect disk access.
     contentFolderPath: fallback.contentFolderPath,
   };

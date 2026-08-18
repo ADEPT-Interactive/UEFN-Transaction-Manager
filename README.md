@@ -34,7 +34,7 @@ When Python Editor Scripting is enabled, UEM also installs and attaches its proj
 - Configure V-Bucks prices, age requirements, country restrictions, and platform restrictions.
 - Import PNG artwork as native Texture2D assets and use it in generated offers.
 - Generate canonical stable-key-based grant, removal, and reconciliation events for your gameplay code.
-- Use Trigger bindings by default, with optional Button and Mutator Zone bindings under Advanced settings.
+- Use deliberate Trigger bindings by default, with optional Purchase Button bindings under Advanced settings. Passive zone entry is not a purchase binding.
 - Save and reopen each project's catalog without rebuilding it from scratch.
 - Save the generated Verse and request a compile from the connected UEFN session.
 - Review schema errors and advisory moderation warnings before testing your island.

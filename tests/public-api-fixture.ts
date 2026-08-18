@@ -29,7 +29,6 @@ function entitlement(overrides: EntitlementOverrides): EntitlementItem {
     triggers: {
       generateTriggerBinding: false,
       generateButtonBinding: false,
-      generateZoneBinding: false,
       ...overrides.triggers,
     },
     ...overrides,
@@ -48,7 +47,6 @@ export const publicApiConfig: ProjectConfig = {
   autoBackup: false,
   enableVerseWorkflowServer: true,
   generateStorefrontBinding: true,
-  allowAutomaticZonePrompts: false,
 };
 
 export const publicApiItems: EntitlementItem[] = [
@@ -57,7 +55,7 @@ export const publicApiItems: EntitlementItem[] = [
     iconTexture: 'EntitlementIcons.AccessPass',
     flags: { paidArea: true, consequentialToGameplay: true },
     offerRestrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['CA'], blockedPlatformFamilies: ['Android'] },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateZoneBinding: true },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true },
   }),
   entitlement({
     id: 'season', verseKey: 'season_pass', name: 'Season Pass', priceVBucks: 1000,
@@ -73,7 +71,7 @@ export const publicApiItems: EntitlementItem[] = [
     id: 'random', verseKey: 'mystery_item', name: 'Mystery Item', priceVBucks: 150,
     itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryItem',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: false, generateButtonBinding: true, generateZoneBinding: true },
+    triggers: { generateTriggerBinding: false, generateButtonBinding: true },
     alternateOffers: [{
       id: 'random-mobile', verseKey: 'mystery_item_mobile', name: 'Mystery Item Mobile',
       shortDescription: 'The mobile storefront variant.', description: 'The same disclosed random item for mobile.',

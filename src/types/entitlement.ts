@@ -43,7 +43,6 @@ export interface EntitlementItem {
   triggers: {
     generateTriggerBinding: boolean;
     generateButtonBinding: boolean;
-    generateZoneBinding: boolean;
   };
 }
 
@@ -95,7 +94,6 @@ export interface ProjectConfig {
   autoBackup: boolean;
   enableVerseWorkflowServer: boolean;
   generateStorefrontBinding?: boolean;
-  allowAutomaticZonePrompts?: boolean;
 }
 
 export interface ValidationIssue {
