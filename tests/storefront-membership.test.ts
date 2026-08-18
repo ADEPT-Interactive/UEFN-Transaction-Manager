@@ -112,8 +112,8 @@ test('empty global and focused storefronts remain valid but warn and generate sa
   assert.ok(issues.some(issue => issue.ruleName === 'all_offers_empty'));
   assert.ok(issues.some(issue => issue.ruleName === 'offer_display_entries_min'));
   const source = sourceFor(membership, []);
-  assert.match(source, /ShowAllOffers\(Player:player\)<suspends>:void =\n        Print\("No transaction offers are configured"\)/);
-  assert.match(source, /ShowEmptyStoreOffers\(Player:player\)<suspends>:void =\n        Print\("No eligible offers are configured for this storefront"\)/);
+  assert.match(source, /ShowAllOffers\(Player:player\)<suspends>:void =\n        LogWarning\("No transaction offers are configured\."\)/);
+  assert.match(source, /ShowEmptyStoreOffers\(Player:player\)<suspends>:void =\n        LogWarning\("No eligible offers are configured for the Empty Store storefront\."\)/);
 });
 
 test('selection options omit dynamic bundles and distinguish primary, alternate, and static bundle labels', () => {

@@ -29,6 +29,7 @@ export function editableMetadataSymbol(verseKey: string, suffix: string): string
 export const EDITABLE_METADATA_SYMBOLS = {
   entitlementsCategory: 'UEM_EntitlementsCategory',
   storefrontsCategory: 'UEM_StorefrontsCategory',
+  debugCategory: 'UEM_DebugCategory',
   purchaseTriggersCategory: 'UEM_PurchaseTriggersCategory',
   purchaseButtonsCategory: 'UEM_PurchaseButtonsCategory',
   openTriggersCategory: 'UEM_OpenTriggersCategory',
@@ -38,6 +39,7 @@ export const EDITABLE_METADATA_SYMBOLS = {
 export const EDITABLE_CATEGORY_LABELS = {
   entitlements: 'ENTITLEMENTS',
   storefronts: 'STOREFRONTS',
+  debug: 'DEBUG',
   purchaseTriggers: 'Purchase Triggers',
   purchaseButtons: 'Purchase Buttons',
   openTriggers: 'Open Triggers',

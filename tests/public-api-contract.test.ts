@@ -56,7 +56,7 @@ test('UEFN editables are present while device plumbing remains private', () => {
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered|automatic zone prompt/i);
   assert.doesNotMatch(source, /AccessPassTriggers|AccessPassButtons|AccessPassZones|CoinStoreTriggers|Phase4StorefrontButtons/);
-  for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'ShowCoinStoreOffers', 'ReconcilePlayerEntitlements']) {
+  for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'ShowCoinStoreOffers', 'ReconcilePlayerEntitlements', 'LogDebug', 'LogWarning', 'LogError', 'EnableDebugLogging', 'UEMLogger']) {
     const line = source.split(/\r?\n/).find(candidate => candidate.includes(`${internal}(`) || candidate.includes(`${internal}:`));
     assert.ok(line, `missing generated internal helper ${internal}`);
     assert.equal(line!.includes('<public>'), false, `${internal} unexpectedly became public`);
@@ -78,8 +78,8 @@ test('Grant and Consume return native Marketplace results without signaling dire
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Grant${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
   for (const stem of ['CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Consume${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
   assert.doesNotMatch(source, /ConsumeAccessPass<public>|ConsumeSeasonPass<public>/);
-  assert.match(source, /Grant quantity must be positive/);
-  assert.match(source, /Consume quantity must be positive/);
+  assert.match(source, /GrantAccessPass called with a non-positive quantity/);
+  assert.match(source, /ConsumeCoinPack called with a non-positive quantity/);
   assert.match(source, /ProcessMysteryItemGrant\(Player:player, Quantity:int\):void =\n[\s\S]+spawn\{AutoConsumeMysteryItem\(Player, Quantity\)\}/);
   assert.match(source, /AutoConsumeMysteryItem\(Player:player, Quantity:int\)<suspends>:void =\n        ConsumeMysteryItem\(Player, Quantity\)/);
   for (const declaration of ['GrantAccessPass', 'ConsumeCoinPack', 'GrantMysteryItem', 'ConsumeMysteryItem']) {

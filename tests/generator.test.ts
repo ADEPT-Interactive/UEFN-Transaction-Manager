@@ -120,6 +120,57 @@ test('generated device uses authoritative deltas, lifecycle cleanup, and transac
   assert.doesNotMatch(source, /BeginPurchase\(Player\)/);
 });
 
+test('generated runtime diagnostics use private debug-gated logger helpers', () => {
+  const source = generateVerseCode(items, bundles, config);
+  assert.match(source, /UEMLogChannel := class\(log_channel\)\{\}/);
+  assert.match(source, /UEMLogger:log = log\{Channel := UEMLogChannel\}/);
+  assert.match(source, /LogDebug\(Message:diagnostic\):void =\n        if \(EnableDebugLogging\?\):\n            UEMLogger\.Print\("\[UEM\]\[Debug\] " \+ Message, log_level\.Debug\)/);
+  assert.match(source, /LogWarning\(Message:diagnostic\):void =\n        UEMLogger\.Print\("\[UEM\]\[Warning\] " \+ Message, log_level\.Warning\)/);
+  assert.match(source, /LogError\(Message:diagnostic\):void =\n        UEMLogger\.Print\("\[UEM\]\[Error\] " \+ Message, log_level\.Error\)/);
+  assert.equal((source.match(/UEMLogger\.Print\(/g) ?? []).length, 3);
+  assert.equal((source.match(/Print\(/g) ?? []).length, 3, 'all generated Print calls must be inside the logging helpers');
+  assert.equal(source.split(/\r?\n/).filter(line => /(?:EnableDebugLogging|UEMLogger|LogDebug|LogWarning|LogError)/.test(line) && line.includes('<public>')).length, 0);
+});
+
+test('runtime logging policy separates routine debug noise from always-visible failures', () => {
+  const source = generateVerseCode(items, bundles, config);
+  for (const message of [
+    'Device lifecycle started.',
+    'Device lifecycle ended.',
+    'Player added; reconciling entitlements.',
+    'Player removed; releasing runtime state.',
+    'Reconciliation started for player.',
+    'Granted VIP \\"Pass\\" x{Quantity}.',
+    'Marketplace UI request already active for this player.',
+    'Opening storefront.',
+    'Storefront closed.',
+  ]) assert.ok(source.includes(`LogDebug("${message}")`), `missing debug diagnostic: ${message}`);
+
+  const grant = generatedFunctionBlock(source, 'GrantVipPass');
+  const consume = generatedFunctionBlock(source, 'ConsumeMysteryCrate');
+  assert.match(grant, /LogWarning\("GrantVipPass called with a non-positive quantity\."\)/);
+  assert.match(grant, /LogError\("GrantVipPass returned false for VIP \\"Pass\\"\."\)/);
+  assert.match(consume, /LogWarning\("ConsumeMysteryCrate called with a non-positive quantity\."\)/);
+  assert.match(consume, /LogError\("ConsumeMysteryCrate returned false for Mystery Crate\."\)/);
+  assert.doesNotMatch(grant, /EnableDebugLogging/);
+  assert.doesNotMatch(consume, /EnableDebugLogging/);
+
+  const purchase = generatedFunctionBlock(source, 'ExecutePurchase');
+  assert.match(purchase, /LogDebug\("Purchase was not completed for \{OfferLabel\}\."\)/);
+  assert.doesNotMatch(purchase, /Log(?:Warning|Error).*Purchase/);
+  const dynamicSource = generateVerseCode(items, [{
+    ...bundles[0], id: 'dynamic', verseKey: 'dynamic_bundle', name: 'Dynamic Bundle', dynamicRemaining: true,
+    items: [{ entitlementId: 'crate', quantity: 1 }],
+  }], config);
+  assert.match(dynamicSource, /LogDebug\("Dynamic Bundle has no remaining quantity\."\)/);
+  const invalidDynamicSource = generateVerseCode(items, [{
+    ...bundles[0], id: 'invalid-dynamic', verseKey: 'invalid_dynamic', name: 'Invalid Dynamic', dynamicRemaining: true,
+    items: [{ entitlementId: 'vip', quantity: 1 }, { entitlementId: 'crate', quantity: 1 }],
+  }], config);
+  assert.match(invalidDynamicSource, /LogError\("Invalid Dynamic has an invalid dynamic remaining configuration\."\)/);
+  assert.match(generateVerseCode([], [], config), /LogWarning\("No transaction offers are configured\."\)/);
+});
+
 test('Marketplace UI execution is unified and acquired before spawning', () => {
   const source = generateVerseCode(items, bundles, config, [
     { id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: true, entries: [{ entitlementId: 'crate' }] },
@@ -140,9 +191,9 @@ test('Marketplace UI execution is unified and acquired before spawning', () => {
     assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):\\n            spawn\\{`));
   }
 
-  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(not WasPurchased\?\):\n            Print\("Purchase dialog closed without buying \{OfferLabel\}"\)\n        ReleaseMarketplaceUI\(Player\)/);
-  assert.match(source, /ExecuteStorefront\(Player:player, OffersToShow:\[\]offer, Title:message\)<suspends>:void =\n        ShowOffersDialog\(Player, OffersToShow, \?Title := Title\)\n        ReleaseMarketplaceUI\(Player\)/);
-  assert.match(source, /OnPlayerRemoved\(Player:player\):void =\n        RemovePlayerSubscription\(Player\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        LogDebug\("Opening purchase for \{OfferLabel\}\."\)\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(not WasPurchased\?\):\n            LogDebug\("Purchase was not completed for \{OfferLabel\}\."\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /ExecuteStorefront\(Player:player, OffersToShow:\[\]offer, Title:message\)<suspends>:void =\n        LogDebug\("Opening storefront\."\)\n        ShowOffersDialog\(Player, OffersToShow, \?Title := Title\)\n        LogDebug\("Storefront closed\."\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /OnPlayerRemoved\(Player:player\):void =\n        LogDebug\("Player removed; releasing runtime state\."\)\n        RemovePlayerSubscription\(Player\)\n        ReleaseMarketplaceUI\(Player\)/);
 });
 
 test('dynamic preflight and non-UI helpers cannot strand or acquire the UI lock', () => {
@@ -170,7 +221,7 @@ test('dynamic preflight and non-UI helpers cannot strand or acquire the UI lock'
   }
 
   const emptyStore = generateVerseCode([], [], config);
-  assert.match(emptyStore, /ShowAllOffers\(Player:player\)<suspends>:void =\n        Print\("No transaction offers are configured"\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(emptyStore, /ShowAllOffers\(Player:player\)<suspends>:void =\n        LogWarning\("No transaction offers are configured\."\)\n        ReleaseMarketplaceUI\(Player\)/);
 });
 
 test('voluntary purchase flows are not guarded by creator-messaging restrictions', () => {
@@ -798,7 +849,7 @@ test('dynamic remaining bundles preserve multi-item static contents while reject
   const dynamicPurchase = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseSupportedDynamicContent');
   assert.match(dynamicPurchase, /DynamicOffer\.Offers = array\{\(ManagedOffers\.crate_content_alt_offer\{\}, RemainingCount\)\}/);
   assert.doesNotMatch(source, /unsupported_dynamic_content_dynamic_offer<public>/);
-  assert.match(source, /OpenUnsupportedDynamicContentPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):\n            Print\("Starter Bundle has an invalid dynamic remaining configuration"\)\n            ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /OpenUnsupportedDynamicContentPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):\n            LogError\("Starter Bundle has an invalid dynamic remaining configuration\."\)\n            ReleaseMarketplaceUI\(Player\)/);
 
   const errors = validateEntireProject([items[0], sourceItem], [unsupportedDynamic], config).filter(issue => issue.severity === 'error');
   assert.ok(errors.some(issue => issue.ruleName === 'dynamic_bundle_shape'));

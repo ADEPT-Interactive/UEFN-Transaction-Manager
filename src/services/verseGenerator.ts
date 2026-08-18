@@ -12,6 +12,10 @@ import {
   storefrontEditableName,
 } from './editableBindings';
 
+const DEBUG_EDITABLE_KEY = 'EnableDebugLogging';
+
+const UEM_LOG_CHANNEL = 'UEMLogChannel';
+
 function escapeVerseString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
@@ -117,9 +121,10 @@ function editableDescriptors(
 }
 
 function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
-  if (descriptors.length === 0) return [];
   const messages = new Map<string, string>();
   const add = (symbol: string, value: string) => { if (!messages.has(symbol)) messages.set(symbol, value); };
+  add(EDITABLE_METADATA_SYMBOLS.debugCategory, EDITABLE_CATEGORY_LABELS.debug);
+  add(editableMetadataSymbol(DEBUG_EDITABLE_KEY, 'ToolTip'), 'Enable additional UEM runtime diagnostics in the Verse log.');
   const roleSymbols: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
@@ -177,6 +182,16 @@ function metadataModule(key: string, name: string, description: string, shortDes
     `        ShortDescription<public><localizes>:message = "${escapeVerseString(shortDescription)}"`,
     '',
   ].join('\n');
+}
+
+function debugEditableLines(): string[] {
+  return [
+    '    # Runtime Diagnostics',
+    '    @editable:',
+    `        ToolTip := ${editableMetadataSymbol(DEBUG_EDITABLE_KEY, 'ToolTip')}`,
+    `        Categories := array{${EDITABLE_METADATA_SYMBOLS.debugCategory}}`,
+    `    ${DEBUG_EDITABLE_KEY}:logic = false`,
+  ];
 }
 
 function restrictionLines(restrictions: OfferRestrictions | undefined): string {
@@ -416,6 +431,8 @@ export function generateVerseCode(
     'using { /Verse.org/Assets }',
     'using { /Verse.org/Simulation }',
     '',
+    `${UEM_LOG_CHANNEL} := class(log_channel){}`,
+    '',
     `${config.assetFolderName}<public> := module {}`,
     '',
     `${infoModule}<public> := module:`,
@@ -480,6 +497,7 @@ export function generateVerseCode(
   const editableFields = editableDescriptors(entitlements, config, offerDisplayGroups);
   push(...editableMetadataLines(editableFields));
   push(`${deviceClass} := class(creative_device):`, '');
+  push(...debugEditableLines(), '');
   if (editableFields.some(field => field.rootCategory === 'entitlements')) push('    # Entitlement Purchase Bindings');
   for (const field of editableFields.filter(candidate => candidate.rootCategory === 'entitlements')) push(...editableAttributeLines(field), '');
   if (editableFields.some(field => field.rootCategory === 'storefronts')) push('    # Storefront Bindings');
@@ -492,6 +510,19 @@ export function generateVerseCode(
     '    var PlayerLeftSubscription:?cancelable = false',
     '    var DeviceSubscriptions:[]cancelable = array{}',
     '    var MarketplaceUIInFlight:[player]logic = map{}',
+    `    UEMLogger:log = log{Channel := ${UEM_LOG_CHANNEL}}`,
+    '',
+  );
+  push(
+    '    LogDebug(Message:diagnostic):void =',
+    '        if (EnableDebugLogging?):',
+    '            UEMLogger.Print("[UEM][Debug] " + Message, log_level.Debug)',
+    '',
+    '    LogWarning(Message:diagnostic):void =',
+    '        UEMLogger.Print("[UEM][Warning] " + Message, log_level.Warning)',
+    '',
+    '    LogError(Message:diagnostic):void =',
+    '        UEMLogger.Print("[UEM][Error] " + Message, log_level.Error)',
     '',
   );
   for (const item of entitlements) {
@@ -506,6 +537,7 @@ export function generateVerseCode(
 
   push(
     '    OnBegin<override>()<suspends>:void =',
+    '        LogDebug("Device lifecycle started.")',
     '        JoinSubscription := GetPlayspace().PlayerAddedEvent().Subscribe(OnPlayerAdded)',
     '        set PlayerJoinSubscription = option{JoinSubscription}',
     '        LeftSubscription := GetPlayspace().PlayerRemovedEvent().Subscribe(OnPlayerRemoved)',
@@ -527,6 +559,7 @@ export function generateVerseCode(
 
   push(
     '    OnEnd<override>():void =',
+    '        LogDebug("Device lifecycle ended.")',
     '        if (Subscription := PlayerJoinSubscription?):',
     '            Subscription.Cancel()',
     '        if (Subscription := PlayerLeftSubscription?):',
@@ -538,13 +571,15 @@ export function generateVerseCode(
     '            Subscription.Cancel()',
     '',
     '    OnPlayerAdded(Player:player):void =',
+    '        LogDebug("Player added; reconciling entitlements.")',
     '        RemovePlayerSubscription(Player)',
     `        Subscription := GetEntitlementsChangedEvent(Player, ${entModule}.basic_entitlement).Subscribe(OnEntitlementsChanged)`,
     '        if (set EntitlementChangeSubscriptions[Player] = option{Subscription}):',
-    '            Print("Entitlement listener registered")',
+    '            LogDebug("Entitlement listener registered.")',
     '        spawn{ReconcilePlayerEntitlements(Player)}',
     '',
     '    OnPlayerRemoved(Player:player):void =',
+    '        LogDebug("Player removed; releasing runtime state.")',
     '        RemovePlayerSubscription(Player)',
     '        ReleaseMarketplaceUI(Player)',
     '',
@@ -558,11 +593,11 @@ export function generateVerseCode(
     '',
     '    TryAcquireMarketplaceUI(Player:player):logic =',
     '        if (Active := MarketplaceUIInFlight[Player], Active?):',
-    '            Print("Marketplace UI already active for this player")',
+    '            LogDebug("Marketplace UI request already active for this player.")',
     '            return false',
     '        if (set MarketplaceUIInFlight[Player] = true):',
     '            return true',
-    '        Print("Unable to start Marketplace UI")',
+    '        LogError("Unable to start Marketplace UI; in-flight state could not be recorded.")',
     '        false',
     '',
     '    ReleaseMarketplaceUI(Player:player):void =',
@@ -602,14 +637,14 @@ export function generateVerseCode(
     const printableName = escapeVerseString(item.name);
     push(
       `    Process${pascal}Grant(Player:player, Quantity:int):void =`,
-      `        Print("Granted ${printableName} x{Quantity}")`,
+      `        LogDebug("Granted ${printableName} x{Quantity}.")`,
       `        ${pascal}_GrantedEvent.Signal((Player, Quantity))`,
       ...(item.itemType === 'consumable' && item.autoConsume
         ? [`        spawn{AutoConsume${pascal}(Player, Quantity)}`]
         : []),
       '',
       `    Process${pascal}Removal(Player:player, Quantity:int):void =`,
-      `        Print("${item.itemType === 'durable' ? 'Ownership removed for' : 'Inventory decreased for'} ${printableName} x{Quantity}; reconcile saved state")`,
+      `        LogDebug("${item.itemType === 'durable' ? 'Ownership removed for' : 'Inventory decreased for'} ${printableName} x{Quantity}; reconcile saved state.")`,
       `        ${pascal}_RemovedEvent.Signal((Player, Quantity))`,
       '',
     );
@@ -619,9 +654,9 @@ export function generateVerseCode(
         '        if (Quantity > 0):',
         `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
         '            if (not Result?):',
-        `                Print("Failed to consume ${printableName}")`,
+        `                LogError("Consume${pascal} returned false for ${printableName}.")`,
         '            return Result',
-        '        Print("Consume quantity must be positive")',
+        `        LogWarning("Consume${pascal} called with a non-positive quantity.")`,
         '        return false',
         '',
       );
@@ -639,9 +674,9 @@ export function generateVerseCode(
       '        if (Quantity > 0):',
       `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
       '            if (not Result?):',
-      `                Print("Failed to grant ${printableName}")`,
+      `                LogError("Grant${pascal} returned false for ${printableName}.")`,
       '            return Result',
-      '        Print("Grant quantity must be positive")',
+      `        LogWarning("Grant${pascal} called with a non-positive quantity.")`,
       '        return false',
       '',
     );
@@ -667,13 +702,16 @@ export function generateVerseCode(
 
   push(
     '    ExecutePurchase(Player:player, OfferToBuy:offer, OfferLabel:string)<suspends>:void =',
+    '        LogDebug("Opening purchase for {OfferLabel}.")',
     '        WasPurchased := BuyOffer(Player, OfferToBuy)',
     '        if (not WasPurchased?):',
-    '            Print("Purchase dialog closed without buying {OfferLabel}")',
+    '            LogDebug("Purchase was not completed for {OfferLabel}.")',
     '        ReleaseMarketplaceUI(Player)',
     '',
     '    ExecuteStorefront(Player:player, OffersToShow:[]offer, Title:message)<suspends>:void =',
+    '        LogDebug("Opening storefront.")',
     '        ShowOffersDialog(Player, OffersToShow, ?Title := Title)',
+    '        LogDebug("Storefront closed.")',
     '        ReleaseMarketplaceUI(Player)',
     '',
   );
@@ -685,17 +723,25 @@ export function generateVerseCode(
     if (item.triggers.generateTriggerBinding) {
       push(
         `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
+        `        LogDebug("${pascal} purchase trigger callback received.")`,
         `        if (Agent := MaybeAgent?):`,
         `            if (Player := player[Agent]):`,
         `                ${purchaseEntryName}(Player)`,
+        '            else:',
+        `                LogDebug("${pascal} purchase trigger did not resolve to a player.")`,
+        '        else:',
+        `            LogDebug("${pascal} purchase trigger had no agent.")`,
         '',
       );
     }
     if (item.triggers.generateButtonBinding) {
       push(
         `    On${pascal}ButtonInteracted(Agent:agent):void =`,
+        `        LogDebug("${pascal} purchase button interaction received.")`,
         `        if (Player := player[Agent]):`,
         `            ${purchaseEntryName}(Player)`,
+        '        else:',
+        `            LogDebug("${pascal} purchase button did not resolve to a player.")`,
         '',
       );
     }
@@ -744,7 +790,7 @@ export function generateVerseCode(
         `            set DynamicOffer.Offers = array{(${offerReference}, RemainingCount)}`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
-        `            Print("${escapeVerseString(dynamicItem.name)} is already at its maximum owned quantity")`,
+        `            LogDebug("${printableName} has no remaining quantity.")`,
         '            ReleaseMarketplaceUI(Player)',
         '',
       );
@@ -752,7 +798,7 @@ export function generateVerseCode(
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
         '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
-        `            Print("${escapeVerseString(bundle.name)} has an invalid dynamic remaining configuration")`,
+        `            LogError("${escapeVerseString(bundle.name)} has an invalid dynamic remaining configuration.")`,
         '            ReleaseMarketplaceUI(Player)',
         '',
       );
@@ -770,7 +816,7 @@ export function generateVerseCode(
   push('    AllOffersStoreTitle<localizes>:message = "All Offers"', '');
   push('    ShowAllOffers(Player:player)<suspends>:void =');
   if (allOffers.length) push(`        ExecuteStorefront(Player, array{${allOffers.join(', ')}}, AllOffersStoreTitle)`);
-  else push('        Print("No transaction offers are configured")', '        ReleaseMarketplaceUI(Player)');
+  else push('        LogWarning("No transaction offers are configured.")', '        ReleaseMarketplaceUI(Player)');
   push(
     '',
     '    OpenAllOffersStore<public>(Player:player):void =',
@@ -778,7 +824,15 @@ export function generateVerseCode(
     '            spawn{ShowAllOffers(Player)}',
     '',
   );
-  if (config.generateStorefrontBinding) push('    OnStorefrontButtonInteracted(Agent:agent):void =', '        if (Player := player[Agent]):', '            OpenAllOffersStore(Player)', '');
+  if (config.generateStorefrontBinding) push(
+    '    OnStorefrontButtonInteracted(Agent:agent):void =',
+    '        LogDebug("All Offers storefront button interaction received.")',
+    '        if (Player := player[Agent]):',
+    '            OpenAllOffersStore(Player)',
+    '        else:',
+    '            LogDebug("All Offers storefront button did not resolve to a player.")',
+    '',
+  );
 
   for (const group of offerDisplayGroups) {
     const pascal = toVerseApiStem(group.verseKey);
@@ -789,20 +843,32 @@ export function generateVerseCode(
       `    Show${pascal}Offers(Player:player)<suspends>:void =`,
       ...(references.length
         ? [`        ExecuteStorefront(Player, array{${references.join(', ')}}, ${pascal}Title)`]
-        : ['        Print("No eligible offers are configured for this storefront")', '        ReleaseMarketplaceUI(Player)']),
+        : [`        LogWarning("No eligible offers are configured for the ${escapeVerseString(group.name)} storefront.")`, '        ReleaseMarketplaceUI(Player)']),
       '',
       `    Open${pascal}<public>(Player:player):void =`,
       '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
       `            spawn{Show${pascal}Offers(Player)}`,
       '',
     );
-    if (group.generateTriggerBinding) push(`    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`, '        if (Agent := MaybeAgent?):', '            if (Player := player[Agent]):', `                Open${pascal}(Player)`, '');
+    if (group.generateTriggerBinding) push(
+      `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
+      `        LogDebug("${pascal} storefront trigger callback received.")`,
+      '        if (Agent := MaybeAgent?):',
+      '            if (Player := player[Agent]):',
+      `                Open${pascal}(Player)`,
+      '            else:',
+      `                LogDebug("${pascal} storefront trigger did not resolve to a player.")`,
+      '        else:',
+      `            LogDebug("${pascal} storefront trigger had no agent.")`,
+      '',
+    );
   }
 
   push(
     '    # Batch reconciliation uses the UEM-owned derived base so one Marketplace query covers every managed type.',
     '    # Each concrete subtype is classified locally; missing types remain at zero and still signal their event.',
     '    ReconcilePlayerEntitlements(Player:player)<suspends>:void =',
+    '        LogDebug("Reconciliation started for player.")',
   );
   if (entitlements.length > 0) {
     for (const item of entitlements) {
@@ -825,7 +891,7 @@ export function generateVerseCode(
       push(`        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`);
     }
   }
-  push('');
+  push('        LogDebug("Reconciliation completed for player.")', '');
 
   return lines.join('\n');
 }

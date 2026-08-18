@@ -543,9 +543,10 @@ export function validateEntireProject(
   };
   [
     'EntitlementChangeSubscriptions', 'PlayerJoinSubscription', 'PlayerLeftSubscription', 'DeviceSubscriptions',
-    'MarketplaceUIInFlight', 'AllOffersStoreTitle', 'OnBegin', 'OnEnd', 'SubscribeToPlayer',
+    'MarketplaceUIInFlight', 'EnableDebugLogging', 'UEMLogger', 'AllOffersStoreTitle', 'OnBegin', 'OnEnd', 'SubscribeToPlayer',
     'UnsubscribeFromPlayer', 'OnPlayerAdded', 'OnPlayerRemoved', 'TrackSubscription', 'CancelAllSubscriptions',
     'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'OpenAllOffersStore',
+    'LogDebug', 'LogWarning', 'LogError',
   ].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
   memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {

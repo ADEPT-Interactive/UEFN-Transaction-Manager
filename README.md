@@ -108,6 +108,8 @@ my_game_device := class(creative_device):
 
 `Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for listening to the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
 
+For troubleshooting, enable **Enable Debug Logging** on the generated UEM device in UEFN to emit additional runtime diagnostics.
+
 UEM supports one generated API. Existing manifests from supported schemas, including manifests produced during pre-release API development, are loaded as project data and regenerated with the same current canonical symbols. Obsolete generated-API metadata and purchase-event fields are ignored when reading and are not written to new manifests.
 
 ## Native icon import

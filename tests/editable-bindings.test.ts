@@ -45,6 +45,9 @@ test('display-name changes do not change editable identifiers', () => {
 test('editable metadata uses native categories, concise tooltips, and correct array types', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   assert.match(source, /@editable:\n        ToolTip := UEM_AccessPass_purchaseTriggersToolTip\n        Categories := array\{UEM_EntitlementsCategory, UEM_AccessPass_Category, UEM_PurchaseTriggersCategory\}\n    AccessPass_PurchaseTriggers : \[\]trigger_device/);
+  assert.match(source, /UEM_DebugCategory<localizes>:message = "DEBUG"/);
+  assert.match(source, /UEM_EnableDebugLogging_ToolTip<localizes>:message = "Enable additional UEM runtime diagnostics in the Verse log\."/);
+  assert.match(source, /@editable:\n        ToolTip := UEM_EnableDebugLogging_ToolTip\n        Categories := array\{UEM_DebugCategory\}\n    EnableDebugLogging:logic = false/);
   assert.match(source, /Categories := array\{UEM_StorefrontsCategory, UEM_CoinStore_Category, UEM_OpenTriggersCategory\}[\s\S]+CoinStore_OpenTriggers : \[\]trigger_device/);
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
   assert.match(source, /Use it only with a deliberate player purchase interaction/);
@@ -55,10 +58,10 @@ test('editable metadata uses native categories, concise tooltips, and correct ar
 
 test('purchase bindings use deliberate interaction callbacks and canonical helpers', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
-  assert.match(source, /OnAccessPassTriggerActivated\(MaybeAgent:\?agent\):void =\n        if \(Agent := MaybeAgent\?\):\n            if \(Player := player\[Agent\]\):\n                OpenAccessPassPurchase\(Player\)/);
-  assert.match(source, /OnAccessPassButtonInteracted\(Agent:agent\):void =\n        if \(Player := player\[Agent\]\):\n            OpenAccessPassPurchase\(Player\)/);
-  assert.match(source, /OnStorefrontButtonInteracted\(Agent:agent\):void =\n        if \(Player := player\[Agent\]\):\n            OpenAllOffersStore\(Player\)/);
-  assert.match(source, /OnCoinStoreTriggerActivated\(MaybeAgent:\?agent\):void =\n        if \(Agent := MaybeAgent\?\):\n            if \(Player := player\[Agent\]\):\n                OpenCoinStore\(Player\)/);
+  assert.match(source, /OnAccessPassTriggerActivated\(MaybeAgent:\?agent\):void =\n        LogDebug\("AccessPass purchase trigger callback received\."\)\n        if \(Agent := MaybeAgent\?\):\n            if \(Player := player\[Agent\]\):\n                OpenAccessPassPurchase\(Player\)/);
+  assert.match(source, /OnAccessPassButtonInteracted\(Agent:agent\):void =\n        LogDebug\("AccessPass purchase button interaction received\."\)\n        if \(Player := player\[Agent\]\):\n            OpenAccessPassPurchase\(Player\)/);
+  assert.match(source, /OnStorefrontButtonInteracted\(Agent:agent\):void =\n        LogDebug\("All Offers storefront button interaction received\."\)\n        if \(Player := player\[Agent\]\):\n            OpenAllOffersStore\(Player\)/);
+  assert.match(source, /OnCoinStoreTriggerActivated\(MaybeAgent:\?agent\):void =\n        LogDebug\("CoinStore storefront trigger callback received\."\)\n        if \(Agent := MaybeAgent\?\):\n            if \(Player := player\[Agent\]\):\n                OpenCoinStore\(Player\)/);
   for (const callback of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'OnStorefrontButtonInteracted', 'OnCoinStoreTriggerActivated']) {
     const start = source.indexOf(`    ${callback}`);
     const end = source.indexOf('\n\n', start);
