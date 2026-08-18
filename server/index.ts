@@ -405,7 +405,7 @@ app.post('/api/verse/compile', async (req, res) => {
   } catch (error) {
     return res.status(400).json({ success: false, connected: false, error: error instanceof Error ? error.message : 'Compilation preflight failed.' });
   }
-  const result = await compileVerseProject();
+  const result = await compileVerseProject({ projectFile: configuredProjectFile, preferredProcessId: launchedUefnProcessId || undefined });
   res.status(result.success ? 200 : 422).json({ ...result, fileName: req.body.fileName, contentHash: req.body.expectedHash, assetMount: configuredAssetMount });
 });
 

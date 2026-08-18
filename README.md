@@ -27,6 +27,8 @@ UEM is more than a standalone Verse generator. Its launcher finds active and rec
 
 When Python Editor Scripting is enabled, UEM also installs and attaches its project connector automatically. Confirmed PNGs enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Save & Compile** reports UEFN's compile result directly.
 
+Verse compilation discovers the active UEFN-owned loopback Workflow Server session at runtime. UEM does not require users to configure a port, does not launch VS Code for compilation, and refuses ambiguous or non-local endpoints. UEFN must be running with the linked project loaded. Developers and automated tests may use the loopback-only `UEM_VERSE_COMPILER_ENDPOINT=host:port` override; normal users should not configure it. See [Verse compiler portability](docs/VERSE_COMPILER_PORTABILITY.md) for the discovery contract and diagnostic states.
+
 ## What it helps you do
 
 - Create durable, consumable, time-limited, access, and paid-random entitlements.
