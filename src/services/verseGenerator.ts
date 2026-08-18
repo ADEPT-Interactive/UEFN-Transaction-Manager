@@ -27,7 +27,8 @@ function manifestLines(entitlements: EntitlementItem[], bundles: BundleOffer[], 
 }
 
 function displayedDescription(description: string, durationDescription = '', odds = ''): string {
-  return [description, durationDescription ? `Duration: ${durationDescription}` : '', odds ? `Odds: ${odds}` : ''].filter(Boolean).join('\n');
+  const normalizedOdds = odds.trim();
+  return [description, durationDescription ? `Duration: ${durationDescription}` : '', normalizedOdds ? `Odds: ${normalizedOdds}` : ''].filter(Boolean).join('\n');
 }
 
 function metadataModule(key: string, name: string, description: string, shortDescription: string, durationDescription = '', odds = ''): string {
@@ -65,7 +66,7 @@ function restrictionLines(restrictions: OfferRestrictions | undefined): string {
 }
 
 function oddsForItem(item: EntitlementItem): string {
-  return item.flags.paidRandomItem ? item.flags.paidRandomItemOdds : '';
+  return item.flags.paidRandomItem ? item.flags.paidRandomItemOdds.trim() : '';
 }
 
 function offerClass(
@@ -126,7 +127,8 @@ function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: Entit
   const disclosures: string[] = [];
   for (const entry of bundle.items) {
     const item = entry.entitlementId ? entitlements.find(candidate => candidate.id === entry.entitlementId) : undefined;
-    if (item?.flags.paidRandomItem) disclosures.push(`${item.name}: ${item.flags.paidRandomItemOdds}`);
+    const odds = item?.flags.paidRandomItem ? item.flags.paidRandomItemOdds.trim() : '';
+    if (item?.flags.paidRandomItem && odds) disclosures.push(`${item.name}: ${odds}`);
     const nested = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
     if (nested) disclosures.push(...paidRandomDisclosuresForBundle(nested, entitlements, bundles, next));
   }

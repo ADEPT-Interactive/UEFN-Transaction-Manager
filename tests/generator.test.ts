@@ -63,6 +63,16 @@ function restrictionMethod(source: string, generatedOfferKey: string): string | 
   return block.slice(start, end < 0 ? block.length : end).replace(/\n$/, '');
 }
 
+function metadataDescription(source: string, key: string): string {
+  const marker = `    ${toPascalCase(key)}<public> := module:`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`Generated metadata module not found: ${key}`);
+  const remainder = source.slice(start + marker.length);
+  const nextModule = remainder.search(/\n {4}\S/);
+  const block = remainder.slice(0, nextModule < 0 ? remainder.length : nextModule);
+  return block.split('\n').find(line => line.includes('Description<public><localizes>')) ?? '';
+}
+
 function expectedRestrictionMethod(restrictions: OfferRestrictions): string {
   return [
     '        GetMinPurchaseAge<override>(CountryCode:string, SubdivisionCode:string, PlatformFamily:string)<decides><computes>:int =',
@@ -164,10 +174,127 @@ test('paid-random metadata, not a manual guard, covers every generated Marketpla
 test('empty paid-random odds remain optional for direct offer descriptions', () => {
   const random = structuredClone(items[1]);
   random.flags.paidRandomItemOdds = '';
+  random.description = 'x'.repeat(500);
   const source = generateVerseCode([random], [], config);
 
   assert.doesNotMatch(source, /Odds:/);
-  assert.deepEqual(validateEntireProject([random], [], config).filter(issue => issue.severity === 'error'), []);
+  const issues = validateEntireProject([random], [], config);
+  assert.equal(issues.some(issue => issue.ruleName === 'random_item_description_length'), false);
+  assert.deepEqual(issues.filter(issue => issue.severity === 'error'), []);
+});
+
+test('only actual odds values are appended across direct, alternate, and bundle descriptions', () => {
+  const regularA = structuredClone(items[0]);
+  regularA.id = 'regular-a';
+  regularA.verseKey = 'regular_a';
+  regularA.name = 'Regular A';
+  regularA.purchaseEventName = 'RegularAEvent';
+  regularA.triggers.triggerDeviceName = 'RegularAOfferTriggers';
+  const regularB = structuredClone(regularA);
+  regularB.id = 'regular-b';
+  regularB.verseKey = 'regular_b';
+  regularB.name = 'Regular B';
+  regularB.purchaseEventName = 'RegularBEvent';
+  regularB.triggers.triggerDeviceName = 'RegularBOfferTriggers';
+
+  const supplied = structuredClone(items[1]);
+  supplied.id = 'random-supplied';
+  supplied.verseKey = 'random_supplied';
+  supplied.name = 'Random Supplied';
+  supplied.purchaseEventName = 'RandomSuppliedEvent';
+  supplied.triggers.triggerDeviceName = 'RandomSuppliedOfferTriggers';
+  supplied.alternateOffers = [{
+    id: 'random-supplied-alt', verseKey: 'random_supplied_alt', name: 'Random Supplied Alt',
+    shortDescription: 'Alternate disclosed random reward.', description: 'Contains one reward.',
+    priceVBucks: 100, iconTexture: 'EntitlementIcons.MysteryCrate',
+    restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+
+  const empty = structuredClone(supplied);
+  empty.id = 'random-empty';
+  empty.verseKey = 'random_empty';
+  empty.name = 'Random Empty';
+  empty.purchaseEventName = 'RandomEmptyEvent';
+  empty.triggers.triggerDeviceName = 'RandomEmptyOfferTriggers';
+  empty.flags.paidRandomItemOdds = '';
+  empty.alternateOffers = [{
+    id: 'random-empty-alt', verseKey: 'random_empty_alt', name: 'Random Empty Alt',
+    shortDescription: 'Alternate random reward.', description: 'Contains one reward.',
+    priceVBucks: 100, iconTexture: 'EntitlementIcons.MysteryCrate',
+    restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+
+  const noRandomBundle: BundleOffer = {
+    ...bundles[0], id: 'no-random', verseKey: 'no_random_bundle', name: 'No Random Bundle',
+    items: [{ entitlementId: regularA.id, quantity: 1 }, { entitlementId: regularB.id, quantity: 1 }],
+  };
+  const suppliedBundle: BundleOffer = {
+    ...bundles[0], id: 'supplied-bundle', verseKey: 'supplied_bundle', name: 'Supplied Bundle',
+    items: [{ entitlementId: supplied.id, quantity: 1 }, { entitlementId: regularA.id, quantity: 1 }],
+  };
+  const emptyBundle: BundleOffer = {
+    ...bundles[0], id: 'empty-bundle', verseKey: 'empty_bundle', name: 'Empty Bundle',
+    items: [{ entitlementId: empty.id, quantity: 1 }, { entitlementId: regularB.id, quantity: 1 }],
+  };
+  const mixedBundle: BundleOffer = {
+    ...bundles[0], id: 'mixed-bundle', verseKey: 'mixed_bundle', name: 'Mixed Bundle',
+    items: [{ entitlementId: supplied.id, quantity: 1 }, { entitlementId: empty.id, quantity: 1 }],
+  };
+  const source = generateVerseCode(
+    [regularA, regularB, supplied, empty],
+    [noRandomBundle, suppliedBundle, emptyBundle, mixedBundle],
+    config,
+  );
+
+  assert.doesNotMatch(metadataDescription(source, regularA.verseKey), /Odds:/);
+  assert.match(metadataDescription(source, supplied.verseKey), /Odds: Common: 75%, Rare: 25%/);
+  assert.doesNotMatch(metadataDescription(source, empty.verseKey), /Odds:/);
+  assert.match(metadataDescription(source, 'random_supplied_alt'), /Odds: Common: 75%, Rare: 25%/);
+  assert.doesNotMatch(metadataDescription(source, 'random_empty_alt'), /Odds:/);
+  assert.doesNotMatch(metadataDescription(source, noRandomBundle.verseKey), /Odds:/);
+  assert.match(metadataDescription(source, suppliedBundle.verseKey), /Odds: Random Supplied: Common: 75%, Rare: 25%/);
+  assert.doesNotMatch(metadataDescription(source, emptyBundle.verseKey), /Odds:/);
+  assert.match(metadataDescription(source, mixedBundle.verseKey), /Odds: Random Supplied: Common: 75%, Rare: 25%/);
+  assert.doesNotMatch(metadataDescription(source, mixedBundle.verseKey), /Random Empty:/);
+
+  const suppliedLongAlternate = structuredClone(supplied);
+  suppliedLongAlternate.alternateOffers![0].description = 'x'.repeat(500);
+  const suppliedAlternateIssues = validateEntireProject([suppliedLongAlternate], [], config);
+  assert.ok(suppliedAlternateIssues.some(issue => issue.ruleName === 'random_item_description_length' && issue.field === 'alternateOffers.0.description'));
+  const emptyLongAlternate = structuredClone(empty);
+  emptyLongAlternate.alternateOffers![0].description = 'x'.repeat(500);
+  const emptyAlternateIssues = validateEntireProject([emptyLongAlternate], [], config);
+  assert.equal(emptyAlternateIssues.some(issue => issue.ruleName === 'random_item_description_length'), false);
+});
+
+test('saved paid-random odds survive manifest reopen and regeneration for old and current schemas', () => {
+  const supplied = structuredClone(items[1]);
+  supplied.id = 'saved-supplied';
+  supplied.verseKey = 'saved_supplied';
+  supplied.purchaseEventName = 'SavedSuppliedEvent';
+  supplied.triggers.triggerDeviceName = 'SavedSuppliedOfferTriggers';
+  const empty = structuredClone(items[1]);
+  empty.id = 'saved-empty';
+  empty.verseKey = 'saved_empty';
+  empty.purchaseEventName = 'SavedEmptyEvent';
+  empty.triggers.triggerDeviceName = 'SavedEmptyOfferTriggers';
+  empty.flags.paidRandomItemOdds = '';
+
+  const source = generateVerseCode([supplied, empty], [], config);
+  const reopened = parseVerseCode(source);
+  assert.equal(reopened.managed, true);
+  assert.equal(reopened.entitlements.find(item => item.id === supplied.id)?.flags.paidRandomItemOdds, supplied.flags.paidRandomItemOdds);
+  assert.equal(reopened.entitlements.find(item => item.id === empty.id)?.flags.paidRandomItemOdds, '');
+  assert.deepEqual(validateEntireProject(reopened.entitlements, reopened.bundles, config).filter(issue => issue.severity === 'error'), []);
+
+  for (const schemaVersion of [2, 3, 4] as const) {
+    const parsed = parseManagedData({ schemaVersion, entitlements: [supplied, empty], bundles: [] });
+    assert.equal(parsed.entitlements[0].flags.paidRandomItemOdds, supplied.flags.paidRandomItemOdds);
+    assert.equal(parsed.entitlements[1].flags.paidRandomItemOdds, '');
+    const regenerated = generateVerseCode(parsed.entitlements, parsed.bundles, config);
+    assert.match(metadataDescription(regenerated, supplied.verseKey), /Odds: Common: 75%, Rare: 25%/);
+    assert.doesNotMatch(metadataDescription(regenerated, empty.verseKey), /Odds:/);
+  }
 });
 
 test('missing trigger settings migrate to the default offer trigger binding', () => {

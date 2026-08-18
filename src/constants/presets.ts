@@ -54,7 +54,7 @@ export const DEFAULT_PRESETS: PresetDefinition[] = [
   },
   {
     presetTitle: 'Paid random item',
-    presetDescription: 'Consumable, limited to one per player, with paid-random safeguards enabled and an odds disclosure ready to complete.',
+    presetDescription: 'Consumable, limited to one per player, with an optional UEM odds disclosure field.',
     presetExample: 'Mystery Crate',
     name: 'Paid Random Item', verseKey: 'paid_random_item', shortDescription: 'A paid entitlement with randomized outcomes.',
     description: 'Provides a paid random item with outcomes disclosed to players.', priceVBucks: 100,

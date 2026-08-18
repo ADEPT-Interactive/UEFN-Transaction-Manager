@@ -567,10 +567,10 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   {formData.flags.paidRandomItem && (
                     <div className="pt-2 border-t border-slate-800">
                       <label htmlFor="paid-random-odds" className="block text-[11px] font-medium text-rose-300 mb-1">
-                        Odds / outcome disclosure
+                        Optional odds disclosure
                       </label>
                       <p className="mb-2 text-[11px] leading-4 text-slate-400">
-                        Enter the player-facing odds or outcome disclosure.{' '}
+                        Accurate numerical odds are required before purchase. This UEM field is optional: enter them here to add them to generated descriptions, or disclose them elsewhere in your island and clearly direct players there. Leaving it empty is allowed in UEM, but does not remove the underlying requirement.{' '}
                         <a href={PAID_RANDOM_ITEM_GUIDANCE_URL} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, PAID_RANDOM_ITEM_GUIDANCE_URL)} className="inline-flex items-center gap-1 text-cyan-300 hover:underline">
                           Epic guidance <ExternalLink className="h-3 w-3" />
                         </a>

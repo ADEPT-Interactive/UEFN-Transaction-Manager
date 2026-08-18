@@ -54,6 +54,21 @@ test('creator guidance and template chooser stay streamlined', () => {
   assert.match(chooserSource, /Use this template/);
 });
 
+test('paid-random guidance separates the optional UEM field from the required island disclosure', () => {
+  const modalSource = read(path.join('src', 'components', 'EntitlementModal.tsx'));
+  const cardSource = read(path.join('src', 'components', 'EntitlementCard.tsx'));
+  const presetSource = read(path.join('src', 'constants', 'presets.ts'));
+  const readmeSource = read('README.md');
+  assert.match(modalSource, /Optional odds disclosure/);
+  assert.match(modalSource, /Accurate numerical odds are required before purchase/);
+  assert.match(modalSource, /optional: enter them here/);
+  assert.match(modalSource, /elsewhere in your island and clearly direct players there/);
+  assert.match(modalSource, /Leaving it empty is allowed in UEM/);
+  assert.match(cardSource, /No odds entered in UEM/);
+  assert.match(presetSource, /optional UEM odds disclosure field/);
+  assert.match(readmeSource, /UEM's odds field is optional/);
+});
+
 test('standalone startup paints before discovery and automatically installs its UEFN connector', () => {
   const programSource = read(path.join('electron', 'main.ts'));
   const discoverySource = read(path.join('electron', 'projectDiscovery.ts'));

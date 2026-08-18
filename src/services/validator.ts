@@ -53,6 +53,11 @@ function issue(
   return { id, severity, message, ruleName, field, entitlementId, bundleId };
 }
 
+function generatedDescriptionWithOdds(description: string, odds: string): string {
+  const normalizedOdds = odds.trim();
+  return normalizedOdds ? `${description}\nOdds: ${normalizedOdds}` : description;
+}
+
 function validatePrice(ownerId: string, value: number, bundleId?: string): ValidationIssue[] {
   if (!Number.isInteger(value) || value < 50 || value > 5000 || value % 50 !== 0) {
     return [issue(
@@ -182,7 +187,7 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
 
   if (item.flags.paidRandomItem) {
     const odds = item.flags.paidRandomItemOdds.trim();
-    if (`${item.description}\nOdds: ${odds}`.length > MAX_DESCRIPTION_LENGTH) {
+    if (generatedDescriptionWithOdds(item.description, odds).length > MAX_DESCRIPTION_LENGTH) {
       issues.push(issue(`${id}-odds-length`, 'error', `Description plus the generated odds disclosure must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'random_item_description_length', 'description', id));
     }
   }
@@ -208,6 +213,12 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
     issues.push(...validateTextLengths(offerId, offer.name, offer.shortDescription, offer.description));
     issues.push(...validatePrice(offerId, offer.priceVBucks));
     issues.push(...validateDuration(offerId, offer.description, offer.durationDescription ?? '', id));
+    if (item.flags.paidRandomItem) {
+      const odds = item.flags.paidRandomItemOdds.trim();
+      if (generatedDescriptionWithOdds(offer.description, odds).length > MAX_DESCRIPTION_LENGTH) {
+        issues.push(issue(`${offerId}-odds-length`, 'error', `Description plus the generated odds disclosure must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`, 'random_item_description_length', `alternateOffers.${index}.description`, id));
+      }
+    }
     if (!validateTextureExpression(offer.iconTexture.trim())) issues.push(issue(`${offerId}-icon`, 'error', 'Alternate offer icon must be a dotted Verse texture expression.', 'alternate_offer_icon_expression', `alternateOffers.${index}.iconTexture`, id));
     issues.push(...validateRestrictions(offerId, offer.restrictions, `alternateOffers.${index}.restrictions`, id));
     issues.push(...validateCompliance(offerId, [offer.name, offer.shortDescription, offer.description, offer.durationDescription ?? ''], id));
@@ -281,7 +292,8 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     const disclosures: string[] = [];
     for (const entry of candidate.items) {
       const item = entry.entitlementId ? entitlementById.get(entry.entitlementId) : undefined;
-      if (item?.flags.paidRandomItem) disclosures.push(`${item.name}: ${item.flags.paidRandomItemOdds}`);
+      const odds = item?.flags.paidRandomItem ? item.flags.paidRandomItemOdds.trim() : '';
+      if (item?.flags.paidRandomItem && odds) disclosures.push(`${item.name}: ${odds}`);
       const nested = entry.bundleId ? allBundles.find(other => other.id === entry.bundleId) : undefined;
       if (nested) disclosures.push(...collectRandomDisclosures(nested, next));
     }
