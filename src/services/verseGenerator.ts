@@ -648,7 +648,10 @@ export function generateVerseCode(
         '        var OwnedCount:int = 0',
         '        if (Purchase := Purchases[0]):',
         '            set OwnedCount = Purchase(1)',
-        `        RemainingCount := ${item.maxCount} - OwnedCount`,
+        `        MaxCount := ${entModule}.${item.verseKey}_entitlement{}.MaxCount`,
+        '        var RemainingCount:int = MaxCount - OwnedCount',
+        '        if (RemainingCount < 0):',
+        '            set RemainingCount = 0',
         '        if (RemainingCount > 0):',
         `            DynamicOffer := ${offersModule}.${bundle.verseKey}_dynamic_offer{}`,
         `            set DynamicOffer.Offers = array{(${offerReference}, RemainingCount)}`,
@@ -699,14 +702,31 @@ export function generateVerseCode(
     if (group.generateTriggerBinding) push(`    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`, '        if (Agent := MaybeAgent?):', '            if (Player := player[Agent]):', `                Open${pascal}(Player)`, '');
   }
 
-  push('    ReconcilePlayerEntitlements(Player:player)<suspends>:void =');
-  for (const item of entitlements) {
-    const pascal = toVerseApiStem(item.verseKey);
-    const ownershipQueryLines = [`        ${pascal}OwnedCount := Get${pascal}Count(Player)`];
+  push(
+    '    # Batch reconciliation uses the UEM-owned derived base so one Marketplace query covers every managed type.',
+    '    # Each concrete subtype is classified locally; missing types remain at zero and still signal their event.',
+    '    ReconcilePlayerEntitlements(Player:player)<suspends>:void =',
+  );
+  if (entitlements.length > 0) {
+    for (const item of entitlements) {
+      const pascal = toVerseApiStem(item.verseKey);
+      push(`        var ${pascal}OwnedCount:int = 0`);
+    }
     push(
-      ...ownershipQueryLines,
-      `        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`,
+      `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.basic_entitlement)`,
+      '        for (Purchase : Purchases):',
     );
+    for (const item of entitlements) {
+      const pascal = toVerseApiStem(item.verseKey);
+      push(
+        `            if (${entModule}.${item.verseKey}_entitlement[Purchase(0)]):`,
+        `                set ${pascal}OwnedCount = ${pascal}OwnedCount + Purchase(1)`,
+      );
+    }
+    for (const item of entitlements) {
+      const pascal = toVerseApiStem(item.verseKey);
+      push(`        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`);
+    }
   }
   push('');
 

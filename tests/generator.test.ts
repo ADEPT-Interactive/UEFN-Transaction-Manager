@@ -80,6 +80,14 @@ function expectedRestrictionMethod(restrictions: OfferRestrictions): string {
   ].join('\n');
 }
 
+function generatedFunctionBlock(source: string, name: string): string {
+  const start = source.indexOf(`    ${name}`);
+  assert.notEqual(start, -1, `missing generated function ${name}`);
+  const remainder = source.slice(start + 1);
+  const next = remainder.search(/\n    [A-Za-z_]/);
+  return source.slice(start, next < 0 ? source.length : start + 1 + next);
+}
+
 test('generated Verse embeds a lossless managed manifest', () => {
   const source = generateVerseCode(items, bundles, config);
   const parsed = parseVerseCode(source);
@@ -423,8 +431,18 @@ test('canonical ownership and count helpers query entitlement state once and exc
     assert.match(source, new RegExp(`Has${stem}<public>\\(Player:player\\)<suspends>:logic`));
     assert.match(source, new RegExp(`Get${stem}Count<public>[\\s\\S]+GetPurchasedEntitlements\\(Player, ManagedEntitlements\\.${verseKey}_entitlement\\)`));
     assert.match(source, new RegExp(`Has${stem}<public>[\\s\\S]+OwnedCount := Get${stem}Count\\(Player\\)[\\s\\S]+if \\(OwnedCount > 0\\):[\\s\\S]+return true[\\s\\S]+false`));
-    assert.match(source, new RegExp(`ReconcilePlayerEntitlements\\(Player:player\\)<suspends>:void =[^]*${stem}OwnedCount := Get${stem}Count\\(Player\\)`));
   }
+
+  const reconciliation = generatedFunctionBlock(source, 'ReconcilePlayerEntitlements');
+  assert.equal((reconciliation.match(/GetPurchasedEntitlements\(/g) ?? []).length, 1);
+  assert.match(reconciliation, /GetPurchasedEntitlements\(Player, ManagedEntitlements\.basic_entitlement\)/);
+  assert.match(reconciliation, /var VipPassOwnedCount:int = 0/);
+  assert.match(reconciliation, /var MysteryCrateOwnedCount:int = 0/);
+  assert.match(reconciliation, /if \(ManagedEntitlements\.vip_pass_entitlement\[Purchase\(0\)\]\):/);
+  assert.match(reconciliation, /if \(ManagedEntitlements\.mystery_crate_entitlement\[Purchase\(0\)\]\):/);
+  assert.doesNotMatch(reconciliation, /GetVipPassCount\(Player\)|GetMysteryCrateCount\(Player\)/);
+  assert.match(reconciliation, /VipPass_ReconciledEvent\.Signal\(\(Player, VipPassOwnedCount\)\)/);
+  assert.match(reconciliation, /MysteryCrate_ReconciledEvent\.Signal\(\(Player, MysteryCrateOwnedCount\)\)/);
 
   assert.equal((source.match(/GetVipPassCount<public>/g) ?? []).length, 1);
   assert.equal((source.match(/HasVipPass<public>/g) ?? []).length, 1);
@@ -575,8 +593,86 @@ test('dynamic remaining bundles are represented and validated', () => {
   assert.match(source, /dynamic_bundle_dynamic_offer<public>/);
   assert.equal(restrictionMethod(source, 'dynamic_bundle_offer'), undefined);
   assert.equal(restrictionMethod(source, 'dynamic_bundle_dynamic_offer'), undefined);
-  assert.match(source, /RemainingCount := 10 - OwnedCount/);
+  const dynamicBody = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseDynamicBundle');
+  assert.match(dynamicBody, /MaxCount := ManagedEntitlements\.mystery_crate_entitlement\{\}\.MaxCount/);
+  assert.match(dynamicBody, /var RemainingCount:int = MaxCount - OwnedCount/);
+  assert.match(dynamicBody, /if \(RemainingCount < 0\):\n            set RemainingCount = 0/);
+  assert.doesNotMatch(dynamicBody, /RemainingCount := 10 - OwnedCount/);
   assert.deepEqual(validateEntireProject(items, [dynamic], config).filter(issue => issue.severity === 'error'), []);
+});
+
+test('batch reconciliation uses one base query and signals every managed entitlement for representative project sizes', () => {
+  const makeFixture = (count: number): EntitlementItem[] => Array.from({ length: count }, (_, index) => {
+    const template = structuredClone(items[index % items.length]);
+    return {
+      ...template,
+      id: `reconciliation-${index}`,
+      verseKey: `reconciliation_${index}`,
+      name: `Reconciliation ${index}`,
+      maxCount: template.itemType === 'durable' ? 1 : template.maxCount,
+      alternateOffers: undefined,
+    };
+  });
+
+  for (const count of [1, 5, 20]) {
+    const fixture = makeFixture(count);
+    const reconciliation = generatedFunctionBlock(generateVerseCode(fixture, [], config), 'ReconcilePlayerEntitlements');
+    assert.equal((reconciliation.match(/GetPurchasedEntitlements\(/g) ?? []).length, 1, `${count} entitlements should use one Marketplace query`);
+    assert.equal((reconciliation.match(/_ReconciledEvent\.Signal\(/g) ?? []).length, count, `${count} entitlements should signal every reconciled event`);
+    assert.equal((reconciliation.match(/\[Purchase\(0\)\]/g) ?? []).length, count, `${count} entitlements should classify every managed subtype`);
+  }
+});
+
+test('batch reconciliation keeps legacy stable keys when display names change', () => {
+  const legacy = structuredClone(items[0]);
+  legacy.verseKey = 'starter_bundle2213124124';
+  legacy.name = 'Renamed after migration';
+  const reconciliation = generatedFunctionBlock(generateVerseCode([legacy], [], config), 'ReconcilePlayerEntitlements');
+  assert.match(reconciliation, /if \(ManagedEntitlements\.starter_bundle2213124124_entitlement\[Purchase\(0\)\]\):/);
+  assert.match(reconciliation, /StarterBundle2213124124_ReconciledEvent\.Signal/);
+  assert.doesNotMatch(reconciliation, /RenamedAfterMigration|Renamed after migration/);
+});
+
+test('dynamic remaining quantity reads the generated MaxCount and handles durable, consumable, paid-random, and auto-consume cases', () => {
+  const cases: EntitlementItem[] = [
+    structuredClone(items[0]),
+    structuredClone(items[1]),
+    { ...structuredClone(items[1]), maxCount: 7, autoConsume: false },
+    { ...structuredClone(items[1]), maxCount: 10_000_000, autoConsume: false },
+  ];
+  for (const item of cases) {
+    const dynamic: BundleOffer = {
+      ...structuredClone(bundles[0]),
+      id: `dynamic-${item.id}`,
+      verseKey: `dynamic_${item.verseKey}`,
+      name: `Dynamic ${item.name}`,
+      dynamicRemaining: true,
+      items: [{ entitlementId: item.id, quantity: 1 }],
+    };
+    const source = generateVerseCode([item], [dynamic], config);
+    const body = generatedFunctionBlock(source, `ExecuteDynamicPurchaseDynamic${toPascalCase(item.verseKey)}`);
+    const configuredMaxCount = item.itemType === 'durable' ? 1 : item.maxCount;
+    assert.match(source, new RegExp(`${item.verseKey}_entitlement<public>[\\s\\S]+MaxCount<override>:int = ${configuredMaxCount}`));
+    assert.match(body, new RegExp(`MaxCount := ManagedEntitlements\\.${item.verseKey}_entitlement\\{\\}\\.MaxCount`));
+    assert.match(body, /if \(RemainingCount < 0\):\n            set RemainingCount = 0/);
+    assert.match(body, /if \(RemainingCount > 0\):[\s\S]+ExecutePurchase\(Player, DynamicOffer/);
+    assert.match(body, /else:[\s\S]+ReleaseMarketplaceUI\(Player\)/);
+  }
+
+  const shared = { ...structuredClone(items[1]), maxCount: 7, autoConsume: false };
+  const sharedBundles: BundleOffer[] = [1, 2].map(index => ({
+    ...structuredClone(bundles[0]),
+    id: `shared-dynamic-${index}`,
+    verseKey: `shared_dynamic_${index}`,
+    name: `Shared Dynamic ${index}`,
+    dynamicRemaining: true,
+    items: [{ entitlementId: shared.id, quantity: 1 }],
+  }));
+  const sharedSource = generateVerseCode([shared], sharedBundles, config);
+  for (const bundle of sharedBundles) {
+    const body = generatedFunctionBlock(sharedSource, `ExecuteDynamicPurchase${toPascalCase(bundle.verseKey)}`);
+    assert.match(body, /MaxCount := ManagedEntitlements\.mystery_crate_entitlement\{\}\.MaxCount/);
+  }
 });
 
 test('nested bundles carry paid-random disclosures through every containing offer', () => {
