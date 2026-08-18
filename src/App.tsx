@@ -21,6 +21,8 @@ import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerse
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
+import { UpdateCard } from './components/UpdateCard';
+import versionInfo from '../version.json';
 
 const launchContext = typeof window === 'undefined'
   ? { contentFolderPath: '' }
@@ -303,6 +305,8 @@ export const App: React.FC = () => {
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
   const [closeConfirmationOpen, setCloseConfirmationOpen] = useState(false);
   const [switchProjectConfirmationOpen, setSwitchProjectConfirmationOpen] = useState(false);
+  const [updateConfirmationOpen, setUpdateConfirmationOpen] = useState(false);
+  const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isCompiling, setIsCompiling] = useState(false);
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
@@ -331,6 +335,15 @@ export const App: React.FC = () => {
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
   const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
+
+  useEffect(() => {
+    if (!desktopHost || !window.uemDesktop) return;
+    let active = true;
+    const applyUpdateState = (next: DesktopUpdateState) => { if (active) setUpdateState(next); };
+    const removeUpdateListener = window.uemDesktop.update.onState(applyUpdateState);
+    void window.uemDesktop.update.getState().then(applyUpdateState).catch(() => undefined);
+    return () => { active = false; removeUpdateListener(); };
+  }, [desktopHost]);
 
   useEffect(() => {
     try {
@@ -410,6 +423,37 @@ export const App: React.FC = () => {
   }, [isDirty]);
 
   const clearStatusLater = () => window.setTimeout(() => setStatus(null), 6000);
+
+  const checkForUpdates = () => {
+    if (!window.uemDesktop) return;
+    void window.uemDesktop.update.check().then(setUpdateState).catch(() => setStatus({ message: 'Could not check for updates. UEM is still ready to use.', error: true }));
+  };
+
+  const downloadUpdate = () => {
+    if (!window.uemDesktop) return;
+    void window.uemDesktop.update.download().then(result => {
+      if (!result.success) setStatus({ message: result.error ?? 'The update could not be downloaded.', error: true });
+      return window.uemDesktop?.update.getState();
+    }).then(next => { if (next) setUpdateState(next); });
+  };
+
+  const dismissUpdate = () => {
+    if (!window.uemDesktop) { setUpdateState(null); return; }
+    void window.uemDesktop.update.dismiss().then(next => setUpdateState(next)).catch(() => setUpdateState(null));
+  };
+
+  const installUpdate = (discardChanges = false) => {
+    if (!window.uemDesktop) return;
+    if (isSaving) { setStatus({ message: 'Finish the current project save before installing the update.', error: true }); return; }
+    if (isModalOpen) { setStatus({ message: 'Finish the open editor dialog before installing the update.', error: true }); return; }
+    if (isDirty && !discardChanges) { setUpdateConfirmationOpen(true); return; }
+    void window.uemDesktop.update.install(discardChanges).then(result => {
+      if (!result.success) {
+        if (result.error?.toLowerCase().includes('save or discard')) setUpdateConfirmationOpen(true);
+        else setStatus({ message: result.error ?? 'The update could not be installed.', error: true });
+      }
+    });
+  };
 
   const saveToDisk = async (): Promise<{ contentHash: string; placeholderDeferred: boolean } | undefined> => {
     if (hasErrors) {
@@ -699,10 +743,12 @@ export const App: React.FC = () => {
         config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
         onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
         onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
-        onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
-        validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
-        saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
+         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
+         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
+         saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
+         appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates}
       />
+      <UpdateCard state={updateState} onCheck={checkForUpdates} onDownload={downloadUpdate} onInstall={() => installUpdate()} onLater={dismissUpdate} />
 
       <div className="px-4 lg:px-8 py-2.5 bg-[#090e1a] border-b border-slate-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2"><span className="text-xs font-semibold text-slate-400">Workspace:</span><div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl">
@@ -728,6 +774,7 @@ export const App: React.FC = () => {
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />
       <ConfirmDialog open={switchProjectConfirmationOpen} tone="warning" title="Switch projects with unsaved changes?" description={<>Your current changes have not been written to this UEFN project. Returning to the launcher now discards this unsaved manager session.</>} confirmLabel="Discard changes and switch" onCancel={() => setSwitchProjectConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('switch-project')} />
+      <ConfirmDialog open={updateConfirmationOpen} tone="warning" title="Restart and install update?" description={<>Your current manager changes have not been written to the UEFN project. Installing the update now will discard this unsaved manager session, but it will not delete project content.</>} confirmLabel="Discard changes and install" onCancel={() => setUpdateConfirmationOpen(false)} onConfirm={() => { setUpdateConfirmationOpen(false); installUpdate(true); }} />
     </div>
   );
 };

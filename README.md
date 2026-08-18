@@ -3,7 +3,7 @@
   <h1>UEFN Entitlement Manager</h1>
   <p><strong>Build and manage an in-island transaction catalog without hand-writing the full Verse implementation.</strong></p>
   <p>
-    <img alt="Version 3.0.1" src="https://img.shields.io/badge/version-3.0.1-24c7dd?style=flat-square">
+    <img alt="Version 4.0.0" src="https://img.shields.io/badge/version-4.0.0-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="LICENSE"><img alt="ADEPT Source-Available License" src="https://img.shields.io/badge/license-ADEPT%20Source--Available-f59e0b?style=flat-square"></a>
@@ -43,15 +43,17 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 
 ## Download and start
 
-1. Download `UEFN Entitlement Manager.zip` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest).
-2. Extract the complete ZIP to a normal folder and keep its contents together.
-3. Open `UEFNEntitlementManager-3.0.1.exe`.
+1. Download `UEFN-Entitlement-Manager-Setup-4.0.0.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest).
+2. Run the installer. UEM installs per user without requiring administrator access.
+3. Launch `UEFN Entitlement Manager` from Windows Start/Search.
 4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
 5. Confirm the project and begin building the catalog.
 
 The launcher shows known projects immediately, then continues looking for projects across local fixed drives in the background. Network, optical, and removable drives are not traversed automatically.
 
-The release is a portable Windows x64 app. It does not need an installer, administrator access, or separate Node.js, npm, Python, .NET, WebView2, or browser installation.
+The installer registers UEM with Windows Start/Search and Add or Remove Programs. UEM checks for stable GitHub Releases updates in the background after the launcher is usable. Use Tools, then Check for Updates for a manual check. Updates download through UEM and can be applied with Restart and Install.
+
+`UEFN-Entitlement-Manager-4.0.0-Portable.zip` remains available as a secondary diagnostic and emergency portable artifact. The installer is the normal user download.
 
 ## Typical creator workflow
 
@@ -149,7 +151,7 @@ See [SECURITY.md](SECURITY.md) to report a security issue.
 
 ## Build from source
 
-Contributors need Windows, Node.js 20 or newer, and UEFN for live editor validation.
+Contributors need Windows, Node.js 22.12.0 or newer, and UEFN for live editor validation.
 
 ```powershell
 scripts\setup.bat
@@ -158,7 +160,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. The published ZIP includes the applicable third-party notices and license files.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. A release build produces the installer, the secondary portable ZIP, `latest.yml`, the NSIS blockmap, SHA-256 checksums, and an artifact inventory. The installer and update metadata must be published together to the GitHub release. Local builds are unsigned unless a secure Authenticode certificate is supplied through the release environment, so Windows SmartScreen may show an unrecognized-publisher warning.
 
 ## License and support
 

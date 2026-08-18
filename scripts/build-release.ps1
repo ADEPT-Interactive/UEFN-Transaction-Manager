@@ -1,18 +1,23 @@
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [string]$VersionOverride,
+    [string]$ReleaseDirectory = "release"
 )
 
 $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
-$appVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
-$desktopFileName = "UEFNEntitlementManager-$appVersion.exe"
-$releaseRoot = Join-Path $toolRoot "release"
-$archivePath = Join-Path $releaseRoot "UEFN Entitlement Manager.zip"
-$inventoryPath = Join-Path $releaseRoot "UEFN Entitlement Manager.contents.tsv"
+$canonicalVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
+$appVersion = if ($VersionOverride) { $VersionOverride.Trim() } else { $canonicalVersion }
+if ($appVersion -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
+    throw "Release version is not valid semantic version syntax: $appVersion"
+}
+$installerFileName = "UEFN-Entitlement-Manager-Setup-$appVersion.exe"
+$portableFileName = "UEFN-Entitlement-Manager-$appVersion-Portable.zip"
+$releaseRoot = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { [IO.Path]::GetFullPath($ReleaseDirectory) } else { Join-Path $toolRoot $ReleaseDirectory }
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-" + [guid]::NewGuid().ToString("N"))
 $stagingApp = Join-Path $stagingRoot "app"
-$packagerOutput = Join-Path $stagingRoot "packaged"
-$packageRoot = Join-Path $stagingRoot "UEFN Entitlement Manager"
+$builderOutput = Join-Path $stagingRoot "builder-output"
+$builderConfigPath = Join-Path $stagingRoot "electron-builder.json"
 
 function Invoke-NativeChecked {
     param(
@@ -43,10 +48,29 @@ function Copy-AppDirectory {
     Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
+function Copy-AppVersion {
+    $destination = Join-Path $stagingApp "version.json"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    if ($VersionOverride) {
+        [IO.File]::WriteAllText($destination, (([ordered]@{ version = $appVersion } | ConvertTo-Json) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    }
+    else {
+        Copy-AppFile -RelativePath "version.json"
+    }
+}
+
+function Add-ReleaseChecksum {
+    param([Parameter(Mandatory = $true)] [string]$Path, [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [System.Collections.Generic.List[string]]$Lines)
+    $item = Get-Item -LiteralPath $Path
+    $hash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    [void]$Lines.Add("$hash  $($item.Name)")
+}
+
 Push-Location $toolRoot
 try {
-    $node = Get-Command node.exe -ErrorAction Stop
     $npm = Get-Command npm.cmd -ErrorAction Stop
+    $builder = Join-Path $toolRoot "node_modules\.bin\electron-builder.cmd"
+    if (-not (Test-Path -LiteralPath $builder -PathType Leaf)) { throw "electron-builder is not installed. Run npm ci first." }
     if ($SkipTests) {
         Invoke-NativeChecked -FilePath $npm.Source -ArgumentList @("run", "build") -Description "Building Electron, frontend, and bridge"
     }
@@ -54,14 +78,28 @@ try {
         Invoke-NativeChecked -FilePath $npm.Source -ArgumentList @("run", "test:all") -Description "Running complete source verification"
     }
 
+    $builderConfig = Get-Content -LiteralPath (Join-Path $toolRoot "electron-builder.json") -Raw | ConvertFrom-Json
+    $builderConfig | Add-Member -NotePropertyName directories -NotePropertyValue ([pscustomobject]@{ output = $builderOutput }) -Force
+    $electronVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "node_modules\electron\package.json") -Raw | ConvertFrom-Json).version
+    $builderConfig | Add-Member -NotePropertyName electronVersion -NotePropertyValue $electronVersion -Force
+    New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+    [IO.File]::WriteAllText($builderConfigPath, ($builderConfig | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+
     New-Item -ItemType Directory -Path $stagingApp -Force | Out-Null
-    $runtimePackage = @{
-        name = "uefn-entitlement-manager-desktop"
+    $runtimePackage = [ordered]@{
+        name = "uefn-entitlement-manager"
         version = $appVersion
+        description = "Project-scoped In-Island Transactions and Verse entitlement manager for UEFN creators"
+        author = "AD3PT Interactive Inc."
         private = $true
         main = "dist-electron/main.cjs"
         type = "commonjs"
-    } | ConvertTo-Json
+        dependencies = [ordered]@{
+            sharp = "0.35.3"
+            koffi = "3.1.5"
+        }
+        build = $builderConfig
+    } | ConvertTo-Json -Depth 20
     [IO.File]::WriteAllText((Join-Path $stagingApp "package.json"), $runtimePackage, [Text.UTF8Encoding]::new($false))
     Copy-AppDirectory -RelativePath "dist"
     foreach ($file in @(
@@ -74,7 +112,9 @@ try {
         "electron\assets\adept-insignia.png",
         "entitlement_manager.py",
         "uefn_auto_connector.py",
-        "version.json",
+        "LICENSE",
+        "README-USER.txt",
+        "THIRD_PARTY_NOTICES.txt",
         "node_modules\sharp\package.json",
         "node_modules\sharp\LICENSE",
         "node_modules\@img\colour\package.json",
@@ -96,6 +136,7 @@ try {
         "node_modules\@koromix\koffi-win32-x64\index.js",
         "node_modules\@koromix\koffi-win32-x64\win32_x64\koffi.node"
     )) { Copy-AppFile -RelativePath $file }
+    Copy-AppVersion
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\sharp\dist") -File -Filter "*.cjs") {
         Copy-AppFile -RelativePath ("node_modules\sharp\dist\" + $file.Name)
     }
@@ -109,35 +150,41 @@ try {
         Copy-AppFile -RelativePath ("node_modules\@img\sharp-win32-x64\lib\" + $file.Name)
     }
 
-    $packageScript = Join-Path $PSScriptRoot "package-electron.mjs"
-    $icon = Join-Path $toolRoot "electron\assets\uem-icon.ico"
-    $packagerText = & $node.Source $packageScript "--appDir=$stagingApp" "--outputDir=$packagerOutput" "--icon=$icon" "--version=$appVersion"
-    if ($LASTEXITCODE -ne 0) { throw "Electron packaging failed with exit code $LASTEXITCODE." }
-    $generatedRoot = ($packagerText | Select-Object -Last 1).Trim()
-    if (-not (Test-Path -LiteralPath (Join-Path $generatedRoot $desktopFileName))) { throw "Electron packaging did not produce $desktopFileName." }
-    $localesRoot = Join-Path $generatedRoot "locales"
-    if (-not (Test-Path -LiteralPath (Join-Path $localesRoot "en-US.pak"))) { throw "Electron packaging omitted the required English locale." }
-    Get-ChildItem -LiteralPath $localesRoot -File | Where-Object { $_.Name -ne "en-US.pak" } | Remove-Item -Force
-    Move-Item -LiteralPath $generatedRoot -Destination $packageRoot
-
-    $electronLicense = Join-Path $packageRoot "LICENSE"
-    if (-not (Test-Path -LiteralPath $electronLicense)) { throw "Electron packaging omitted its runtime license." }
-    Move-Item -LiteralPath $electronLicense -Destination (Join-Path $packageRoot "LICENSE.electron.txt")
-    foreach ($file in @("LICENSE", "THIRD_PARTY_NOTICES.txt", "README-USER.txt", "version.json")) {
-        Copy-Item -LiteralPath (Join-Path $toolRoot $file) -Destination $packageRoot -Force
+    Invoke-NativeChecked -FilePath $builder -ArgumentList @("--projectDir", $stagingApp, "--config", $builderConfigPath, "--win", "--x64", "--publish", "never") -Description "Building the x64 NSIS installer"
+    $builtInstaller = Join-Path $builderOutput $installerFileName
+    $builtPortable = Join-Path $builderOutput $portableFileName
+    $builtMetadata = Join-Path $builderOutput "latest.yml"
+    $builtBlockmap = Join-Path $builderOutput "$installerFileName.blockmap"
+    $portableRoot = Join-Path $stagingRoot "portable\UEFN Entitlement Manager"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $portableRoot) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $builderOutput "win-unpacked") -Destination $portableRoot -Recurse -Force
+    Compress-Archive -LiteralPath $portableRoot -DestinationPath $builtPortable -CompressionLevel Optimal
+    foreach ($required in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "electron-builder omitted required release artifact: $required" }
     }
+    $metadataText = Get-Content -LiteralPath $builtMetadata -Raw
+    $metadataTextNormalized = [Uri]::UnescapeDataString($metadataText)
+    if ($metadataTextNormalized -notmatch [regex]::Escape($installerFileName)) { Write-Host $metadataText; throw "latest.yml does not reference $installerFileName." }
+    if ($metadataTextNormalized -notmatch "version: $([regex]::Escape($appVersion))") { throw "latest.yml does not declare version $appVersion." }
+
     New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
-    $packageUri = [Uri]($packageRoot.TrimEnd('\') + '\')
-    $inventory = @("SHA256`tBytes`tPath") + @(Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Sort-Object FullName | ForEach-Object {
-        $relative = [Uri]::UnescapeDataString($packageUri.MakeRelativeUri([Uri]$_.FullName).ToString())
-        "{0}`t{1}`t{2}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Length, $relative
+    Get-ChildItem -LiteralPath $releaseRoot -File -Force | Remove-Item -Force
+    foreach ($artifact in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
+        Copy-Item -LiteralPath $artifact -Destination (Join-Path $releaseRoot (Split-Path -Leaf $artifact)) -Force
+    }
+    $checksumLines = [System.Collections.Generic.List[string]]::new()
+    $releaseArtifacts = Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object { $_.Name -notin @("SHA256SUMS.txt", "UEFN Entitlement Manager.contents.tsv") } | Sort-Object Name
+    foreach ($artifact in $releaseArtifacts) { Add-ReleaseChecksum -Path $artifact.FullName -Lines $checksumLines }
+    Set-Content -LiteralPath (Join-Path $releaseRoot "SHA256SUMS.txt") -Value $checksumLines -Encoding UTF8
+    $inventory = @("SHA256`tBytes`tPath") + @($releaseArtifacts | ForEach-Object {
+        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "{0}`t{1}`t{2}" -f $hash, $_.Length, $_.Name
     })
-    Set-Content -LiteralPath $inventoryPath -Value $inventory -Encoding UTF8
-    if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
-    Compress-Archive -LiteralPath $packageRoot -DestinationPath $archivePath -CompressionLevel Optimal
-    Write-Host "`nPortable Electron release created: $archivePath" -ForegroundColor Green
-    Write-Host "Complete contents inventory: $inventoryPath"
-    Write-Host ("Archive size: {0:N2} MiB" -f ((Get-Item -LiteralPath $archivePath).Length / 1MB))
+    Set-Content -LiteralPath (Join-Path $releaseRoot "UEFN Entitlement Manager.contents.tsv") -Value $inventory -Encoding UTF8
+    Write-Host "`nNSIS installer created: $(Join-Path $releaseRoot $installerFileName)" -ForegroundColor Green
+    Write-Host "Portable secondary artifact created: $(Join-Path $releaseRoot $portableFileName)"
+    Write-Host "Update metadata: $(Join-Path $releaseRoot 'latest.yml')"
+    Write-Host "SHA-256: $((Get-FileHash -LiteralPath (Join-Path $releaseRoot $installerFileName) -Algorithm SHA256).Hash.ToLowerInvariant())"
 }
 finally {
     Pop-Location

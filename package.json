@@ -1,12 +1,12 @@
 {
   "name": "uefn-entitlement-manager",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "private": true,
   "description": "Project-scoped In-Island Transactions and Verse entitlement manager for UEFN creators",
   "main": "dist-electron/main.cjs",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "vite",
@@ -16,8 +16,9 @@
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --external:sharp --outfile=dist/server.cjs",
     "build:desktop": "tsc -p tsconfig.electron.json && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:koffi --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs",
     "server": "node dist/server.cjs",
-    "test": "tsx --test tests/fileService.test.ts tests/generator.test.ts tests/marketplace-validation.test.ts tests/generated-api-migration.test.ts tests/editable-bindings.test.ts tests/storefront-membership.test.ts tests/verse-identity.test.ts tests/public-api-contract.test.ts tests/server-security.test.ts tests/textureImporter.test.ts tests/ui-regressions.test.ts tests/manager-ux.test.ts tests/workflowClient.test.ts tests/electron-security.test.ts tests/project-discovery.test.ts",
+    "test": "tsx --test tests/fileService.test.ts tests/generator.test.ts tests/marketplace-validation.test.ts tests/generated-api-migration.test.ts tests/editable-bindings.test.ts tests/storefront-membership.test.ts tests/verse-identity.test.ts tests/public-api-contract.test.ts tests/server-security.test.ts tests/textureImporter.test.ts tests/ui-regressions.test.ts tests/manager-ux.test.ts tests/workflowClient.test.ts tests/electron-security.test.ts tests/project-discovery.test.ts tests/updater.test.ts",
     "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
+    "test:updater": "tsx --test tests/updater.test.ts",
     "test:desktop": "npm run install:electron-runtime && npm run build:desktop && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1",
     "test:version": "node scripts/verify-version.mjs",
     "test:all": "npm run build && npm test && npm run test:python && npm run test:desktop && npm run test:version"
@@ -42,7 +43,6 @@
     "sharp": "^0.35.3"
   },
   "devDependencies": {
-    "@electron/packager": "^20.3.0",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.4",
@@ -51,6 +51,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "flag-icons": "^7.5.0",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",

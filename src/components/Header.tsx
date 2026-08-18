@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
 
@@ -24,6 +24,9 @@ interface HeaderProps {
   isDirty: boolean;
   entitlementCount: number;
   desktopHost?: boolean;
+  appVersion: string;
+  updateState: DesktopUpdateState | null;
+  onCheckForUpdates: () => void;
 }
 
 const DiscordIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -35,7 +38,7 @@ const DiscordIcon: React.FC<{ className?: string }> = ({ className }) => (
 export const Header: React.FC<HeaderProps> = ({
   config, onSaveToDisk, onLoadFromDisk, onCompileVerse, onExportPreset, onImportPreset,
   onOpenSettings, onOpenValidator, onSwitchProject, validationIssues, isSaving, isCompiling,
-  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false,
+  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, appVersion, updateState, onCheckForUpdates,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const toolsRef = React.useRef<HTMLDivElement>(null);
@@ -69,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#080d19] ${serverOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} title={serverOnline ? 'Secure project bridge connected' : 'Project bridge unavailable'} />
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-lg font-extrabold text-white">UEFN Entitlement Manager</h1>{isDirty && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">Unsaved</span>}</div>
+              <div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-lg font-extrabold text-white">UEFN Entitlement Manager</h1><span className="text-[10px] font-semibold text-slate-500">v{appVersion}</span>{isDirty && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">Unsaved</span>}</div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <div className="relative inline-block">
                   <button type="button" aria-expanded={isProjectOpen} onClick={() => setIsProjectOpen(open => !open)} className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1 text-xs font-semibold text-slate-300 transition hover:border-cyan-500/50 hover:text-white"><FolderOpen className="h-3.5 w-3.5 text-cyan-300" /><span className="text-slate-400">Project</span><span>{projectName}</span><ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${isProjectOpen ? 'rotate-180' : ''}`} /></button>
@@ -101,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button role="menuitem" type="button" onClick={() => runTool(onExportPreset)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><Download className="h-4 w-4 text-slate-400" />Export JSON preset</button>
               <button role="menuitem" type="button" onClick={() => { setIsToolsOpen(false); fileInputRef.current?.click(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><Upload className="h-4 w-4 text-slate-400" />Import JSON preset</button>
               <div className="my-1 border-t border-slate-800" />
+              <button role="menuitem" type="button" onClick={() => runTool(onCheckForUpdates)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><RefreshCw className="h-4 w-4 text-cyan-300" />Check for Updates{updateState?.status === 'checking' && <span className="ml-auto text-[10px] text-slate-500">Checking</span>}</button>
               <button role="menuitem" type="button" onClick={() => runTool(onOpenSettings)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><Settings className="h-4 w-4 text-slate-400" />Project settings</button>
             </div>}
             <input type="file" ref={fileInputRef} onChange={onImportPreset} accept="application/json,.json" className="hidden" />

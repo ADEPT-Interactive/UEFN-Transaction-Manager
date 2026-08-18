@@ -1,18 +1,23 @@
-UEFN ENTITLEMENT MANAGER 3.0.1
+UEFN ENTITLEMENT MANAGER 4.0.0
 
 GET STARTED
 
-1. Extract the complete ZIP to a normal folder and keep its contents together.
-2. Open UEFNEntitlementManager-3.0.1.exe.
+1. Download and run `UEFN-Entitlement-Manager-Setup-4.0.0.exe`.
+2. Launch UEFN Entitlement Manager from Windows Start/Search.
 3. Select the project that is open in UEFN, choose a recent project, or browse
    to its .uefnproject file.
 4. Confirm Open project in UEM.
 
 Known projects appear first. The launcher can continue discovering projects across local fixed drives while it is open.
 
-UEM is a portable Windows x64 app. It does not require an installer,
-administrator access, or separate Node.js, npm, Python, .NET, WebView2, or web
-browser installation.
+UEM installs as a per-user Windows x64 application. It creates a Start menu
+entry and an Add or Remove Programs entry. Project data, discovery cache, and
+settings remain in your user profile when UEM is upgraded or uninstalled.
+
+UEM checks for stable updates in the background after the launcher is ready.
+Use Tools, then Check for Updates to check manually. Choose Restart and Install
+after an update has finished downloading. The portable ZIP is a secondary
+diagnostic fallback, not the normal installation path.
 
 CREATOR WORKFLOW
 

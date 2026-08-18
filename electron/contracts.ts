@@ -24,3 +24,14 @@ export interface LauncherState {
 }
 
 export type WindowAction = 'request-state' | 'drag' | 'minimize' | 'toggle-maximize' | 'switch-project' | 'close';
+
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
+  currentVersion: string;
+  availableVersion?: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  progress?: number;
+  message?: string;
+  dismissed?: boolean;
+}

@@ -58,6 +58,17 @@ test('desktop source keeps the renderer sandboxed behind narrow IPC', () => {
   assert.doesNotMatch(preload, /:\s*ipcRenderer(?:\s*[,}])/);
 });
 
+test('updater IPC exposes state actions without accepting executable paths', () => {
+  const main = fs.readFileSync(path.resolve('electron/main.ts'), 'utf8');
+  const preload = fs.readFileSync(path.resolve('electron/preload.ts'), 'utf8');
+  for (const channel of ['uem:update:get-state', 'uem:update:check', 'uem:update:download', 'uem:update:dismiss', 'uem:update:install']) {
+    assert.match(main, new RegExp(`ipcMain\\.handle\\('${channel}'`));
+  }
+  assert.match(preload, /install: \(discardChanges = false\)/);
+  assert.doesNotMatch(preload, /installerPath|executablePath|spawn|execFile|shell\.openExternal/);
+  assert.match(main, /assertTrustedSender\(event\);[\s\S]{0,180}updateManager/);
+});
+
 test('desktop verification explicitly installs the locked Electron runtime', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { scripts?: Record<string, string> };
   assert.equal(packageJson.scripts?.['install:electron-runtime'], 'node node_modules/electron/install.js');

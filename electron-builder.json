@@ -1,0 +1,36 @@
+{
+  "appId": "AD3PTInteractive.UEFNEntitlementManager",
+  "productName": "UEFN Entitlement Manager",
+  "executableName": "UEFN Entitlement Manager",
+  "artifactName": "UEFN-Entitlement-Manager-${version}.${ext}",
+  "asar": false,
+  "compression": "normal",
+  "npmRebuild": false,
+  "buildDependenciesFromSource": false,
+  "win": {
+    "electronLanguages": ["en-US"],
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ],
+    "icon": "electron/assets/uem-icon.ico"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "createDesktopShortcut": false,
+    "createStartMenuShortcut": true,
+    "shortcutName": "UEFN Entitlement Manager",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "UEFN-Entitlement-Manager-Setup-${version}.${ext}"
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "ADEPT-Interactive",
+      "repo": "UEFN-Entitlement-Manager",
+      "releaseType": "release",
+      "publishAutoUpdate": true
+    }
+  ]
+}

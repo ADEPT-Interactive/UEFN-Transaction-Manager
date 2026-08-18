@@ -1,8 +1,18 @@
 export {};
 
 type DesktopWindowAction = 'request-state' | 'drag' | 'minimize' | 'toggle-maximize' | 'switch-project' | 'close';
-
 declare global {
+  type DesktopUpdateState = {
+    status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
+    currentVersion: string;
+    availableVersion?: string;
+    releaseName?: string;
+    releaseNotes?: string;
+    progress?: number;
+    message?: string;
+    dismissed?: boolean;
+  };
+
   interface Window {
     uemDesktop?: {
       readonly isDesktop: true;
@@ -20,6 +30,14 @@ declare global {
         onConfirmClose: (listener: () => void) => () => void;
       };
       readonly openExternal: (url: string) => Promise<boolean>;
+      readonly update: {
+        getState: () => Promise<DesktopUpdateState>;
+        check: () => Promise<DesktopUpdateState>;
+        download: () => Promise<{ success: boolean; error?: string }>;
+        install: (discardChanges?: boolean) => Promise<{ success: boolean; error?: string }>;
+        dismiss: () => Promise<DesktopUpdateState>;
+        onState: (listener: (state: DesktopUpdateState) => void) => () => void;
+      };
     };
   }
 }

@@ -1,12 +1,20 @@
 param(
-    [string]$ArchivePath = "release\UEFN Entitlement Manager.zip",
+    [string]$ArchivePath = "release\UEFN-Entitlement-Manager-4.0.0-Portable.zip",
+    [string]$InstallerPath = "release\UEFN-Entitlement-Manager-Setup-4.0.0.exe",
     [switch]$KeepTestFiles
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 $toolRoot = Split-Path -Parent $PSScriptRoot
+$installer = (Resolve-Path -LiteralPath (Join-Path $toolRoot $InstallerPath)).Path
 $archive = (Resolve-Path -LiteralPath (Join-Path $toolRoot $ArchivePath)).Path
+$releaseRoot = Split-Path -Parent $installer
+$expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
+$expectedInstallerName = "UEFN-Entitlement-Manager-Setup-$expectedVersion.exe"
+$metadataPath = Join-Path $releaseRoot "latest.yml"
+$blockmapPath = Join-Path $releaseRoot "$expectedInstallerName.blockmap"
+$checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
 $extractRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-test-" + [guid]::NewGuid().ToString("N"))
 $bridgeProcess = $null
 $oldEnvironment = @{}
@@ -27,12 +35,24 @@ function Get-PeMachine {
     finally { $stream.Dispose() }
 }
 
+if ((Split-Path -Leaf $installer) -ne $expectedInstallerName) { throw "The installer name does not match the canonical identity/version: $installer" }
+$installerMachine = Get-PeMachine -Path $installer
+if ($installerMachine -notin @(0x14C, 0x8664)) { throw "The NSIS installer has an unsupported PE architecture: 0x$('{0:X4}' -f $installerMachine)." }
+foreach ($metadataFile in @($metadataPath, $blockmapPath, $checksumPath)) { if (-not (Test-Path -LiteralPath $metadataFile -PathType Leaf)) { throw "Required release metadata is missing: $metadataFile" } }
+$metadataText = Get-Content -LiteralPath $metadataPath -Raw
+if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadataText -notmatch "version: $([regex]::Escape($expectedVersion))") { throw "latest.yml does not match the installer name and version." }
+$checksumText = Get-Content -LiteralPath $checksumPath -Raw
+$installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($checksumText -notmatch [regex]::Escape("$installerHash  $expectedInstallerName")) { throw "SHA256SUMS.txt does not match the installer." }
+Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, latest.yml, blockmap, and installer SHA-256 metadata." -f $installerMachine)
+
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 try {
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
     $packageRoot = Join-Path $extractRoot "UEFN Entitlement Manager"
-    $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "version.json") -Raw | ConvertFrom-Json).version
-    $desktopFileName = "UEFNEntitlementManager-$appVersion.exe"
+    $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json).version
+    if ($appVersion -ne $expectedVersion) { throw "The portable package version $appVersion does not match $expectedVersion." }
+    $desktopFileName = "UEFN Entitlement Manager.exe"
     $desktop = Join-Path $packageRoot $desktopFileName
     $appRoot = Join-Path $packageRoot "resources\app"
     $server = Join-Path $appRoot "dist\server.cjs"
@@ -51,10 +71,10 @@ try {
         (Join-Path $appRoot "node_modules\@img\sharp-win32-x64"),
         (Join-Path $appRoot "node_modules\koffi"),
         (Join-Path $appRoot "node_modules\@koromix\koffi-win32-x64"),
-        (Join-Path $packageRoot "LICENSE"),
+        (Join-Path $appRoot "LICENSE"),
         (Join-Path $packageRoot "LICENSE.electron.txt"),
         (Join-Path $packageRoot "LICENSES.chromium.html"),
-        (Join-Path $packageRoot "THIRD_PARTY_NOTICES.txt")
+        (Join-Path $appRoot "THIRD_PARTY_NOTICES.txt")
     )
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_) })
     if ($missing) { throw "The extracted Electron release is incomplete: $($missing -join ', ')" }
@@ -66,7 +86,7 @@ try {
     if ($forbidden) { throw "The Electron release contains obsolete WebView2, .NET, or standalone Node runtime files: $($forbidden.FullName -join ', ')" }
 
     $runtimeModuleRoot = Join-Path $appRoot "node_modules"
-    $expectedModules = @("@img", "@koromix", "detect-libc", "koffi", "sharp")
+    $expectedModules = @("@img", "@koromix", "detect-libc", "koffi", "semver", "sharp")
     $unexpectedModules = @(Get-ChildItem -LiteralPath $runtimeModuleRoot -Force | Where-Object { $expectedModules -notcontains $_.Name })
     $unexpectedImgModules = @(Get-ChildItem -LiteralPath (Join-Path $runtimeModuleRoot "@img") -Force | Where-Object { $_.Name -notin @("colour", "sharp-win32-x64") })
     $unexpectedKoromixModules = @(Get-ChildItem -LiteralPath (Join-Path $runtimeModuleRoot "@koromix") -Force | Where-Object { $_.Name -ne "koffi-win32-x64" })
@@ -86,7 +106,10 @@ try {
     $wrongArchitecture = @()
     foreach ($file in $nativeFiles) {
         $machine = Get-PeMachine -Path $file.FullName
-        if ($machine -ne 0x8664) { $wrongArchitecture += ("{0}=0x{1:X4}" -f $file.FullName, $machine) }
+        $isElectronElevationHelper = $file.Name -eq "elevate.exe" -and $file.Directory.Name -eq "resources"
+        if ($machine -ne 0x8664 -and -not ($isElectronElevationHelper -and $machine -eq 0x14C)) {
+            $wrongArchitecture += ("{0}=0x{1:X4}" -f $file.FullName, $machine)
+        }
     }
     if ($wrongArchitecture) { throw "The Windows x64 release contains incompatible native architectures: $($wrongArchitecture -join ', ')" }
     Write-Host "Verified $($nativeFiles.Count) x64 PE executables, libraries, and native modules."

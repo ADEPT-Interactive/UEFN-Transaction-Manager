@@ -1,0 +1,43 @@
+name: Build UEM release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run install:electron-runtime
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
+      - name: Create draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match version.json v$version." }
+          $assets = @(
+            "release/UEFN-Entitlement-Manager-Setup-$version.exe",
+            "release/UEFN-Entitlement-Manager-$version-Portable.zip",
+            "release/latest.yml",
+            "release/UEFN-Entitlement-Manager-Setup-$version.exe.blockmap",
+            "release/SHA256SUMS.txt",
+            "release/UEFN Entitlement Manager.contents.tsv"
+          )
+          gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --title "UEFN Entitlement Manager $version" --generate-notes

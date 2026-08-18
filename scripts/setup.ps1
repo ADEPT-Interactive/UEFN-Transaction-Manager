@@ -20,10 +20,11 @@ function Invoke-NativeChecked {
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $node -or -not $npm) {
-    throw "Source setup requires Node.js 20 or newer. End-user ZIP releases bundle Electron and do not require Node.js."
+    throw "Source setup requires Node.js 22.12.0 or newer. End-user installer releases bundle Electron and do not require Node.js."
 }
-$major = [int]((& $node.Source --version).Trim().TrimStart('v').Split('.')[0])
-if ($major -lt 20) { throw "Source setup requires Node.js 20 or newer; found $(& $node.Source --version)." }
+$nodeVersionText = (& $node.Source --version).Trim().TrimStart('v')
+try { $nodeVersion = [version]$nodeVersionText } catch { throw "Could not parse the installed Node.js version: $nodeVersionText." }
+if ($nodeVersion -lt [version]'22.12.0') { throw "Source setup requires Node.js 22.12.0 or newer; found $nodeVersionText." }
 if ($PreferPortableRuntime) {
     Write-Host "PreferPortableRuntime is retained for command compatibility; Electron dependencies are installed through the locked npm toolchain." -ForegroundColor DarkGray
 }
@@ -44,4 +45,4 @@ if (-not (Test-Path -LiteralPath $electron) -or -not (Test-Path -LiteralPath (Jo
 }
 
 Write-Host "`nSetup complete. Run npm run dev:desktop to open the Electron manager from source." -ForegroundColor Green
-Write-Host "Published ZIP releases remain download, extract, and launch only; they do not need Node.js, npm, Python, .NET, WebView2, or administrator access." -ForegroundColor DarkGray
+Write-Host "Published installer releases register UEM with Windows Start/Search and Add or Remove Programs; they do not need Node.js, npm, Python, .NET, WebView2, or administrator access." -ForegroundColor DarkGray

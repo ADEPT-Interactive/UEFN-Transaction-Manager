@@ -142,12 +142,21 @@ test('country flags use a guttered, lossless atlas rather than sampling adjacent
   assert.match(restrictionEditor, /const gutter = 1/);
 });
 
-test('release shell uses the exact versioned executable name', () => {
+test('release shell uses stable application identity and versioned artifacts', () => {
   const version = JSON.parse(read('version.json')).version as string;
   const packageVersion = JSON.parse(read('package.json')).version as string;
-  const expected = `UEFNEntitlementManager-${version}`;
-  assert.ok(read(path.join('scripts', 'package-electron.mjs')).includes('UEFNEntitlementManager-${version}'));
-  assert.ok(read(path.join('scripts', 'build-release.ps1')).includes('UEFNEntitlementManager-$appVersion.exe'));
+  const builder = JSON.parse(read('electron-builder.json')) as { appId: string; productName: string; executableName: string; nsis: { artifactName: string; oneClick: boolean; perMachine: boolean; createDesktopShortcut: boolean }; win: { electronLanguages: string[] } };
+  const releaseScript = read(path.join('scripts', 'build-release.ps1'));
+  assert.equal(builder.appId, 'AD3PTInteractive.UEFNEntitlementManager');
+  assert.equal(builder.productName, 'UEFN Entitlement Manager');
+  assert.equal(builder.executableName, 'UEFN Entitlement Manager');
+  assert.equal(builder.nsis.artifactName, 'UEFN-Entitlement-Manager-Setup-${version}.${ext}');
+  assert.equal(builder.nsis.oneClick, true);
+  assert.equal(builder.nsis.perMachine, false);
+  assert.equal(builder.nsis.createDesktopShortcut, false);
+  assert.deepEqual(builder.win.electronLanguages, ['en-US']);
+  assert.ok(releaseScript.includes('UEFN-Entitlement-Manager-Setup-$appVersion.exe'));
+  assert.ok(releaseScript.includes('UEFN-Entitlement-Manager-$appVersion-Portable.zip'));
   assert.equal(packageVersion, version);
-  assert.match(expected, /^UEFNEntitlementManager-\d+\.\d+\.\d+$/);
+  assert.match(version, /^\d+\.\d+\.\d+$/);
 });

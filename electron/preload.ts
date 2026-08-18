@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { LauncherState, WindowAction } from './contracts.js';
+import type { LauncherState, UpdateState, WindowAction } from './contracts.js';
 
 const windowActions = new Set<WindowAction>(['request-state', 'drag', 'minimize', 'toggle-maximize', 'switch-project', 'close']);
 
@@ -33,4 +33,16 @@ contextBridge.exposeInMainWorld('uemDesktop', Object.freeze({
     },
   }),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('uem:external:open', typeof url === 'string' ? url : ''),
+  update: Object.freeze({
+    getState: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:get-state'),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:check'),
+    download: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:update:download'),
+    install: (discardChanges = false): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:update:install', discardChanges === true),
+    dismiss: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:dismiss'),
+    onState: (listener: (state: UpdateState) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, state: UpdateState) => listener(state);
+      ipcRenderer.on('uem:update:state', wrapped);
+      return () => ipcRenderer.removeListener('uem:update:state', wrapped);
+    },
+  }),
 }));

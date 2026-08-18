@@ -7,6 +7,7 @@ import { BridgeSession } from './bridgeSession.js';
 import type { LauncherState, ProjectCandidate, WindowAction } from './contracts.js';
 import { ProjectDiscovery, readProject } from './projectDiscovery.js';
 import { isAllowedNavigation as navigationIsAllowed, isHttpExternal } from './security.js';
+import { UpdateManager } from './updateManager.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -38,6 +39,7 @@ let shutdownStarted = false;
 let testSwitchCompleted = false;
 let discoverySession: ProjectDiscovery | null = null;
 let discoveryActive = false;
+let updateManager: UpdateManager | null = null;
 
 const projectArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--project');
 const preferredProjectFile = projectArgumentIndex >= 0 ? process.argv[projectArgumentIndex + 1] : undefined;
@@ -230,6 +232,14 @@ async function shutdownAndQuit() {
   app.quit();
 }
 
+async function stopOwnedProcessesForUpdate() {
+  stopProjectDiscovery();
+  if (bridgeSession) await bridgeSession.stop();
+  bridgeSession = null;
+  mode = 'launcher';
+  allowedDashboardOrigin = null;
+}
+
 async function showFatalError(error: Error) {
   diagnostic(`Fatal error dialog: ${error.stack ?? error.message}`);
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -275,6 +285,39 @@ function configureIpc() {
     return true;
   });
   ipcMain.on('uem:window:dirty', (event, dirty: unknown) => { assertTrustedSender(event); appHasUnsavedChanges = dirty === true; });
+  ipcMain.handle('uem:update:get-state', event => {
+    assertTrustedSender(event);
+    return updateManager?.getState() ?? { status: 'idle', currentVersion: app.getVersion() };
+  });
+  ipcMain.handle('uem:update:check', async event => {
+    assertTrustedSender(event);
+    return updateManager ? updateManager.check(true) : { status: 'error', currentVersion: app.getVersion(), message: 'Updates are not available in this build.' };
+  });
+  ipcMain.handle('uem:update:download', async event => {
+    assertTrustedSender(event);
+    return updateManager?.download() ?? { success: false, error: 'Updates are not available in this build.' };
+  });
+  ipcMain.handle('uem:update:dismiss', event => {
+    assertTrustedSender(event);
+    updateManager?.dismiss();
+    return updateManager?.getState() ?? { status: 'idle', currentVersion: app.getVersion() };
+  });
+  ipcMain.handle('uem:update:install', async (event, discardChanges: unknown) => {
+    assertTrustedSender(event);
+    if (!updateManager) return { success: false, error: 'Updates are not available in this build.' };
+    const discard = discardChanges === true;
+    if (appHasUnsavedChanges && !discard) return { success: false, error: 'Save or discard unsaved changes before installing the update.' };
+    const hasUnsavedChanges = appHasUnsavedChanges;
+    allowWindowClose = true;
+    shutdownStarted = true;
+    appHasUnsavedChanges = false;
+    const result = await updateManager.install(discard, hasUnsavedChanges, async () => stopOwnedProcessesForUpdate());
+    if (!result.success) {
+      allowWindowClose = false;
+      shutdownStarted = false;
+    }
+    return result;
+  });
   ipcMain.on('uem:window:action', (event, action: unknown) => {
     assertTrustedSender(event);
     if (!mainWindow || typeof action !== 'string') return;
@@ -371,8 +414,13 @@ else {
       Menu.setApplicationMenu(null);
       configureIpc();
       mainWindow = createMainWindow();
+      updateManager = new UpdateManager(app.getVersion(), app.isPackaged, process.platform, state => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uem:update:state', state);
+      }, diagnostic);
+      updateManager.initialize();
       diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}`);
       await loadLauncher();
+      void updateManager.check(false);
     } catch (error) {
       await showFatalError(error instanceof Error ? error : new Error(String(error)));
     }
