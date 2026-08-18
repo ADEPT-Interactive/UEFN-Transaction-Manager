@@ -286,6 +286,9 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   if (bundle.dynamicRemaining && (bundle.items.length !== 1 || !bundle.items[0]?.entitlementId)) {
     issues.push(issue(`${id}-dynamic-shape`, 'error', 'A dynamic remaining bundle must contain exactly one entitlement entry.', 'dynamic_bundle_shape', 'items', undefined, id));
   }
+  if (bundle.dynamicRemaining && bundle.items.length === 1 && bundle.items[0]?.entitlementId && bundle.items[0].quantity !== 1) {
+    issues.push(issue(`${id}-dynamic-quantity`, 'error', 'A dynamic remaining bundle must use quantity 1; the purchase-time remaining quantity replaces this entry quantity.', 'dynamic_bundle_quantity', 'items', undefined, id));
+  }
   const depth = (candidate: BundleOffer, path: Set<string>): number | undefined => {
     if (path.has(candidate.id)) return undefined;
     const nextPath = new Set(path).add(candidate.id);
@@ -348,6 +351,9 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
     if ((!item && !bundle) || Boolean(item) === Boolean(bundle)) {
       issues.push(issue(`${group.id}-entry-${index}-missing`, 'error', 'Offer display entries must reference exactly one existing entitlement offer or bundle.', 'offer_display_reference_exists', 'entries'));
       continue;
+    }
+    if (bundle?.dynamicRemaining) {
+      issues.push(issue(`${group.id}-entry-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only because a storefront cannot calculate player-specific remaining quantity.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, group.id));
     }
     if (item && entry.offerVerseKey && entry.offerVerseKey !== item.verseKey && !(item.alternateOffers ?? []).some(offer => offer.verseKey === entry.offerVerseKey)) {
       issues.push(issue(`${group.id}-entry-${index}-variant`, 'error', 'Offer display variant does not exist on the referenced entitlement.', 'offer_display_variant_exists', 'entries'));

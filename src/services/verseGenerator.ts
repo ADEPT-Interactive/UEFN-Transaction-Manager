@@ -228,6 +228,54 @@ function offerClass(
   ].filter(Boolean).join('\n');
 }
 
+type GeneratedBundleOffer = {
+  key: string;
+  metadataKey: string;
+  iconTexture: string;
+  priceReference: string;
+  restrictions?: OfferRestrictions;
+};
+
+function generatedBundleOffer(
+  bundle: BundleOffer,
+  infoModule: string,
+  priceModule: string,
+): GeneratedBundleOffer {
+  return {
+    key: bundle.verseKey,
+    metadataKey: `${infoModule}.${toVerseApiStem(bundle.verseKey)}`,
+    iconTexture: bundle.iconTexture,
+    priceReference: `${priceModule}.${bundle.verseKey}_price`,
+    restrictions: bundle.restrictions,
+  };
+}
+
+function bundleOfferClass(
+  source: GeneratedBundleOffer,
+  contents: string,
+  suffix = '',
+): string {
+  const classKey = `${source.key}${suffix}`;
+  return [
+    `    ${classKey}_offer<public> := class(bundle_offer):`,
+    `        var Name<override>:message = ${source.metadataKey}.Name`,
+    `        var Description<override>:message = ${source.metadataKey}.Description`,
+    `        var ShortDescription<override>:message = ${source.metadataKey}.ShortDescription`,
+    `        var Icon<override>:texture = ${source.iconTexture}`,
+    `        Offers<override>:[]tuple(offer, int) = ${contents}`,
+    `        Price<override>:price_dimension = MakePriceVBucks(${source.priceReference})`,
+    restrictionLines(source.restrictions),
+    '',
+  ].filter(Boolean).join('\n');
+}
+
+function dynamicRemainingEntry(bundle: BundleOffer): BundleOfferItem | undefined {
+  if (!bundle.dynamicRemaining || bundle.items.length !== 1) return undefined;
+  const entry = bundle.items[0];
+  if (!entry?.entitlementId || entry.bundleId || entry.quantity !== 1) return undefined;
+  return entry;
+}
+
 function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementItem[], bundles: BundleOffer[]): string {
   if (entry.bundleId) {
     const nested = bundles.find(bundle => bundle.id === entry.bundleId);
@@ -244,13 +292,16 @@ function allOfferReferences(entitlements: EntitlementItem[], bundles: BundleOffe
     references.push(`${offersModule}.${item.verseKey}_offer{}`);
     for (const alternate of item.alternateOffers ?? []) references.push(`${offersModule}.${alternate.verseKey}_offer{}`);
   }
-  for (const bundle of bundles) references.push(`${offersModule}.${bundle.verseKey}_offer{}`);
+  for (const bundle of bundles) {
+    if (!bundle.dynamicRemaining) references.push(`${offersModule}.${bundle.verseKey}_offer{}`);
+  }
   return references;
 }
 
-function resolveOfferDisplayEntry(entry: OfferDisplayEntry, entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string {
+function resolveOfferDisplayEntry(entry: OfferDisplayEntry, entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string | undefined {
   if (entry.bundleId) {
     const bundle = bundles.find(candidate => candidate.id === entry.bundleId);
+    if (bundle?.dynamicRemaining) return undefined;
     return `${offersModule}.${bundle?.verseKey ?? 'invalid'}_offer{}`;
   }
   const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
@@ -360,33 +411,13 @@ export function generateVerseCode(
     }
   }
   for (const bundle of bundles) {
-    const bundleMetadata = `${infoModule}.${toVerseApiStem(bundle.verseKey)}`;
+    const bundleSource = generatedBundleOffer(bundle, infoModule, priceModule);
     const entries = bundle.items.map(entry => `(${resolveBundleEntry(entry, entitlements, bundles)}, ${entry.quantity})`).join(', ');
-    push(
-      `    ${bundle.verseKey}_offer<public> := class(bundle_offer):`,
-      `        var Name<override>:message = ${bundleMetadata}.Name`,
-      `        var Description<override>:message = ${bundleMetadata}.Description`,
-      `        var ShortDescription<override>:message = ${bundleMetadata}.ShortDescription`,
-      `        var Icon<override>:texture = ${bundle.iconTexture}`,
-      `        Offers<override>:[]tuple(offer, int) = array{${entries}}`,
-      `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${bundle.verseKey}_price)`,
-      restrictionLines(bundle.restrictions),
-      '',
-    );
-    if (bundle.dynamicRemaining && bundle.items[0]) {
-      const dynamicEntry = bundle.items[0];
+    push(bundleOfferClass(bundleSource, `array{${entries}}`));
+    if (dynamicRemainingEntry(bundle)) {
       push(
-        `    ${bundle.verseKey}_dynamic_offer<public> := class(bundle_offer):`,
-        `        var Name<override>:message = ${bundleMetadata}.Name`,
-        `        var Description<override>:message = ${bundleMetadata}.Description`,
-        `        var ShortDescription<override>:message = ${bundleMetadata}.ShortDescription`,
-        `        var Icon<override>:texture = ${bundle.iconTexture}`,
-        '        var Offers<override>:[]tuple(offer, int) = array{}',
-        `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${bundle.verseKey}_price)`,
-        restrictionLines(bundle.restrictions),
-        '',
+        bundleOfferClass(bundleSource, 'array{}', '_dynamic'),
       );
-      void dynamicEntry;
     }
   }
 
@@ -632,11 +663,11 @@ export function generateVerseCode(
   for (const bundle of bundles) {
     const pascal = toVerseApiStem(bundle.verseKey);
     const printableName = escapeVerseString(bundle.name);
-    const dynamic = Boolean(bundle.dynamicRemaining && bundle.items[0] && bundle.items[0].entitlementId);
+    const dynamicEntry = dynamicRemainingEntry(bundle);
     const purchaseEntryName = `Open${pascal}Purchase`;
-    if (dynamic) {
-      const entry = bundle.items[0];
-      const item = entitlements.find(candidate => candidate.id === entry.entitlementId)!;
+    const dynamicItem = dynamicEntry ? entitlements.find(candidate => candidate.id === dynamicEntry.entitlementId) : undefined;
+    if (dynamicEntry && dynamicItem) {
+      const entry = dynamicEntry;
       const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles)}`;
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
@@ -644,11 +675,11 @@ export function generateVerseCode(
         `            spawn{ExecuteDynamicPurchase${pascal}(Player)}`,
         '',
         `    ExecuteDynamicPurchase${pascal}(Player:player)<suspends>:void =`,
-        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${item.verseKey}_entitlement)`,
+        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${dynamicItem.verseKey}_entitlement)`,
         '        var OwnedCount:int = 0',
         '        if (Purchase := Purchases[0]):',
         '            set OwnedCount = Purchase(1)',
-        `        MaxCount := ${entModule}.${item.verseKey}_entitlement{}.MaxCount`,
+        `        MaxCount := ${entModule}.${dynamicItem.verseKey}_entitlement{}.MaxCount`,
         '        var RemainingCount:int = MaxCount - OwnedCount',
         '        if (RemainingCount < 0):',
         '            set RemainingCount = 0',
@@ -657,7 +688,15 @@ export function generateVerseCode(
         `            set DynamicOffer.Offers = array{(${offerReference}, RemainingCount)}`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
-        `            Print("${escapeVerseString(item.name)} is already at its maximum owned quantity")`,
+        `            Print("${escapeVerseString(dynamicItem.name)} is already at its maximum owned quantity")`,
+        '            ReleaseMarketplaceUI(Player)',
+        '',
+      );
+    } else if (bundle.dynamicRemaining) {
+      push(
+        `    ${purchaseEntryName}<public>(Player:player):void =`,
+        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        `            Print("${escapeVerseString(bundle.name)} has an invalid dynamic remaining configuration")`,
         '            ReleaseMarketplaceUI(Player)',
         '',
       );
@@ -687,12 +726,16 @@ export function generateVerseCode(
 
   for (const group of offerDisplayGroups) {
     const pascal = toVerseApiStem(group.verseKey);
-    const references = group.entries.map(entry => resolveOfferDisplayEntry(entry, entitlements, bundles, offersModule));
+    const references = group.entries
+      .map(entry => resolveOfferDisplayEntry(entry, entitlements, bundles, offersModule))
+      .filter((reference): reference is string => Boolean(reference));
     push(
       `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
       '',
       `    Show${pascal}Offers(Player:player)<suspends>:void =`,
-      `        ExecuteStorefront(Player, array{${references.join(', ')}}, ${pascal}Title)`,
+      ...(references.length
+        ? [`        ExecuteStorefront(Player, array{${references.join(', ')}}, ${pascal}Title)`]
+        : ['        Print("No eligible offers are configured for this storefront")', '        ReleaseMarketplaceUI(Player)']),
       '',
       `    Open${pascal}<public>(Player:player):void =`,
       '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',

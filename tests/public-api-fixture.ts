@@ -107,6 +107,6 @@ export const publicApiDisplayGroups: OfferDisplayGroup[] = [
   },
   {
     id: 'bundle-store', verseKey: 'bundle_store', name: 'Bundle Store', generateTriggerBinding: false,
-    entries: [{ bundleId: 'nested' }, { bundleId: 'dynamic' }],
+    entries: [{ bundleId: 'nested' }],
   },
 ];

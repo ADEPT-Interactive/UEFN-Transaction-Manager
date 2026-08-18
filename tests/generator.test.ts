@@ -225,7 +225,7 @@ test('paid-random metadata, not a manual guard, covers every generated Marketpla
     assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):`));
   }
   assert.match(source, /ExecutePurchase\(Player, DynamicOffer, "Dynamic Random Bundle"\)/);
-  assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}, ManagedOffers\.dynamic_random_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
+  assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
   assert.match(source, /ShowRandomStoreOffers\(Player:player\)<suspends>:void =\n        ExecuteStorefront\(Player, array\{ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, RandomStoreTitle\)/);
   assert.match(source, /ConsumeMysteryCrate<public>/);
 });
@@ -510,6 +510,103 @@ test('GetMinPurchaseAge generation is consistent for alternate, static bundle, a
   }
 });
 
+test('dynamic bundle metadata, price, restrictions, disclosure, and alternate contents share the source configuration', () => {
+  const sourceItem = structuredClone(items[1]);
+  sourceItem.alternateOffers = [{
+    id: 'crate-source-alt', verseKey: 'crate_source_alt', name: 'Source Alternate',
+    shortDescription: 'The configured alternate short description.',
+    description: 'The configured alternate description.', durationDescription: 'Lasts 3 days after purchase',
+    priceVBucks: 2350, iconTexture: 'EntitlementIcons.SourceAlternate',
+    restrictions: { minimumPurchaseAge: 16, blockedCountryCodes: ['IR'], blockedPlatformFamilies: ['Windows'] },
+  }];
+  const restrictions: OfferRestrictions = {
+    minimumPurchaseAge: 18,
+    blockedCountryCodes: ['IR', 'XX'],
+    blockedPlatformFamilies: ['Windows', 'Xbox'],
+  };
+  const shared = {
+    name: 'Configured "Source" Bundle',
+    shortDescription: 'An unusual configured short description.',
+    description: 'An unusual configured source description.',
+    durationDescription: 'Lasts 11 days after purchase',
+    priceVBucks: 2350,
+    iconTexture: 'EntitlementIcons.ConfiguredSource',
+    restrictions,
+    items: [{ entitlementId: sourceItem.id, offerVerseKey: 'crate_source_alt', quantity: 1 }],
+  };
+  const staticBundle: BundleOffer = { ...structuredClone(bundles[0]), ...shared, id: 'static-source', verseKey: 'static_source' };
+  const dynamicBundle: BundleOffer = { ...structuredClone(bundles[0]), ...shared, id: 'dynamic-source', verseKey: 'dynamic_source', dynamicRemaining: true };
+  const source = generateVerseCode([sourceItem], [staticBundle, dynamicBundle], { ...config, generateStorefrontBinding: false });
+  const staticBlock = offerClassBlock(source, 'static_source_offer');
+  const dynamicBlock = offerClassBlock(source, 'dynamic_source_dynamic_offer');
+
+  assert.match(staticBlock, /Name<override>:message = ManagedEntitlementInfo\.StaticSource\.Name/);
+  assert.match(dynamicBlock, /Name<override>:message = ManagedEntitlementInfo\.DynamicSource\.Name/);
+  assert.match(staticBlock, /Description<override>:message = ManagedEntitlementInfo\.StaticSource\.Description/);
+  assert.match(dynamicBlock, /Description<override>:message = ManagedEntitlementInfo\.DynamicSource\.Description/);
+  assert.match(staticBlock, /ShortDescription<override>:message = ManagedEntitlementInfo\.StaticSource\.ShortDescription/);
+  assert.match(dynamicBlock, /ShortDescription<override>:message = ManagedEntitlementInfo\.DynamicSource\.ShortDescription/);
+  assert.match(staticBlock, /Icon<override>:texture = EntitlementIcons\.ConfiguredSource/);
+  assert.match(dynamicBlock, /Icon<override>:texture = EntitlementIcons\.ConfiguredSource/);
+  assert.match(staticBlock, /Price<override>:price_dimension = MakePriceVBucks\(ManagedTransactionPrices\.static_source_price\)/);
+  assert.match(dynamicBlock, /Price<override>:price_dimension = MakePriceVBucks\(ManagedTransactionPrices\.dynamic_source_price\)/);
+  assert.match(staticBlock, /Offers<override>:\[\]tuple\(offer, int\) = array\{\(crate_source_alt_offer\{\}, 1\)\}/);
+  assert.match(dynamicBlock, /Offers<override>:\[\]tuple\(offer, int\) = array\{\}/);
+  assert.equal(restrictionMethod(source, 'static_source_offer'), expectedRestrictionMethod(restrictions));
+  assert.equal(restrictionMethod(source, 'dynamic_source_dynamic_offer'), expectedRestrictionMethod(restrictions));
+  assert.match(metadataDescription(source, 'static_source'), /An unusual configured source description\.\\nDuration: Lasts 11 days after purchase\\nOdds: Mystery Crate: Common: 75%, Rare: 25%/);
+  assert.match(metadataDescription(source, 'dynamic_source'), /An unusual configured source description\.\\nDuration: Lasts 11 days after purchase\\nOdds: Mystery Crate: Common: 75%, Rare: 25%/);
+
+  const dynamicPurchase = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseDynamicSource');
+  assert.match(dynamicPurchase, /DynamicOffer\.Offers = array\{\(ManagedOffers\.crate_source_alt_offer\{\}, RemainingCount\)\}/);
+  assert.doesNotMatch(source, /RestrictPaidRandomItems|RestrictDirectPromptsToPurchase/);
+
+  const noOddsItem = structuredClone(sourceItem);
+  noOddsItem.id = 'crate-no-odds';
+  noOddsItem.verseKey = 'crate_no_odds';
+  noOddsItem.flags.paidRandomItemOdds = '';
+  noOddsItem.alternateOffers = undefined;
+  const noOddsBundle: BundleOffer = {
+    ...structuredClone(dynamicBundle), id: 'dynamic-no-odds', verseKey: 'dynamic_no_odds',
+    items: [{ entitlementId: noOddsItem.id, quantity: 1 }],
+  };
+  const noOddsSource = generateVerseCode([noOddsItem], [noOddsBundle], { ...config, generateStorefrontBinding: false });
+  assert.doesNotMatch(metadataDescription(noOddsSource, noOddsBundle.verseKey), /Odds:/);
+});
+
+test('dynamic restrictions cover every country, platform, and age combination without no-op overrides', () => {
+  const cases: Array<{ name: string; restrictions?: OfferRestrictions }> = [
+    { name: 'none' },
+    { name: 'country', restrictions: { blockedCountryCodes: ['IR'], blockedPlatformFamilies: [] } },
+    { name: 'platform', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: ['Windows'] } },
+    { name: 'age', restrictions: { minimumPurchaseAge: 17, blockedCountryCodes: [], blockedPlatformFamilies: [] } },
+    { name: 'country-platform', restrictions: { blockedCountryCodes: ['IR'], blockedPlatformFamilies: ['Windows'] } },
+    { name: 'country-age', restrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['IR'], blockedPlatformFamilies: [] } },
+    { name: 'platform-age', restrictions: { minimumPurchaseAge: 16, blockedCountryCodes: [], blockedPlatformFamilies: ['Windows'] } },
+    { name: 'country-platform-age', restrictions: { minimumPurchaseAge: 18, blockedCountryCodes: ['IR', 'XX'], blockedPlatformFamilies: ['Windows', 'Xbox'] } },
+    { name: 'zero-age-country-platform', restrictions: { minimumPurchaseAge: 0, blockedCountryCodes: ['CC'], blockedPlatformFamilies: ['Nintendo'] } },
+    { name: 'empty-object', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] } },
+  ];
+
+  for (const testCase of cases) {
+    const staticBundle: BundleOffer = {
+      ...structuredClone(bundles[0]), id: `static-restriction-${testCase.name}`, verseKey: `static_restriction_${testCase.name}`,
+      restrictions: testCase.restrictions, items: [{ entitlementId: 'crate', quantity: 1 }],
+    };
+    const dynamicBundle: BundleOffer = {
+      ...structuredClone(staticBundle), id: `dynamic-restriction-${testCase.name}`, verseKey: `dynamic_restriction_${testCase.name}`, dynamicRemaining: true,
+    };
+    const source = generateVerseCode(items, [staticBundle, dynamicBundle], { ...config, generateStorefrontBinding: false });
+    const expected = testCase.restrictions && (
+      testCase.restrictions.minimumPurchaseAge !== undefined
+      || testCase.restrictions.blockedCountryCodes.length > 0
+      || testCase.restrictions.blockedPlatformFamilies.length > 0
+    ) ? expectedRestrictionMethod(testCase.restrictions) : undefined;
+    assert.equal(restrictionMethod(source, staticBundle.verseKey + '_offer'), expected, testCase.name);
+    assert.equal(restrictionMethod(source, dynamicBundle.verseKey + '_dynamic_offer'), expected, testCase.name);
+  }
+});
+
 test('validator does not inspect paid random disclosure format', () => {
   const randomOnly = structuredClone(items);
   randomOnly[1].flags.paidRandomItemOdds = 'Outcome table supplied by the game UI';
@@ -673,6 +770,50 @@ test('dynamic remaining quantity reads the generated MaxCount and handles durabl
     const body = generatedFunctionBlock(sharedSource, `ExecuteDynamicPurchase${toPascalCase(bundle.verseKey)}`);
     assert.match(body, /MaxCount := ManagedEntitlements\.mystery_crate_entitlement\{\}\.MaxCount/);
   }
+});
+
+test('dynamic remaining bundles preserve multi-item static contents while rejecting unsupported dynamic shapes', () => {
+  const sourceItem = structuredClone(items[1]);
+  sourceItem.alternateOffers = [{
+    id: 'crate-content-alt', verseKey: 'crate_content_alt', name: 'Content Alternate',
+    shortDescription: 'Alternate content.', description: 'Alternate content description.', priceVBucks: 150,
+    iconTexture: 'EntitlementIcons.ContentAlternate', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+  const staticMulti: BundleOffer = {
+    ...structuredClone(bundles[0]), id: 'static-multi-content', verseKey: 'static_multi_content',
+    items: [{ entitlementId: 'vip', quantity: 1 }, { entitlementId: sourceItem.id, offerVerseKey: 'crate_content_alt', quantity: 2 }],
+  };
+  const supportedDynamic: BundleOffer = {
+    ...structuredClone(bundles[0]), id: 'supported-dynamic-content', verseKey: 'supported_dynamic_content', dynamicRemaining: true,
+    items: [{ entitlementId: sourceItem.id, offerVerseKey: 'crate_content_alt', quantity: 1 }],
+  };
+  const unsupportedDynamic: BundleOffer = {
+    ...structuredClone(staticMulti), id: 'unsupported-dynamic-content', verseKey: 'unsupported_dynamic_content', dynamicRemaining: true,
+  };
+  const source = generateVerseCode([items[0], sourceItem], [staticMulti, supportedDynamic, unsupportedDynamic], { ...config, generateStorefrontBinding: false });
+  const staticBlock = offerClassBlock(source, 'static_multi_content_offer');
+  assert.match(staticBlock, /\(vip_pass_offer\{\}, 1\)/);
+  assert.match(staticBlock, /\(crate_content_alt_offer\{\}, 2\)/);
+
+  const dynamicPurchase = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseSupportedDynamicContent');
+  assert.match(dynamicPurchase, /DynamicOffer\.Offers = array\{\(ManagedOffers\.crate_content_alt_offer\{\}, RemainingCount\)\}/);
+  assert.doesNotMatch(source, /unsupported_dynamic_content_dynamic_offer<public>/);
+  assert.match(source, /OpenUnsupportedDynamicContentPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):\n            Print\("Starter Bundle has an invalid dynamic remaining configuration"\)\n            ReleaseMarketplaceUI\(Player\)/);
+
+  const errors = validateEntireProject([items[0], sourceItem], [unsupportedDynamic], config).filter(issue => issue.severity === 'error');
+  assert.ok(errors.some(issue => issue.ruleName === 'dynamic_bundle_shape'));
+  assert.ok(validateEntireProject([items[0], sourceItem], [{ ...supportedDynamic, items: [{ entitlementId: sourceItem.id, quantity: 2 }] }], config).some(issue => issue.ruleName === 'dynamic_bundle_quantity'));
+});
+
+test('dynamic remaining bundles are direct-purchase-only and storefronts exclude them', () => {
+  const dynamic: BundleOffer = { ...bundles[0], id: 'dynamic-storefront', verseKey: 'dynamic_storefront', dynamicRemaining: true, items: [{ entitlementId: 'crate', quantity: 1 }] };
+  const group: OfferDisplayGroup = { id: 'dynamic-storefront-group', verseKey: 'dynamic_storefront_group', name: 'Dynamic Storefront', generateTriggerBinding: false, entries: [{ bundleId: dynamic.id }] };
+  const issues = validateEntireProject(items, [dynamic], config, [group]);
+  assert.ok(issues.some(issue => issue.ruleName === 'dynamic_bundle_storefront_unsupported'));
+
+  const source = generateVerseCode(items, [dynamic], config, []);
+  assert.match(source, /ShowAllOffers\(Player:player\)<suspends>:void =\n        ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}\}, AllOffersStoreTitle\)/);
+  assert.doesNotMatch(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.dynamic_storefront_offer\{\}/);
 });
 
 test('nested bundles carry paid-random disclosures through every containing offer', () => {
