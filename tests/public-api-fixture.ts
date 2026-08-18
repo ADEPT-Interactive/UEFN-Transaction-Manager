@@ -26,8 +26,6 @@ function entitlement(overrides: EntitlementOverrides): EntitlementItem {
       consequentialToGameplay: false,
       ...overrides.flags,
     },
-    purchaseEventName: 'FixtureItemPurchaseEvent',
-    restoreOnJoin: false,
     triggers: {
       generateTriggerBinding: false,
       generateButtonBinding: false,
@@ -57,25 +55,24 @@ export const publicApiConfig: ProjectConfig = {
 export const publicApiItems: EntitlementItem[] = [
   entitlement({
     id: 'access', verseKey: 'access_pass', name: 'Access Pass', priceVBucks: 500,
-    iconTexture: 'EntitlementIcons.AccessPass', purchaseEventName: 'AccessPassPurchaseEvent', restoreOnJoin: true,
+    iconTexture: 'EntitlementIcons.AccessPass',
     flags: { paidArea: true, consequentialToGameplay: true },
     offerRestrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['CA'], blockedPlatformFamilies: ['Android'] },
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'AccessPassTriggers', generateButtonBinding: true, buttonDeviceName: 'AccessPassButtons', generateZoneBinding: true, mutatorZoneName: 'AccessPassZones' },
   }),
   entitlement({
     id: 'season', verseKey: 'season_pass', name: 'Season Pass', priceVBucks: 1000,
-    iconTexture: 'EntitlementIcons.SeasonPass', purchaseEventName: 'SeasonPassPurchaseEvent',
+    iconTexture: 'EntitlementIcons.SeasonPass',
     triggers: { generateTriggerBinding: false, generateButtonBinding: true, buttonDeviceName: 'SeasonPassButtons' },
   }),
   entitlement({
     id: 'coins', verseKey: 'coin_pack', name: 'Coin Pack', priceVBucks: 100,
-    itemType: 'consumable', maxCount: 25, iconTexture: 'EntitlementIcons.CoinPack', purchaseEventName: 'CoinPackPurchaseEvent',
+    itemType: 'consumable', maxCount: 25, iconTexture: 'EntitlementIcons.CoinPack',
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'CoinPackTriggers' },
   }),
   entitlement({
     id: 'random', verseKey: 'mystery_item', name: 'Mystery Item', priceVBucks: 150,
     itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryItem',
-    purchaseEventName: 'MysteryItemPurchaseEvent',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', consequentialToGameplay: true },
     triggers: { generateTriggerBinding: false, generateButtonBinding: true, buttonDeviceName: 'MysteryItemButtons', generateZoneBinding: true, mutatorZoneName: 'MysteryItemZones' },
     alternateOffers: [{

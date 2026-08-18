@@ -24,7 +24,6 @@ const items: EntitlementItem[] = [
     description: 'Unlocks VIP access.', priceVBucks: 500, itemType: 'durable', maxCount: 1,
     autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
-    purchaseEventName: 'VipPassPurchasedEvent', restoreOnJoin: true,
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'VipPassOfferTriggers', generateButtonBinding: true, buttonDeviceName: 'VipPassButtons', generateZoneBinding: true, mutatorZoneName: 'VipPassZones' },
   },
   {
@@ -32,7 +31,6 @@ const items: EntitlementItem[] = [
     description: 'Contains one reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10,
     autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', paidArea: false, consequentialToGameplay: true },
-    purchaseEventName: 'MysteryCratePurchasedEvent', restoreOnJoin: false,
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'MysteryCrateOfferTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
 ];
@@ -188,20 +186,17 @@ test('only actual odds values are appended across direct, alternate, and bundle 
   regularA.id = 'regular-a';
   regularA.verseKey = 'regular_a';
   regularA.name = 'Regular A';
-  regularA.purchaseEventName = 'RegularAEvent';
   regularA.triggers.triggerDeviceName = 'RegularAOfferTriggers';
   const regularB = structuredClone(regularA);
   regularB.id = 'regular-b';
   regularB.verseKey = 'regular_b';
   regularB.name = 'Regular B';
-  regularB.purchaseEventName = 'RegularBEvent';
   regularB.triggers.triggerDeviceName = 'RegularBOfferTriggers';
 
   const supplied = structuredClone(items[1]);
   supplied.id = 'random-supplied';
   supplied.verseKey = 'random_supplied';
   supplied.name = 'Random Supplied';
-  supplied.purchaseEventName = 'RandomSuppliedEvent';
   supplied.triggers.triggerDeviceName = 'RandomSuppliedOfferTriggers';
   supplied.alternateOffers = [{
     id: 'random-supplied-alt', verseKey: 'random_supplied_alt', name: 'Random Supplied Alt',
@@ -214,7 +209,6 @@ test('only actual odds values are appended across direct, alternate, and bundle 
   empty.id = 'random-empty';
   empty.verseKey = 'random_empty';
   empty.name = 'Random Empty';
-  empty.purchaseEventName = 'RandomEmptyEvent';
   empty.triggers.triggerDeviceName = 'RandomEmptyOfferTriggers';
   empty.flags.paidRandomItemOdds = '';
   empty.alternateOffers = [{
@@ -271,12 +265,10 @@ test('saved paid-random odds survive manifest reopen and regeneration for old an
   const supplied = structuredClone(items[1]);
   supplied.id = 'saved-supplied';
   supplied.verseKey = 'saved_supplied';
-  supplied.purchaseEventName = 'SavedSuppliedEvent';
   supplied.triggers.triggerDeviceName = 'SavedSuppliedOfferTriggers';
   const empty = structuredClone(items[1]);
   empty.id = 'saved-empty';
   empty.verseKey = 'saved_empty';
-  empty.purchaseEventName = 'SavedEmptyEvent';
   empty.triggers.triggerDeviceName = 'SavedEmptyOfferTriggers';
   empty.flags.paidRandomItemOdds = '';
 
@@ -359,7 +351,6 @@ test('new marketplace safeguards and public helpers are generated', () => {
 
 test('generated managed-file guidance keeps gameplay integration in external Verse', () => {
   const source = generateVerseCode(items, bundles, config);
-  const migrated = generateVerseCode(items, bundles, config, [], [], { generatedApiVersion: 2, legacyApiCompatibility: true });
 
   assert.match(source, /Generated and managed by ADEPT Interactive UEFN Entitlement Manager\. Do not edit manually\./);
   assert.match(source, /Configure through UEM and integrate from your own Verse using the generated public API/);
@@ -367,8 +358,6 @@ test('generated managed-file guidance keeps gameplay integration in external Ver
   assert.match(source, /Do not edit these handlers; regeneration may replace the managed implementation/);
   assert.doesNotMatch(source, /Apply gameplay benefits here/);
   assert.doesNotMatch(source, /Do not rely on BuyOffer or GrantEntitlement return values/);
-  assert.match(migrated, /Legacy UEM API compatibility only\. Prefer the canonical \*_GrantedEvent, \*_RemovedEvent, and \*_ReconciledEvent from your own Verse\./);
-  assert.doesNotMatch(migrated, /Prefer .*PurchasedEvent/);
 });
 
 test('canonical ownership and count helpers query entitlement state once and exclude offers', () => {
@@ -595,7 +584,6 @@ test('duplicating a configured offer regenerates every global identity and compi
 
   assert.notEqual(copy.id, configured.id);
   assert.notEqual(copy.verseKey, configured.verseKey);
-  assert.notEqual(copy.purchaseEventName, configured.purchaseEventName);
   assert.notEqual(copy.alternateOffers![0].id, configured.alternateOffers[0].id);
   assert.notEqual(copy.alternateOffers![0].verseKey, configured.alternateOffers[0].verseKey);
   assert.notEqual(copy.triggers.triggerDeviceName, configured.triggers.triggerDeviceName);

@@ -28,7 +28,6 @@ const entitlements: EntitlementItem[] = [
     description: 'Used only to verify generated Verse.', priceVBucks: 100, itemType: 'consumable', maxCount: 10,
     autoConsume: true, iconTexture: 'EntitlementIcons.UEM_PlaceholderIcon',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
-    purchaseEventName: 'UemAuditCoinsGrantedEvent', restoreOnJoin: false,
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'UemAuditCoinTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
   {
@@ -36,7 +35,6 @@ const entitlements: EntitlementItem[] = [
     description: 'Used only to verify generated Verse.', priceVBucks: 200, itemType: 'durable', maxCount: 1,
     autoConsume: false, iconTexture: 'EntitlementIcons.UEM_PlaceholderIcon',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
-    purchaseEventName: 'UemAuditAccessGrantedEvent', restoreOnJoin: true,
     triggers: { generateTriggerBinding: true, triggerDeviceName: 'UemAuditAccessTriggers', generateButtonBinding: false, generateZoneBinding: false },
   },
 ];

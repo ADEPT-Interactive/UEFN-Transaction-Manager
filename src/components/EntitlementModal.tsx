@@ -39,7 +39,6 @@ const EMPTY_ENTITLEMENT: EntitlementItem = {
   id: '', verseKey: '', name: '', shortDescription: '', description: '', priceVBucks: 100,
   itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: '',
   flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
-  purchaseEventName: '', restoreOnJoin: true,
   triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateZoneBinding: false },
 };
 
@@ -653,11 +652,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Positive Entitlement Change Event</span>
+                  <span>Canonical entitlement events</span>
                 </label>
-                <p className="text-[11px] text-slate-400">The device signals this public event after any positive Marketplace entitlement delta, including a purchase or direct grant. Existing legacy “PurchasedEvent” names remain compatible.</p>
-                <input type="text" value={formData.purchaseEventName} onChange={event => setFormData(previous => ({ ...previous, purchaseEventName: event.target.value }))} placeholder="VipPassGrantedEvent" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300" />
-                {formData.itemType === 'durable' && <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={formData.restoreOnJoin} onChange={event => setFormData(previous => ({ ...previous, restoreOnJoin: event.target.checked }))} />Generate and signal a separate OwnershipVerifiedEvent on join</label>}
+                <p className="text-[11px] text-slate-400">The device signals stable-key-based Granted, Removed, and Reconciled events after authoritative Marketplace changes. A positive event represents any positive entitlement delta, including a purchase or direct grant.</p>
               </div>
 
               {/* Triggers (Trigger devices, Buttons & Mutator Zones) */}

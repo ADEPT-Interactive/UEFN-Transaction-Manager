@@ -8,7 +8,7 @@ import { ValidationReportModal } from './components/ValidationReportModal';
 import { ProjectSettingsModal } from './components/ProjectSettingsModal';
 import { BundleManager } from './components/BundleManager';
 import { OfferDisplayManager } from './components/OfferDisplayManager';
-import { BundleOffer, EntitlementItem, GeneratedApiOptions, OfferDisplayGroup, ProjectConfig } from './types/entitlement';
+import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from './types/entitlement';
 import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets';
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
@@ -45,14 +45,6 @@ const DEFAULT_CONFIG: ProjectConfig = {
 const STORAGE_NAMESPACE = FileService.getStorageNamespace(launchContext.contentFolderPath);
 const storageKey = (name: string) => `${STORAGE_NAMESPACE}:${name}`;
 
-type ProjectGeneratedApiState = Required<GeneratedApiOptions>;
-
-const DEFAULT_GENERATED_API_STATE: ProjectGeneratedApiState = {
-  generatedApiVersion: 2,
-  legacyApiCompatibility: false,
-  legacyApiDiagnostics: [],
-};
-
 const LEGACY_STARTER_PRESET_IDENTITIES: Record<typeof LEGACY_STARTER_PRESET_KEYS[number], {
   name: string;
   shortDescription: string;
@@ -66,14 +58,12 @@ const LEGACY_STARTER_PRESET_IDENTITIES: Record<typeof LEGACY_STARTER_PRESET_KEYS
   paidRandomItemOdds: string;
   paidArea: boolean;
   consequentialToGameplay: boolean;
-  purchaseEventName: string;
-  restoreOnJoin: boolean;
 }> = {
-  vip_pass: { name: 'VIP Pass', shortDescription: 'Unlock exclusive VIP access and benefits.', description: 'Grants permanent access to the island VIP experience.', priceVBucks: 500, itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP', paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true, purchaseEventName: 'VipPassPurchasedEvent', restoreOnJoin: true },
-  strength_boost_10: { name: '+10 Strength Boost', shortDescription: 'Adds ten strength levels immediately.', description: 'A consumable boost that grants ten strength levels.', priceVBucks: 150, itemType: 'consumable', maxCount: 5, autoConsume: true, iconTexture: 'EntitlementIcons.Strength_10', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true, purchaseEventName: 'StrengthBoostPurchasedEvent', restoreOnJoin: false },
-  double_money: { name: '2x Cash Multiplier', shortDescription: 'Permanently doubles eligible cash earnings.', description: 'Grants a permanent two-times cash multiplier for this island.', priceVBucks: 400, itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.Double_Cash', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true, purchaseEventName: 'DoubleMoneyPurchasedEvent', restoreOnJoin: true },
-  mystery_crate: { name: 'Mystery Crate', shortDescription: 'Open one crate for a disclosed random reward.', description: 'Contains one randomized island reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate', paidRandomItem: true, paidRandomItemOdds: 'Common: 60%, Rare: 30%, Epic: 8%, Legendary: 2%', paidArea: false, consequentialToGameplay: true, purchaseEventName: 'MysteryCratePurchasedEvent', restoreOnJoin: false },
-  bag_expansion_10: { name: '+10 Backpack Slots', shortDescription: 'Adds ten inventory slots immediately.', description: 'A consumable expansion that grants ten additional inventory slots.', priceVBucks: 100, itemType: 'consumable', maxCount: 7, autoConsume: true, iconTexture: 'EntitlementIcons.Inventory_10', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true, purchaseEventName: 'BagExpansionPurchasedEvent', restoreOnJoin: false },
+  vip_pass: { name: 'VIP Pass', shortDescription: 'Unlock exclusive VIP access and benefits.', description: 'Grants permanent access to the island VIP experience.', priceVBucks: 500, itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP', paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
+  strength_boost_10: { name: '+10 Strength Boost', shortDescription: 'Adds ten strength levels immediately.', description: 'A consumable boost that grants ten strength levels.', priceVBucks: 150, itemType: 'consumable', maxCount: 5, autoConsume: true, iconTexture: 'EntitlementIcons.Strength_10', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
+  double_money: { name: '2x Cash Multiplier', shortDescription: 'Permanently doubles eligible cash earnings.', description: 'Grants a permanent two-times cash multiplier for this island.', priceVBucks: 400, itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.Double_Cash', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
+  mystery_crate: { name: 'Mystery Crate', shortDescription: 'Open one crate for a disclosed random reward.', description: 'Contains one randomized island reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate', paidRandomItem: true, paidRandomItemOdds: 'Common: 60%, Rare: 30%, Epic: 8%, Legendary: 2%', paidArea: false, consequentialToGameplay: true },
+  bag_expansion_10: { name: '+10 Backpack Slots', shortDescription: 'Adds ten inventory slots immediately.', description: 'A consumable expansion that grants ten additional inventory slots.', priceVBucks: 100, itemType: 'consumable', maxCount: 7, autoConsume: true, iconTexture: 'EntitlementIcons.Inventory_10', paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
 };
 
 function isUntouchedLegacyStarterCatalog(items: EntitlementItem[]): boolean {
@@ -94,9 +84,7 @@ function isUntouchedLegacyStarterCatalog(items: EntitlementItem[]): boolean {
       && item!.flags.paidRandomItem === expected.paidRandomItem
       && item!.flags.paidRandomItemOdds === expected.paidRandomItemOdds
       && item!.flags.paidArea === expected.paidArea
-      && item!.flags.consequentialToGameplay === expected.consequentialToGameplay
-      && item!.purchaseEventName === expected.purchaseEventName
-      && item!.restoreOnJoin === expected.restoreOnJoin;
+      && item!.flags.consequentialToGameplay === expected.consequentialToGameplay;
   });
 }
 
@@ -156,30 +144,6 @@ function loadRetiredVerseKeys(): string[] {
   }
 }
 
-function loadGeneratedApiState(): ProjectGeneratedApiState {
-  try {
-    const stored = localStorage.getItem(storageKey('generatedApiState'));
-    if (!stored) return DEFAULT_GENERATED_API_STATE;
-    const parsed = JSON.parse(stored) as Partial<ProjectGeneratedApiState>;
-    return {
-      generatedApiVersion: parsed.generatedApiVersion === 1 ? 1 : 2,
-      legacyApiCompatibility: parsed.legacyApiCompatibility === true,
-      legacyApiDiagnostics: Array.isArray(parsed.legacyApiDiagnostics) ? parsed.legacyApiDiagnostics.filter((entry): entry is string => typeof entry === 'string') : [],
-    };
-  } catch {
-    localStorage.removeItem(storageKey('generatedApiState'));
-    return DEFAULT_GENERATED_API_STATE;
-  }
-}
-
-function migrateGeneratedApiState(parsed: Pick<ProjectGeneratedApiState, 'generatedApiVersion' | 'legacyApiCompatibility' | 'legacyApiDiagnostics'>): ProjectGeneratedApiState {
-  return {
-    generatedApiVersion: 2,
-    legacyApiCompatibility: parsed.generatedApiVersion === 1 || parsed.legacyApiCompatibility,
-    legacyApiDiagnostics: parsed.legacyApiDiagnostics,
-  };
-}
-
 function allocateProjectVerseKey(
   name: string,
   entitlements: EntitlementItem[],
@@ -194,8 +158,8 @@ function addRetiredVerseKeys(current: string[], keys: Iterable<string>): string[
   return normalizeRetiredVerseKeys([...current, ...keys]);
 }
 
-function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig, apiState: GeneratedApiOptions = DEFAULT_GENERATED_API_STATE): string {
-  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, apiState), config: { ...config, contentFolderPath: '' } });
+function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig): string {
+  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys), config: { ...config, contentFolderPath: '' } });
 }
 
 async function hydrateProjectImages(
@@ -321,8 +285,8 @@ export const App: React.FC = () => {
   const [bundles, setBundles] = useState(loadBundles);
   const [offerDisplayGroups, setOfferDisplayGroups] = useState(loadOfferDisplayGroups);
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
-  const [generatedApiState, setGeneratedApiState] = useState(loadGeneratedApiState);
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig(), loadGeneratedApiState()));
+  const [projectDataDiagnostics, setProjectDataDiagnostics] = useState<string[]>([]);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig()));
   const [creationChooserRequest, setCreationChooserRequest] = useState(0);
   const [activeViewMode, setActiveViewMode] = useState<'split' | 'catalog' | 'verse'>('catalog');
   const [editingItem, setEditingItem] = useState<EntitlementItem | null>(null);
@@ -342,39 +306,36 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState]);
+  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys]);
   const validationIssues = useMemo(() => {
-    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState);
-    if (generatedApiState.legacyApiCompatibility) issues.unshift({
-      id: 'legacy-api-compatibility', severity: 'warning', ruleName: 'legacy_api_compatibility', field: 'generatedApiVersion',
-      message: generatedApiState.legacyApiDiagnostics.length
-        ? `Legacy Verse API compatibility is retained for this project. Review: ${generatedApiState.legacyApiDiagnostics.join(' ')}`
-        : 'Legacy Verse API compatibility is retained for this project while its public API is migrated to canonical v2 names.',
+    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys);
+    if (projectDataDiagnostics.length) issues.unshift({
+      id: 'project-data-repair', severity: 'warning', ruleName: 'project_data_repair', field: 'verseKey',
+      message: `Project data was repaired while loading. Review: ${projectDataDiagnostics.join(' ')}`,
     });
     if (unmanagedTargetFile === config.targetVerseFileName) issues.unshift({
       id: 'unmanaged-target-file', severity: 'error', ruleName: 'managed_file_required', field: 'targetVerseFileName',
       message: `${unmanagedTargetFile} is not managed by this tool and cannot be overwritten. Choose a new target filename in Settings.`,
     });
     return issues;
-  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, generatedApiState, unmanagedTargetFile]);
+  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
-  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config, generatedApiState), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config, generatedApiState]);
+  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
 
   useEffect(() => {
     try {
       localStorage.setItem(storageKey('config'), JSON.stringify({ ...config, contentFolderPath: '' }));
-      const clean = cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState);
+      const clean = cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
       localStorage.setItem(storageKey('entitlements'), JSON.stringify(clean.entitlements));
       localStorage.setItem(storageKey('bundles'), JSON.stringify(clean.bundles));
       localStorage.setItem(storageKey('offerDisplayGroups'), JSON.stringify(clean.offerDisplayGroups));
       localStorage.setItem(storageKey('retiredVerseKeys'), JSON.stringify(retiredVerseKeys));
-      localStorage.setItem(storageKey('generatedApiState'), JSON.stringify(generatedApiState));
     } catch {
       setStatus({ message: 'Browser storage is full or unavailable. Export a preset to preserve this session.', error: true });
     }
-  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState]);
+  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys]);
 
   useEffect(() => {
     let active = true;
@@ -392,7 +353,7 @@ export const App: React.FC = () => {
       let loadedBundles = bundles;
       let loadedOfferDisplayGroups = offerDisplayGroups;
       let loadedRetiredVerseKeys = retiredVerseKeys;
-      let loadedGeneratedApiState = generatedApiState;
+      let loadedProjectDataDiagnostics: string[] = [];
       const result = await FileService.loadVerseFile(config.targetVerseFileName);
       if (result.success && result.content) {
         const parsed = parseVerseCode(result.content);
@@ -405,10 +366,10 @@ export const App: React.FC = () => {
         loadedBundles = parsed.bundles;
         loadedOfferDisplayGroups = parsed.offerDisplayGroups;
         loadedRetiredVerseKeys = parsed.retiredVerseKeys;
-        loadedGeneratedApiState = migrateGeneratedApiState(parsed);
+        loadedProjectDataDiagnostics = parsed.projectDataDiagnostics;
         setUnmanagedTargetFile(null);
         setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config, loadedGeneratedApiState));
+        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config));
       } else if (result.status !== 404) {
         setStatus({ message: result.error ?? 'The configured Verse file could not be inspected.', error: true });
         return;
@@ -421,11 +382,10 @@ export const App: React.FC = () => {
       setBundles(hydrated.bundles);
       setOfferDisplayGroups(loadedOfferDisplayGroups);
       setRetiredVerseKeys(loadedRetiredVerseKeys);
-      setGeneratedApiState(loadedGeneratedApiState);
-      const compatibilityNote = loadedGeneratedApiState.legacyApiCompatibility ? ' Legacy API compatibility retained.' : '';
-      const diagnosticNote = loadedGeneratedApiState.legacyApiDiagnostics.length ? ' Review the non-blocking compatibility diagnostic in Validation.' : '';
+      setProjectDataDiagnostics(loadedProjectDataDiagnostics);
+      const diagnosticNote = loadedProjectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
       setStatus({ message: result.success && result.content
-        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${compatibilityNote}${diagnosticNote}`
+        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${diagnosticNote}`
         : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
     };
     void initialize();
@@ -520,14 +480,12 @@ export const App: React.FC = () => {
     setBundles(hydrated.bundles);
     setOfferDisplayGroups(parsed.offerDisplayGroups);
     setRetiredVerseKeys(parsed.retiredVerseKeys);
-    const migratedApiState = migrateGeneratedApiState(parsed);
-    setGeneratedApiState(migratedApiState);
+    setProjectDataDiagnostics(parsed.projectDataDiagnostics);
     setUnmanagedTargetFile(null);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config, migratedApiState));
-    const compatibilityNote = migratedApiState.legacyApiCompatibility ? ' Legacy API compatibility retained.' : '';
-    const diagnosticNote = migratedApiState.legacyApiDiagnostics.length ? ' Review the non-blocking compatibility diagnostic in Validation.' : '';
-    setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${compatibilityNote}${diagnosticNote}` });
+    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config));
+    const diagnosticNote = parsed.projectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
+    setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${diagnosticNote}` });
   };
 
   const loadFromDisk = async () => {
@@ -580,9 +538,9 @@ export const App: React.FC = () => {
         setBundles(data.bundles);
         setOfferDisplayGroups(data.offerDisplayGroups);
         setRetiredVerseKeys(data.retiredVerseKeys);
-        setGeneratedApiState(migrateGeneratedApiState(data));
+        setProjectDataDiagnostics(data.projectDataDiagnostics);
         setConfig(nextConfig);
-        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays${data.generatedApiVersion === 1 ? ' with API-v1 compatibility migration enabled' : ''}. Review validation before saving.` });
+        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays. Review validation before saving.` });
       } catch (error) {
         setStatus({ message: error instanceof Error ? `Preset rejected: ${error.message}` : 'Preset JSON is invalid.', error: true });
       }
@@ -596,7 +554,7 @@ export const App: React.FC = () => {
     setEditingItem(normalizeEntitlement({
       id: `new-${crypto.randomUUID()}`, verseKey: `item_${index}`, name: '',
       shortDescription: '', description: '',
-      iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`, purchaseEventName: `Item${index}GrantedEvent`, restoreOnJoin: true,
+      iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`,
     }, index));
     setIsModalOpen(true);
   };
@@ -707,7 +665,7 @@ export const App: React.FC = () => {
       <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
       <Header
         config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
-        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, generatedApiState) })}
+        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys) })}
         onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}

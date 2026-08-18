@@ -1,15 +1,5 @@
 export type EntitlementType = 'durable' | 'consumable';
 
-export type GeneratedApiVersion = 1 | 2;
-
-export interface GeneratedApiOptions {
-  generatedApiVersion?: GeneratedApiVersion;
-  /** Keep reproducible v1 names while a v1 project is migrated to v2. */
-  legacyApiCompatibility?: boolean;
-  /** Non-blocking notes about compatibility-affecting legacy repairs. */
-  legacyApiDiagnostics?: string[];
-}
-
 export interface OfferRestrictions {
   minimumPurchaseAge?: number;
   blockedCountryCodes: string[];
@@ -50,8 +40,6 @@ export interface EntitlementItem {
   durationDescription?: string;
   offerRestrictions?: OfferRestrictions;
   alternateOffers?: AlternateOffer[];
-  purchaseEventName: string;
-  restoreOnJoin: boolean;
   triggers: {
     generateTriggerBinding: boolean;
     triggerDeviceName?: string;
@@ -127,12 +115,6 @@ export interface ValidationIssue {
 
 export interface ManagedProjectData {
   schemaVersion: 2 | 3 | 4;
-  /** The developer-facing generated Verse contract, independent of schemaVersion. */
-  generatedApiVersion?: GeneratedApiVersion;
-  /** True after a v1 project is migrated so generated v1 shims remain available. */
-  legacyApiCompatibility?: boolean;
-  /** Persisted only when a legacy repair may require developer review. */
-  legacyApiDiagnostics?: string[];
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups?: OfferDisplayGroup[];

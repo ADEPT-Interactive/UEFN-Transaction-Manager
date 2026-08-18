@@ -17,19 +17,17 @@ CREATOR WORKFLOW
 Create your entitlements, offers, bundles, and displays, then use Save & Compile
 to write managed_transactions.verse and compile it in UEFN. Place the generated
 managed_transactions_device in your island and connect its Trigger arrays or
-canonical public events and functions to your gameplay systems. New projects use
+canonical public events and functions to your gameplay systems. UEM uses
 stable-key-based names such as OpenDurableEntitlementPurchase and
-DurableEntitlement_GrantedEvent. Existing API-v1 projects retain compatible
-legacy names during migration where their historical identity is reproducible.
-Use Get<StableKeyStem>Count and Has<StableKeyStem> from your own Verse to query
-current Marketplace ownership; do not edit the managed file.
-In API v2, Grant<StableKeyStem> and consumable Consume<StableKeyStem> are
+DurableEntitlement_GrantedEvent for every project. Use Get<StableKeyStem>Count
+and Has<StableKeyStem> from your own Verse to query current Marketplace
+ownership; do not edit the managed file.
+Grant<StableKeyStem> and consumable Consume<StableKeyStem> are
 suspending helpers that return the native Marketplace operation result as logic.
 Non-positive quantities return false without calling Marketplace. That result is
 not a replacement for listening to the canonical entitlement delta events, which
-remain the gameplay-state signal. Explicit API-v1 output keeps its historical
-void Grant/Consume signatures; migrated API-v1 projects receive the canonical
-API-v2 result-returning functions plus their legacy compatibility symbols.
+remain the gameplay-state signal. Supported old manifests and temporary
+compatibility metadata regenerate to the same current canonical API.
 
 Test purchases, cancellations, refunds, consumption, saved state, and rejoin
 behavior in a real UEFN session before publishing.

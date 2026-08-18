@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, GeneratedApiOptions, OfferDisplayGroup, OfferRestrictions, ProjectConfig, ValidationIssue } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
@@ -171,13 +171,6 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
   if (!validateTextureExpression(item.iconTexture.trim())) {
     issues.push(issue(`${id}-icon`, 'error', 'Icon must be a dotted Verse texture expression such as EntitlementIcons.VipPass.', 'icon_expression', 'iconTexture', id));
   }
-  if (!validateVerseIdentifier(item.purchaseEventName)) {
-    issues.push(issue(`${id}-event`, 'error', 'Purchase event name must be a valid Verse identifier.', 'purchase_event_identifier', 'purchaseEventName', id));
-  }
-  if (allItems.some(other => other.id !== id && other.purchaseEventName.toLowerCase() === item.purchaseEventName.toLowerCase())) {
-    issues.push(issue(`${id}-event-duplicate`, 'error', `Purchase event "${item.purchaseEventName}" is duplicated.`, 'purchase_event_unique', 'purchaseEventName', id));
-  }
-
   if (item.flags.paidRandomItem) {
     const odds = item.flags.paidRandomItemOdds.trim();
     if (generatedDescriptionWithOdds(item.description, odds).length > MAX_DESCRIPTION_LENGTH) {
@@ -406,12 +399,8 @@ export function validateEntireProject(
   config?: ProjectConfig,
   offerDisplayGroups: OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
-  apiOptions: GeneratedApiOptions = { generatedApiVersion: 2 },
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const generatedApiVersion = apiOptions.generatedApiVersion ?? 2;
-  const canonicalApi = generatedApiVersion === 2;
-  const preserveLegacyApi = generatedApiVersion === 1 || apiOptions.legacyApiCompatibility === true;
   if (entitlements.length === 0) issues.push(issue('project-empty', 'error', 'Add at least one entitlement before generating Verse.', 'entitlements_min'));
   if (entitlements.length > MAX_ENTITLEMENTS) issues.push(issue('project-max-entitlements', 'error', `Projects may define at most ${MAX_ENTITLEMENTS} distinct entitlements.`, 'entitlements_max'));
   entitlements.forEach(item => issues.push(...validateEntitlement(item, entitlements)));
@@ -437,41 +426,25 @@ export function validateEntireProject(
     'EntitlementChangeSubscriptions', 'PlayerJoinSubscription', 'PlayerLeftSubscription', 'DeviceSubscriptions',
     'PurchaseInFlight', 'StorefrontInFlight', 'AllOffersStoreTitle', 'OnBegin', 'OnEnd', 'SubscribeToPlayer',
     'UnsubscribeFromPlayer', 'OnPlayerAdded', 'OnPlayerRemoved', 'TrackSubscription', 'CancelAllSubscriptions',
-    'ClearPurchaseInFlight', 'ClearStorefrontInFlight',
+    'ClearPurchaseInFlight', 'ClearStorefrontInFlight', 'ShowAllOffers', 'ShowAllOffersAndRelease', 'OpenAllOffersStore',
   ].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
-  if (canonicalApi) {
-    ['AllOffersStoreTitle', 'ShowAllOffers', 'ShowAllOffersAndRelease', 'OpenAllOffersStore'].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
-  } else {
-    ['AllOffersStoreTitle', 'ShowStorefront', 'OpenStorefront', 'ShowStorefrontAndRelease'].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
-  }
+  memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {
     const pascal = toPascalCase(item.verseKey);
-    if (preserveLegacyApi) {
-      registerMember(item.purchaseEventName, item, 'purchaseEventName');
-      registerMember(`${pascal}${item.itemType === 'durable' ? 'OwnershipRemovedEvent' : 'QuantityDecreasedEvent'}`, item, 'verseKey');
-      registerMember(`${pascal}EntitlementGrantedEvent`, item, 'verseKey');
-      registerMember(`${pascal}EntitlementRemovedEvent`, item, 'verseKey');
-      registerMember(`${pascal}EntitlementReconciledEvent`, item, 'verseKey');
-    }
-    if (canonicalApi) {
-      registerMember(`${pascal}_GrantedEvent`, item, 'verseKey');
-      registerMember(`${pascal}_RemovedEvent`, item, 'verseKey');
-      registerMember(`${pascal}_ReconciledEvent`, item, 'verseKey');
-      registerMember(`Get${pascal}Count`, item, 'verseKey');
-      registerMember(`Has${pascal}`, item, 'verseKey');
-    }
+    registerMember(`${pascal}_GrantedEvent`, item, 'verseKey');
+    registerMember(`${pascal}_RemovedEvent`, item, 'verseKey');
+    registerMember(`${pascal}_ReconciledEvent`, item, 'verseKey');
+    registerMember(`Get${pascal}Count`, item, 'verseKey');
+    registerMember(`Has${pascal}`, item, 'verseKey');
     registerMember(`Process${pascal}Grant`, item, 'verseKey');
     registerMember(`Process${pascal}Removal`, item, 'verseKey');
     registerMember(`Grant${pascal}`, item, 'verseKey');
-    registerMember(canonicalApi ? `Open${pascal}Purchase` : `PromptBuy${pascal}`, item, 'verseKey');
-    if (canonicalApi && preserveLegacyApi) registerMember(`PromptBuy${pascal}`, item, 'verseKey');
+    registerMember(`Open${pascal}Purchase`, item, 'verseKey');
     registerMember(`ExecuteBuy${pascal}`, item, 'verseKey');
     if (item.itemType === 'consumable') registerMember(`Consume${pascal}`, item, 'verseKey');
-    if (preserveLegacyApi && item.itemType === 'durable' && item.restoreOnJoin) registerMember(`${pascal}OwnershipVerifiedEvent`, item, 'verseKey');
     (item.alternateOffers ?? []).forEach(offer => {
       const offerPascal = toPascalCase(offer.verseKey);
-      registerMember(canonicalApi ? `Open${offerPascal}Purchase` : `PromptBuy${offerPascal}`, item, 'alternateOffers');
-      if (canonicalApi && preserveLegacyApi) registerMember(`PromptBuy${offerPascal}`, item, 'alternateOffers');
+      registerMember(`Open${offerPascal}Purchase`, item, 'alternateOffers');
       registerMember(`ExecuteBuy${offerPascal}`, item, 'alternateOffers');
     });
     if (item.triggers.generateTriggerBinding) registerMember(item.triggers.triggerDeviceName, item, 'triggers.triggerDeviceName');
@@ -485,18 +458,10 @@ export function validateEntireProject(
   }
   offerDisplayGroups.forEach(group => {
     const pascal = toPascalCase(group.verseKey);
-    if (canonicalApi) {
-      registerGeneratedMember(`${pascal}Title`, 'generator');
-      registerGeneratedMember(`Show${pascal}Offers`, 'generator');
-      registerGeneratedMember(`Show${pascal}OffersAndRelease`, 'generator');
-      registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
-      if (preserveLegacyApi) registerGeneratedMember(`Show${pascal}`, `storefront.${group.id}`);
-    } else {
-      registerGeneratedMember(`${pascal}Title`, 'generator');
-      registerGeneratedMember(`Show${pascal}`, `storefront.${group.id}`);
-      registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
-      registerGeneratedMember(`Show${pascal}AndRelease`, 'generator');
-    }
+    registerGeneratedMember(`${pascal}Title`, 'generator');
+    registerGeneratedMember(`Show${pascal}Offers`, 'generator');
+    registerGeneratedMember(`Show${pascal}OffersAndRelease`, 'generator');
+    registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
     if (!group.generateTriggerBinding || !group.triggerDeviceName) return;
     const normalized = group.triggerDeviceName.toLowerCase();
     if (memberOwners.has(normalized)) issues.push(issue(`${group.id}-member-duplicate-${normalized}`, 'error', `Generated offer-display member "${group.triggerDeviceName}" conflicts with another generated member.`, 'device_member_unique', 'triggerDeviceName'));

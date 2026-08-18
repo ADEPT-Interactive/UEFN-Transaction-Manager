@@ -65,7 +65,7 @@ UEM creates the transaction interface, but your project remains responsible for 
 
 ## Generated Verse API
 
-New projects generate API v2 symbols from each persisted `verseKey`, so changing a display name does not rename the integration surface. For an entitlement with key `durable_entitlement`, use:
+Projects generate canonical symbols from each persisted `verseKey`, so changing a display name does not rename the integration surface. For an entitlement with key `durable_entitlement`, use:
 
 ```verse
 Transactions.OpenDurableEntitlementPurchase(Player)
@@ -100,9 +100,9 @@ my_game_device := class(creative_device):
 
 `GetAccessPassCount` and `HasAccessPass` query current Marketplace state. The same `Get<StableKeyStem>Count` and `Has<StableKeyStem>` helpers are generated for consumables; `HasX` means the current count is greater than zero. Alternate offers share the parent entitlement's helpers, while bundles and storefronts do not get ownership helpers.
 
-API-v2 `Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for listening to the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Explicit API-v1 output retains its historical `void` Grant/Consume signatures; migrated API-v1 projects receive the canonical API-v2 result-returning functions and their legacy compatibility symbols. Existing standalone calls may ignore the returned value.
+`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for listening to the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
 
-UEM automatically migrates manifests without `generatedApiVersion` as API v1. Migrated projects receive the canonical API plus reproducible `PromptBuy...`, legacy event, `OpenStorefront`, and unsafe `Show...` compatibility symbols where possible. New API-v2 projects do not generate those legacy symbols. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
+UEM supports one generated API. Existing manifests from supported schemas, including manifests produced during pre-release API development, are loaded as project data and regenerated with the same current canonical symbols. Obsolete generated-API metadata and purchase-event fields are ignored when reading and are not written to new manifests.
 
 ## Native icon import
 

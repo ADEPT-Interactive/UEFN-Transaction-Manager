@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, GeneratedApiOptions, GeneratedApiVersion, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
 import {
   createVerseKeyAllocator,
   isValidVerseIdentifier,
@@ -64,8 +64,6 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
   const verseKey = rawKey || sanitizeVerseIdentifier(fallbackName);
   const flags = isRecord(value.flags) ? value.flags : {};
   const triggers = isRecord(value.triggers) ? value.triggers : {};
-  const legacyActionHook = isRecord(value.actionHook) ? value.actionHook : {};
-  const legacyRejoinHook = isRecord(value.rejoinHook) ? value.rejoinHook : {};
   const itemType = value.itemType === 'consumable' ? 'consumable' : 'durable';
 
   return {
@@ -92,14 +90,6 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
     ...(Array.isArray(value.alternateOffers)
       ? { alternateOffers: value.alternateOffers.map((entry, offerIndex) => normalizeAlternateOffer(entry, verseKey, offerIndex)) }
       : {}),
-    purchaseEventName: stringValue(
-      value.purchaseEventName,
-      stringValue(legacyActionHook.eventName, `${verseKey}_GrantedEvent`),
-    ),
-    restoreOnJoin: booleanValue(
-      value.restoreOnJoin,
-      booleanValue(legacyRejoinHook.autoRestore, itemType === 'durable'),
-    ),
     triggers: {
       // Trigger devices are the default, low-code way to open each offer. Keep
       // old saved projects compatible by supplying a predictable editable name.
@@ -174,20 +164,7 @@ interface RepairedManagedData {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
-  legacyApiDiagnostics: string[];
-}
-
-function normalizedLegacyDiagnostics(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((entry): entry is string => typeof entry === 'string').map(entry => entry.trim()).filter(Boolean))];
-}
-
-function generatedApiVersionFor(value: Record<string, unknown>): GeneratedApiVersion {
-  if (value.generatedApiVersion === undefined) return 1;
-  if (value.generatedApiVersion !== 1 && value.generatedApiVersion !== 2) {
-    throw new Error('Preset generatedApiVersion must be 1 or 2. Future and unsupported generated API versions are not imported.');
-  }
-  return value.generatedApiVersion;
+  projectDataDiagnostics: string[];
 }
 
 function repairProjectVerseKeys(
@@ -198,14 +175,14 @@ function repairProjectVerseKeys(
 ): RepairedManagedData {
   const allocator = createVerseKeyAllocator([], retiredVerseKeys);
   const alternateReplacements = new Map<string, string>();
-  const legacyApiDiagnostics: string[] = [];
+  const projectDataDiagnostics: string[] = [];
 
   const preserveOrRepair = (currentKey: string, displayName: string, fallbackName: string): string => {
     if (isValidVerseIdentifier(currentKey) && allocator.reserveExisting(currentKey)) return currentKey;
     if (currentKey && isValidVerseIdentifier(currentKey)) {
-      legacyApiDiagnostics.push(`Legacy Verse key "${currentKey}" for ${fallbackName} was duplicated and repaired. Any external API symbol derived from the duplicate may require manual review.`);
+      projectDataDiagnostics.push(`Verse key "${currentKey}" for ${fallbackName} was duplicated and repaired. Review the repaired project data before saving.`);
     } else {
-      legacyApiDiagnostics.push(`Legacy Verse key "${currentKey || '(missing)'}" for ${fallbackName} was invalid or reserved and repaired. Any external API symbol derived from it may require manual review.`);
+      projectDataDiagnostics.push(`Verse key "${currentKey || '(missing)'}" for ${fallbackName} was invalid or reserved and repaired. Review the repaired project data before saving.`);
     }
     return allocator.allocate(displayName || fallbackName);
   };
@@ -213,11 +190,7 @@ function repairProjectVerseKeys(
   const repairedEntitlements = entitlements.map((item, index) => {
     const previousKey = item.verseKey;
     const verseKey = preserveOrRepair(previousKey, item.name, `Item ${index + 1}`);
-    const purchaseEventName = !isValidVerseIdentifier(previousKey)
-      && (!item.purchaseEventName || item.purchaseEventName === `${previousKey}_GrantedEvent`)
-      ? `${verseKey}_GrantedEvent`
-      : item.purchaseEventName;
-    return { ...item, verseKey, purchaseEventName };
+    return { ...item, verseKey };
   });
 
   for (const item of repairedEntitlements) {
@@ -228,7 +201,7 @@ function repairProjectVerseKeys(
         ? previousKey
         : allocator.allocateAlternate(item.verseKey);
       if (!canPreserve) {
-        legacyApiDiagnostics.push(`Legacy Verse key "${previousKey || '(missing)'}" for alternate offer ${index + 1} of "${item.name || item.verseKey}" was invalid, reserved, or already assigned and repaired. Any external API symbol derived from it may require manual review.`);
+        projectDataDiagnostics.push(`Verse key "${previousKey || '(missing)'}" for alternate offer ${index + 1} of "${item.name || item.verseKey}" was invalid, reserved, or already assigned and repaired. Review the repaired project data before saving.`);
       }
       if (previousKey && previousKey !== verseKey && !isValidVerseIdentifier(previousKey)) {
         const replacementKey = `${item.id}\u0000${previousKey.toLowerCase()}`;
@@ -257,7 +230,7 @@ function repairProjectVerseKeys(
   for (const bundle of repairedBundles) bundle.items = bundle.items.map(repairOfferReference);
   for (const group of repairedOfferDisplayGroups) group.entries = group.entries.map(repairOfferReference);
 
-  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups, legacyApiDiagnostics };
+  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups, projectDataDiagnostics };
 }
 
 export function parseManagedData(value: unknown): {
@@ -265,9 +238,7 @@ export function parseManagedData(value: unknown): {
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
-  generatedApiVersion: GeneratedApiVersion;
-  legacyApiCompatibility: boolean;
-  legacyApiDiagnostics: string[];
+  projectDataDiagnostics: string[];
 } {
   if (!isRecord(value)) throw new Error('Preset must contain a JSON object.');
   if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) {
@@ -277,27 +248,9 @@ export function parseManagedData(value: unknown): {
   if (value.bundles !== undefined && !Array.isArray(value.bundles)) throw new Error('Preset bundles must be an array.');
   if (value.offerDisplayGroups !== undefined && !Array.isArray(value.offerDisplayGroups)) throw new Error('Preset offerDisplayGroups must be an array.');
 
-  const generatedApiVersion = generatedApiVersionFor(value);
-  const legacyApiCompatibility = generatedApiVersion === 1 || booleanValue(value.legacyApiCompatibility);
-
-  const rawEntitlementValues = value.entitlements as unknown[];
-  const entitlements = rawEntitlementValues.map(normalizeEntitlement);
+  const entitlements = (value.entitlements as unknown[]).map(normalizeEntitlement);
   const bundles = (value.bundles ?? []).map(normalizeBundle);
   const offerDisplayGroups = (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup);
-  const compatibilityDiagnostics = normalizedLegacyDiagnostics(value.legacyApiDiagnostics);
-  if (legacyApiCompatibility) {
-    const legacyEventOwners = new Map<string, string>();
-    entitlements.forEach((item, index) => {
-      const raw = isRecord(rawEntitlementValues[index]) ? rawEntitlementValues[index] : {};
-      const rawEventName = stringValue(raw.purchaseEventName) || (isRecord(raw.actionHook) ? stringValue(raw.actionHook.eventName) : '');
-      if (!rawEventName) compatibilityDiagnostics.push(`Legacy entitlement "${item.name || item.verseKey}" has no persisted purchaseEventName. UEM used a deterministic fallback; verify any external reference to the old event.`);
-      if (!isValidVerseIdentifier(item.purchaseEventName)) compatibilityDiagnostics.push(`Legacy purchase event "${item.purchaseEventName}" for "${item.name || item.verseKey}" is not a valid Verse identifier and cannot be reproduced safely.`);
-      const normalized = item.purchaseEventName.toLowerCase();
-      const previous = legacyEventOwners.get(normalized);
-      if (previous) compatibilityDiagnostics.push(`Legacy purchase event "${item.purchaseEventName}" is duplicated by ${previous} and ${item.name || item.verseKey}; the second declaration cannot be reproduced safely.`);
-      else legacyEventOwners.set(normalized, item.name || item.verseKey || `entitlement ${index + 1}`);
-    });
-  }
   const repaired = repairProjectVerseKeys(
     entitlements,
     bundles,
@@ -307,12 +260,7 @@ export function parseManagedData(value: unknown): {
   return {
     ...repaired,
     retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys),
-    generatedApiVersion,
-    legacyApiCompatibility,
-    legacyApiDiagnostics: [...new Set([
-      ...compatibilityDiagnostics,
-      ...repaired.legacyApiDiagnostics,
-    ])],
+    projectDataDiagnostics: [...new Set(repaired.projectDataDiagnostics)],
   };
 }
 
@@ -354,29 +302,21 @@ export function cleanManagedData(
   bundles: BundleOffer[],
   offerDisplayGroups: OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
-  apiOptions: GeneratedApiOptions = {},
 ) {
   const clean: {
     schemaVersion: 4;
-    generatedApiVersion: GeneratedApiVersion;
-    legacyApiCompatibility?: boolean;
-    legacyApiDiagnostics?: string[];
     entitlements: EntitlementItem[];
     bundles: BundleOffer[];
     offerDisplayGroups: OfferDisplayGroup[];
     retiredVerseKeys?: string[];
   } = {
     schemaVersion: 4 as const,
-    generatedApiVersion: apiOptions.generatedApiVersion ?? 2,
     // Normalize before embedding the manifest so a parse -> regenerate cycle
     // cannot change omitted defaults into newly persisted fields.
     entitlements: entitlements.map((item, index) => stripTransientImages(normalizeEntitlement(item, index))),
     bundles: bundles.map((bundle, index) => stripTransientImages(normalizeBundle(bundle, index))),
     offerDisplayGroups: offerDisplayGroups.map(normalizeOfferDisplayGroup),
   };
-  if (apiOptions.legacyApiCompatibility) clean.legacyApiCompatibility = true;
-  const legacyApiDiagnostics = normalizedLegacyDiagnostics(apiOptions.legacyApiDiagnostics);
-  if (legacyApiDiagnostics.length) clean.legacyApiDiagnostics = legacyApiDiagnostics;
   const normalizedRetiredVerseKeys = normalizeRetiredVerseKeys(retiredVerseKeys);
   if (normalizedRetiredVerseKeys.length) clean.retiredVerseKeys = normalizedRetiredVerseKeys;
   return clean;

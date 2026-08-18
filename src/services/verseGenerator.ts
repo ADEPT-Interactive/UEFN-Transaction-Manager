@@ -1,7 +1,7 @@
-import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, GeneratedApiOptions, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
 import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup } from './projectSchema';
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
-import { isValidVerseIdentifier, toVerseApiStem } from './verseIdentity';
+import { toVerseApiStem } from './verseIdentity';
 
 function escapeVerseString(value: string): string {
   return value
@@ -33,9 +33,8 @@ function manifestLines(
   bundles: BundleOffer[],
   offerDisplayGroups: OfferDisplayGroup[],
   retiredVerseKeys: string[],
-  apiOptions: GeneratedApiOptions,
 ): string {
-  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, apiOptions))));
+  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys))));
   const chunks = encoded.match(/.{1,100}/g) ?? [];
   return `${MANIFEST_BEGIN}\n${chunks.map(chunk => `# UEM_DATA ${chunk}`).join('\n')}\n${MANIFEST_END}\n\n`;
 }
@@ -165,41 +164,17 @@ export function generateVerseCode(
   config: ProjectConfig,
   offerDisplayGroups: OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
-  apiOptions: GeneratedApiOptions = { generatedApiVersion: 2 },
 ): string {
   // Keep direct generation and parse -> regenerate output identical even when
   // callers provide older or partially populated managed-data shapes.
   entitlements = entitlements.map(normalizeEntitlement);
   bundles = bundles.map(normalizeBundle);
   offerDisplayGroups = offerDisplayGroups.map(normalizeOfferDisplayGroup);
-  const generatedApiVersion = apiOptions.generatedApiVersion ?? 2;
-  const canonicalApi = generatedApiVersion === 2;
-  const preserveLegacyApi = generatedApiVersion === 1 || apiOptions.legacyApiCompatibility === true;
   const infoModule = config.infoModuleName;
   const entModule = config.entitlementsModuleName;
   const priceModule = config.pricesModuleName;
   const offersModule = config.offersModuleName;
   const deviceClass = config.deviceClassName;
-  const legacyEventNamesById = new Map<string, Set<string>>();
-  const usedLegacyEventNames = new Set<string>();
-  const addLegacyEvent = (item: EntitlementItem, name: string): void => {
-    if (!isValidVerseIdentifier(name)) return;
-    const normalized = name.toLowerCase();
-    if (usedLegacyEventNames.has(normalized)) return;
-    usedLegacyEventNames.add(normalized);
-    const names = legacyEventNamesById.get(item.id) ?? new Set<string>();
-    names.add(name);
-    legacyEventNamesById.set(item.id, names);
-  };
-  for (const item of entitlements) {
-    const legacyStem = toVerseApiStem(item.verseKey);
-    addLegacyEvent(item, item.purchaseEventName);
-    addLegacyEvent(item, `${legacyStem}${item.itemType === 'durable' ? 'OwnershipRemovedEvent' : 'QuantityDecreasedEvent'}`);
-    addLegacyEvent(item, `${legacyStem}EntitlementGrantedEvent`);
-    addLegacyEvent(item, `${legacyStem}EntitlementRemovedEvent`);
-    addLegacyEvent(item, `${legacyStem}EntitlementReconciledEvent`);
-    if (item.itemType === 'durable' && item.restoreOnJoin) addLegacyEvent(item, `${legacyStem}OwnershipVerifiedEvent`);
-  }
   const lines: string[] = [];
   const push = (...values: string[]) => lines.push(...values);
 
@@ -208,10 +183,7 @@ export function generateVerseCode(
     '# Generated and managed by ADEPT Interactive UEFN Entitlement Manager. Do not edit manually.',
     '# Configure through UEM and integrate from your own Verse using the generated public API; regeneration may replace this file.',
     '',
-    manifestLines(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, { ...apiOptions, generatedApiVersion }),
-    ...(apiOptions.legacyApiDiagnostics?.length
-      ? ['# Legacy API migration diagnostics are preserved in the manifest for developer review.', ...apiOptions.legacyApiDiagnostics.map(diagnostic => `# ${diagnostic}`), '']
-      : []),
+    manifestLines(entitlements, bundles, offerDisplayGroups, retiredVerseKeys),
     'using { /Fortnite.com/Devices }',
     'using { /Fortnite.com/Marketplace }',
     'using { /Fortnite.com/Playspaces }',
@@ -319,28 +291,13 @@ export function generateVerseCode(
     '    var StorefrontInFlight:[player]logic = map{}',
     '',
   );
-  if (preserveLegacyApi) push(
-    canonicalApi
-      ? '    # Legacy UEM API compatibility only. Prefer the canonical *_GrantedEvent, *_RemovedEvent, and *_ReconciledEvent from your own Verse.'
-      : '    # Legacy UEM API declarations. Integrate from external Verse; purchase-named events are not proof that a purchase occurred.',
-    '',
-  );
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
-    if (canonicalApi) {
-      push(
-        `    ${pascal}_GrantedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
-        `    ${pascal}_RemovedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
-        `    ${pascal}_ReconciledEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
-      );
-    }
-    if (preserveLegacyApi) {
-      const legacyNames = legacyEventNamesById.get(item.id) ?? new Set<string>();
-      for (const name of legacyNames) {
-        const type = name === item.purchaseEventName ? 'event(player)' : name.endsWith('OwnershipVerifiedEvent') || name.endsWith('OwnershipRemovedEvent') || name.endsWith('QuantityDecreasedEvent') ? 'event(player)' : 'event(tuple(player, int))';
-        push(`    ${name}<public>:${type} = ${type}{}`);
-      }
-    }
+    push(
+      `    ${pascal}_GrantedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    ${pascal}_RemovedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    ${pascal}_ReconciledEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
+    );
   }
   push('');
 
@@ -429,9 +386,7 @@ export function generateVerseCode(
   );
 
   push(
-    canonicalApi
-      ? '    # Grant and Consume return the native Marketplace operation result; true does not mean gameplay state has already been processed.'
-      : '    # Grant and Consume retain the historical API-v1 void contract; use the generated entitlement events for gameplay state.',
+    '    # Grant and Consume return the native Marketplace operation result; true does not mean gameplay state has already been processed.',
     '    # Direct grants bypass offer disclosures and the purchase flow. Use them only for deliberate free grants.',
     '    # Apply gameplay changes from the generated entitlement delta events or current-state query helpers in external Verse.',
     '',
@@ -440,90 +395,54 @@ export function generateVerseCode(
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
-    const legacyNames = legacyEventNamesById.get(item.id) ?? new Set<string>();
-    const legacyStem = toVerseApiStem(item.verseKey);
-    const legacyRemovedName = `${legacyStem}${item.itemType === 'durable' ? 'OwnershipRemovedEvent' : 'QuantityDecreasedEvent'}`;
-    const legacyGrantedName = `${legacyStem}EntitlementGrantedEvent`;
-    const legacyEntitlementRemovedName = `${legacyStem}EntitlementRemovedEvent`;
     push(
       `    Process${pascal}Grant(Player:player, Quantity:int):void =`,
       `        Print("Granted ${printableName} x{Quantity}")`,
-      ...(preserveLegacyApi && legacyNames.has(item.purchaseEventName) ? [`        ${item.purchaseEventName}.Signal(Player)`] : []),
-      ...(preserveLegacyApi && legacyNames.has(legacyGrantedName) ? [`        ${legacyGrantedName}.Signal((Player, Quantity))`] : []),
-      ...(canonicalApi ? [`        ${pascal}_GrantedEvent.Signal((Player, Quantity))`] : []),
+      `        ${pascal}_GrantedEvent.Signal((Player, Quantity))`,
       ...(item.itemType === 'consumable' && item.autoConsume
-        ? [`        spawn{${canonicalApi ? `AutoConsume${pascal}` : `Consume${pascal}`}(Player, Quantity)}`]
+        ? [`        spawn{AutoConsume${pascal}(Player, Quantity)}`]
         : []),
       '',
       `    Process${pascal}Removal(Player:player, Quantity:int):void =`,
       `        Print("${item.itemType === 'durable' ? 'Ownership removed for' : 'Inventory decreased for'} ${printableName} x{Quantity}; reconcile saved state")`,
-      ...(preserveLegacyApi && legacyNames.has(legacyRemovedName) ? [`        ${legacyRemovedName}.Signal(Player)`] : []),
-      ...(preserveLegacyApi && legacyNames.has(legacyEntitlementRemovedName) ? [`        ${legacyEntitlementRemovedName}.Signal((Player, Quantity))`] : []),
-      ...(canonicalApi ? [`        ${pascal}_RemovedEvent.Signal((Player, Quantity))`] : []),
+      `        ${pascal}_RemovedEvent.Signal((Player, Quantity))`,
       '',
     );
     if (item.itemType === 'consumable') {
-      if (canonicalApi) {
+      push(
+        `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
+        '        if (Quantity > 0):',
+        `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+        '            if (not Result?):',
+        `                Print("Failed to consume ${printableName}")`,
+        '            return Result',
+        '        Print("Consume quantity must be positive")',
+        '        return false',
+        '',
+      );
+      if (item.autoConsume) {
         push(
-          `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
-          '        if (Quantity > 0):',
-          `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-          '            if (not Result?):',
-          `                Print("Failed to consume ${printableName}")`,
-          '            return Result',
-          '        Print("Consume quantity must be positive")',
-          '        return false',
-          '',
-        );
-        if (item.autoConsume) {
-          push(
-            `    # Auto-consume intentionally discards Consume${pascal}'s operation result; the public helper logs failures before returning it.`,
-            `    AutoConsume${pascal}(Player:player, Quantity:int)<suspends>:void =`,
-            `        Consume${pascal}(Player, Quantity)`,
-            '',
-          );
-        }
-      } else {
-        push(
-          `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
-          '        if (Quantity > 0):',
-          `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-          '            if (not Result?):',
-          `                Print("Failed to consume ${printableName}")`,
-          '        else:',
-          '            Print("Consume quantity must be positive")',
+          `    # Auto-consume intentionally discards Consume${pascal}'s operation result; the public helper logs failures before returning it.`,
+          `    AutoConsume${pascal}(Player:player, Quantity:int)<suspends>:void =`,
+          `        Consume${pascal}(Player, Quantity)`,
           '',
         );
       }
     }
-    if (canonicalApi) {
-      push(
-        `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
-        '        if (Quantity > 0):',
-        `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-        '            if (not Result?):',
-        `                Print("Failed to grant ${printableName}")`,
-        '            return Result',
-        '        Print("Grant quantity must be positive")',
-        '        return false',
-        '',
-      );
-    } else {
-      push(
-        `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:void =`,
-        '        if (Quantity > 0):',
-        `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-        '            if (not Result?):',
-        `                Print("Failed to grant ${printableName}")`,
-        '        else:',
-        '            Print("Grant quantity must be positive")',
-        '',
-      );
-    }
+    push(
+      `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
+      '        if (Quantity > 0):',
+      `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+      '            if (not Result?):',
+      `                Print("Failed to grant ${printableName}")`,
+      '            return Result',
+      '        Print("Grant quantity must be positive")',
+      '        return false',
+      '',
+    );
   }
 
-  if (canonicalApi) {
-    for (const item of entitlements) {
+  for (const item of entitlements) {
       const pascal = toVerseApiStem(item.verseKey);
       push(
         `    Get${pascal}Count<public>(Player:player)<suspends>:int =`,
@@ -539,14 +458,13 @@ export function generateVerseCode(
         '        false',
         '',
       );
-    }
   }
 
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
     const purchaseGuard = purchaseEntryGuardLines();
-    const purchaseEntryName = canonicalApi ? `Open${pascal}Purchase` : `PromptBuy${pascal}`;
+    const purchaseEntryName = `Open${pascal}Purchase`;
     if (item.triggers.generateTriggerBinding) {
       push(
         `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
@@ -588,18 +506,10 @@ export function generateVerseCode(
       '        ClearPurchaseInFlight(Player)',
       '',
     );
-    if (canonicalApi && preserveLegacyApi) {
-      push(
-        `    # Deprecated v1 compatibility wrapper. Prefer ${purchaseEntryName}.`,
-        `    PromptBuy${pascal}<public>(Player:player):void =`,
-        `        ${purchaseEntryName}(Player)`,
-        '',
-      );
-    }
     for (const alternate of item.alternateOffers ?? []) {
       const altPascal = toVerseApiStem(alternate.verseKey);
       push(
-        `    ${canonicalApi ? `Open${altPascal}Purchase` : `PromptBuy${altPascal}`}<public>(Player:player):void =`,
+        `    Open${altPascal}Purchase<public>(Player:player):void =`,
         ...purchaseGuard,
         '            Print("A purchase dialog is already open for this player")',
         '        else if (set PurchaseInFlight[Player] = true):',
@@ -614,14 +524,6 @@ export function generateVerseCode(
         '        ClearPurchaseInFlight(Player)',
         '',
       );
-      if (canonicalApi && preserveLegacyApi) {
-        push(
-          `    # Deprecated v1 compatibility wrapper. Prefer Open${altPascal}Purchase.`,
-          `    PromptBuy${altPascal}<public>(Player:player):void =`,
-          `        Open${altPascal}Purchase(Player)`,
-          '',
-        );
-      }
     }
   }
 
@@ -630,7 +532,7 @@ export function generateVerseCode(
     const printableName = escapeVerseString(bundle.name);
     const dynamic = Boolean(bundle.dynamicRemaining && bundle.items[0] && bundle.items[0].entitlementId);
     const bundlePurchaseGuard = purchaseEntryGuardLines();
-    const purchaseEntryName = canonicalApi ? `Open${pascal}Purchase` : `PromptBuy${pascal}`;
+    const purchaseEntryName = `Open${pascal}Purchase`;
     push(
       `    ${purchaseEntryName}<public>(Player:player):void =`,
       ...bundlePurchaseGuard,
@@ -669,130 +571,62 @@ export function generateVerseCode(
       );
     }
     push('        ClearPurchaseInFlight(Player)', '');
-    if (canonicalApi && preserveLegacyApi) {
-      push(
-        `    # Deprecated v1 compatibility wrapper. Prefer ${purchaseEntryName}.`,
-        `    PromptBuy${pascal}<public>(Player:player):void =`,
-        `        ${purchaseEntryName}(Player)`,
-        '',
-      );
-    }
   }
 
   const allOffers = allOfferReferences(entitlements, bundles, offersModule);
   push('    AllOffersStoreTitle<localizes>:message = "All Offers"', '');
-  if (!canonicalApi) {
-    push('    ShowStorefront<public>(Player:player)<suspends>:void =');
-    if (allOffers.length) push(`        ShowOffersDialog(Player, array{${allOffers.join(', ')}}, ?Title := AllOffersStoreTitle)`);
-    else push('        Print("No transaction offers are configured")');
-    push('', '    OpenStorefront<public>(Player:player):void =', '        if (Active := StorefrontInFlight[Player], Active?):', '            Print("The storefront is already open for this player")', '        else if (set StorefrontInFlight[Player] = true):', '            spawn{ShowStorefrontAndRelease(Player)}', '        else:', '            Print("Unable to open the storefront")', '', '    ShowStorefrontAndRelease(Player:player)<suspends>:void =', '        ShowStorefront(Player)', '        ClearStorefrontInFlight(Player)', '');
-  } else {
-    push('    ShowAllOffers(Player:player)<suspends>:void =');
-    if (allOffers.length) push(`        ShowOffersDialog(Player, array{${allOffers.join(', ')}}, ?Title := AllOffersStoreTitle)`);
-    else push('        Print("No transaction offers are configured")');
-    push(
-      '',
-      '    ShowAllOffersAndRelease(Player:player)<suspends>:void =',
-      '        ShowAllOffers(Player)',
-      '        ClearStorefrontInFlight(Player)',
-      '',
-      '    OpenAllOffersStore<public>(Player:player):void =',
-      '        if (Active := StorefrontInFlight[Player], Active?):',
-      '            Print("The storefront is already open for this player")',
-      '        else if (set StorefrontInFlight[Player] = true):',
-      '            spawn{ShowAllOffersAndRelease(Player)}',
-      '        else:',
-      '            Print("Unable to open the storefront")',
-      '',
-    );
-    if (preserveLegacyApi) {
-      push(
-        '    # Deprecated v1 compatibility. ShowStorefront retains its historical direct-dialog behavior.',
-        '    ShowStorefront<public>(Player:player)<suspends>:void =',
-        '        ShowAllOffers(Player)',
-        '',
-        '    OpenStorefront<public>(Player:player):void =',
-        '        OpenAllOffersStore(Player)',
-        '',
-      );
-    }
-  }
-  if (config.generateStorefrontBinding) push('    OnStorefrontButtonInteracted(Agent:agent):void =', '        if (Player := player[Agent]):', `            ${canonicalApi ? 'OpenAllOffersStore' : 'OpenStorefront'}(Player)`, '');
+  push('    ShowAllOffers(Player:player)<suspends>:void =');
+  if (allOffers.length) push(`        ShowOffersDialog(Player, array{${allOffers.join(', ')}}, ?Title := AllOffersStoreTitle)`);
+  else push('        Print("No transaction offers are configured")');
+  push(
+    '',
+    '    ShowAllOffersAndRelease(Player:player)<suspends>:void =',
+    '        ShowAllOffers(Player)',
+    '        ClearStorefrontInFlight(Player)',
+    '',
+    '    OpenAllOffersStore<public>(Player:player):void =',
+    '        if (Active := StorefrontInFlight[Player], Active?):',
+    '            Print("The storefront is already open for this player")',
+    '        else if (set StorefrontInFlight[Player] = true):',
+    '            spawn{ShowAllOffersAndRelease(Player)}',
+    '        else:',
+    '            Print("Unable to open the storefront")',
+    '',
+  );
+  if (config.generateStorefrontBinding) push('    OnStorefrontButtonInteracted(Agent:agent):void =', '        if (Player := player[Agent]):', '            OpenAllOffersStore(Player)', '');
 
   for (const group of offerDisplayGroups) {
     const pascal = toVerseApiStem(group.verseKey);
     const references = group.entries.map(entry => resolveOfferDisplayEntry(entry, entitlements, bundles, offersModule));
-    if (!canonicalApi) {
-      push(
-        `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
-        '',
-        `    Show${pascal}<public>(Player:player)<suspends>:void =`,
-        `        ShowOffersDialog(Player, array{${references.join(', ')}}, ?Title := ${pascal}Title)`,
-        '',
-        `    Open${pascal}<public>(Player:player):void =`,
-        '        if (Active := StorefrontInFlight[Player], Active?):',
-        '            Print("A storefront is already open for this player")',
-        '        else if (set StorefrontInFlight[Player] = true):',
-        `            spawn{Show${pascal}AndRelease(Player)}`,
-        '        else:',
-        '            Print("Unable to open the storefront")',
-        '',
-        `    Show${pascal}AndRelease(Player:player)<suspends>:void =`,
-        `        Show${pascal}(Player)`,
-        '        ClearStorefrontInFlight(Player)',
-        '',
-      );
-    } else {
-      push(
-        `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
-        '',
-        `    Show${pascal}Offers(Player:player)<suspends>:void =`,
-        `        ShowOffersDialog(Player, array{${references.join(', ')}}, ?Title := ${pascal}Title)`,
-        '',
-        `    Show${pascal}OffersAndRelease(Player:player)<suspends>:void =`,
-        `        Show${pascal}Offers(Player)`,
-        '        ClearStorefrontInFlight(Player)',
-        '',
-        `    Open${pascal}<public>(Player:player):void =`,
-        '        if (Active := StorefrontInFlight[Player], Active?):',
-        '            Print("A storefront is already open for this player")',
-        '        else if (set StorefrontInFlight[Player] = true):',
-        `            spawn{Show${pascal}OffersAndRelease(Player)}`,
-        '        else:',
-        '            Print("Unable to open the storefront")',
-        '',
-      );
-      if (preserveLegacyApi) push(
-        '    # Deprecated v1 compatibility. This direct-dialog helper is retained for source compatibility.',
-        `    Show${pascal}<public>(Player:player)<suspends>:void =`,
-        `        Show${pascal}Offers(Player)`,
-        '',
-      );
-    }
+    push(
+      `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
+      '',
+      `    Show${pascal}Offers(Player:player)<suspends>:void =`,
+      `        ShowOffersDialog(Player, array{${references.join(', ')}}, ?Title := ${pascal}Title)`,
+      '',
+      `    Show${pascal}OffersAndRelease(Player:player)<suspends>:void =`,
+      `        Show${pascal}Offers(Player)`,
+      '        ClearStorefrontInFlight(Player)',
+      '',
+      `    Open${pascal}<public>(Player:player):void =`,
+      '        if (Active := StorefrontInFlight[Player], Active?):',
+      '            Print("A storefront is already open for this player")',
+      '        else if (set StorefrontInFlight[Player] = true):',
+      `            spawn{Show${pascal}OffersAndRelease(Player)}`,
+      '        else:',
+      '            Print("Unable to open the storefront")',
+      '',
+    );
     if (group.generateTriggerBinding) push(`    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`, '        if (Agent := MaybeAgent?):', '            if (Player := player[Agent]):', `                Open${pascal}(Player)`, '');
   }
 
   push('    ReconcilePlayerEntitlements(Player:player)<suspends>:void =');
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
-    const legacyNames = legacyEventNamesById.get(item.id) ?? new Set<string>();
-    const legacyReconciledName = `${pascal}EntitlementReconciledEvent`;
-    const legacyOwnershipVerifiedName = `${pascal}OwnershipVerifiedEvent`;
-    const ownershipQueryLines = canonicalApi
-      ? [`        ${pascal}OwnedCount := Get${pascal}Count(Player)`]
-      : [
-        `        ${pascal}Purchases := GetPurchasedEntitlements(Player, ${entModule}.${item.verseKey}_entitlement)`,
-        `        var ${pascal}OwnedCount:int = 0`,
-        `        if (Owned := ${pascal}Purchases[0]):`,
-        `            set ${pascal}OwnedCount = Owned(1)`,
-      ];
+    const ownershipQueryLines = [`        ${pascal}OwnedCount := Get${pascal}Count(Player)`];
     push(
       ...ownershipQueryLines,
-      ...(preserveLegacyApi && legacyNames.has(legacyReconciledName) ? [`        ${legacyReconciledName}.Signal((Player, ${pascal}OwnedCount))`] : []),
-      ...(canonicalApi ? [`        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`] : []),
-      ...(preserveLegacyApi && item.itemType === 'durable' && item.restoreOnJoin && legacyNames.has(legacyOwnershipVerifiedName)
-        ? [`        if (${pascal}OwnedCount > 0):`, `            ${legacyOwnershipVerifiedName}.Signal(Player)`]
-        : []),
+      `        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`,
     );
   }
   push('');
