@@ -49,6 +49,24 @@ test('complex generated output has one locked canonical public declaration basel
   assert.doesNotMatch(source, /phase4_public_api_device<public>/);
 });
 
+test('the generated device is the supported facade and no UEM namespace is emitted', () => {
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const topLevel = source.split(/\r?\n/)
+    .filter(line => line.trimStart() === line && line.includes(' :='))
+    .map(line => line.trim());
+  assert.deepEqual(topLevel, [
+    'UEMLogChannel := class(log_channel){}',
+    'EntitlementIcons<public> := module {}',
+    'Phase4PublicApiInfo<public> := module:',
+    'Phase4PublicApiEntitlements<public> := module:',
+    'Phase4PublicApiPrices<public> := module:',
+    'Phase4PublicApiOffers<public> := module:',
+    'phase4_public_api_device := class(creative_device):',
+  ]);
+  assert.doesNotMatch(source, /\bUEM\.(?:Entitlements|Offers|Prices)\b/);
+  assert.match(source, /AccessPass_GrantedEvent<public>:event/);
+});
+
 test('UEFN editables are present while device plumbing remains private', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   for (const editable of ['AccessPass_PurchaseTriggers : []trigger_device', 'AccessPass_PurchaseButtons : []button_device', 'SeasonPass_PurchaseButtons : []button_device', 'CoinPack_PurchaseTriggers : []trigger_device', 'MysteryItem_PurchaseButtons : []button_device', 'AllOffersStore_OpenButtons : []button_device', 'CoinStore_OpenTriggers : []trigger_device']) assert.ok(source.includes(`    ${editable}`), `missing editable ${editable}`);

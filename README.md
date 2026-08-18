@@ -110,6 +110,8 @@ my_game_device := class(creative_device):
 
 For troubleshooting, enable **Enable Debug Logging** on the generated UEM device in UEFN to emit additional runtime diagnostics.
 
+The generated file also contains configured modules such as `ManagedEntitlementInfo`, `ManagedEntitlements`, `ManagedTransactionPrices`, `ManagedOffers`, and `EntitlementIcons`. These are generated Marketplace plumbing, not a second UEM API. Use the generated device for runtime integration instead of calling raw generated entitlement, offer, price, metadata, or icon declarations directly. UEM does not guarantee those generated module or asset member names as supported API.
+
 UEM supports one generated API. Existing manifests from supported schemas, including manifests produced during pre-release API development, are loaded as project data and regenerated with the same current canonical symbols. Obsolete generated-API metadata and purchase-event fields are ignored when reading and are not written to new manifests.
 
 ## Native icon import
