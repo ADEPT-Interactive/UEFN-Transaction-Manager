@@ -331,8 +331,8 @@ export const FileService = {
     URL.revokeObjectURL(url);
   },
 
-  exportPresetJson(data: { config: ProjectConfig; entitlements: EntitlementItem[]; bundles: BundleOffer[] }) {
-    const clean = cleanManagedData(data.entitlements, data.bundles);
+  exportPresetJson(data: { config: ProjectConfig; entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups?: import('../types/entitlement').OfferDisplayGroup[]; retiredVerseKeys?: string[] }) {
+    const clean = cleanManagedData(data.entitlements, data.bundles, data.offerDisplayGroups ?? [], data.retiredVerseKeys ?? []);
     const portableConfig = { ...data.config, contentFolderPath: '' };
     const blob = new Blob([JSON.stringify({ ...clean, config: portableConfig }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AlternateOffer, EntitlementItem, OfferRestrictions } from '../types/entitlement';
 import { sanitizeVerseIdentifier, validateEntitlement } from '../services/validator';
+import { createVerseKeyAllocator, draftVerseKeyForName } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { PAID_RANDOM_ITEM_GUIDANCE_URL } from '../constants/docs';
 import { ConfirmedTextureImport, ImageUploadZone, ImageUploadZoneHandle } from './ImageUploadZone';
@@ -124,14 +125,24 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
     setFormData(prev => ({ ...prev, priceVBucks: Math.max(50, Math.min(5000, amount)) }));
   };
 
-  // Auto-slugify key on name change if key hasn't been custom modified
+  // Drafts may follow their display name. Persisted keys never do.
   const handleNameChange = (newName: string) => {
     setFormData(prev => {
-      const shouldAutoSlug = item.id.includes('new') || !prev.verseKey || prev.verseKey === sanitizeVerseIdentifier(prev.name);
+      const isExisting = !item.id.startsWith('new-');
+      const nextKey = draftVerseKeyForName(prev.verseKey, prev.name, newName, isExisting);
+      const defaultTrigger = `${prev.verseKey}_OfferTriggers`;
+      const defaultButton = `${prev.verseKey}_Buttons`;
+      const defaultZone = `${prev.verseKey}_Zones`;
       return {
         ...prev,
         name: newName,
-        verseKey: shouldAutoSlug ? sanitizeVerseIdentifier(newName) : prev.verseKey,
+        verseKey: nextKey,
+        triggers: {
+          ...prev.triggers,
+          triggerDeviceName: !isExisting && prev.triggers.triggerDeviceName === defaultTrigger ? `${nextKey}_OfferTriggers` : prev.triggers.triggerDeviceName,
+          buttonDeviceName: !isExisting && prev.triggers.buttonDeviceName === defaultButton ? `${nextKey}_Buttons` : prev.triggers.buttonDeviceName,
+          mutatorZoneName: !isExisting && prev.triggers.mutatorZoneName === defaultZone ? `${nextKey}_Zones` : prev.triggers.mutatorZoneName,
+        },
       };
     });
   };
@@ -142,11 +153,14 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   const addAlternateOffer = () => {
     setFormData(previous => {
+      const usedKeys = allEntitlements.flatMap(entitlement => [entitlement.verseKey, ...(entitlement.alternateOffers ?? []).map(offer => offer.verseKey)]);
+      const allocator = createVerseKeyAllocator(usedKeys);
+      for (const offer of previous.alternateOffers ?? []) allocator.reserveExisting(offer.verseKey);
       const index = (previous.alternateOffers ?? []).length + 1;
-      const key = `${previous.verseKey || 'offer'}_alternate_${index}`;
+      const key = allocator.allocateAlternate(previous.verseKey || 'offer');
       const offer: AlternateOffer = {
-        id: `${previous.id || 'entitlement'}-alternate-${Date.now()}`,
-        verseKey: sanitizeVerseIdentifier(key),
+        id: `new-alt-${crypto.randomUUID()}`,
+        verseKey: key,
         name: `${previous.name || 'Offer'} Alternate ${index}`,
         shortDescription: previous.shortDescription,
         description: previous.description,

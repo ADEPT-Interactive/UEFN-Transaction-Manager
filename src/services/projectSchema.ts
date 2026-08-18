@@ -1,4 +1,10 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
+import {
+  createVerseKeyAllocator,
+  isValidVerseIdentifier,
+  normalizeRetiredVerseKeys,
+  sanitizeVerseIdentifier,
+} from './verseIdentity';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,7 +36,8 @@ export function normalizeOfferRestrictions(value: unknown): OfferRestrictions {
 
 function normalizeAlternateOffer(value: unknown, parentKey: string, index: number): AlternateOffer {
   if (!isRecord(value)) throw new Error(`Alternate offer ${index + 1} for ${parentKey} must be an object.`);
-  const verseKey = stringValue(value.verseKey, `${parentKey}_alternate_${index + 1}`);
+  const rawKey = stringValue(value.verseKey);
+  const verseKey = rawKey || sanitizeVerseIdentifier(`${parentKey}_alternate_${index + 1}`);
   return {
     id: stringValue(value.id, `offer-${parentKey}-${index}`),
     verseKey,
@@ -52,7 +59,9 @@ export function stripTransientImages<T extends EntitlementItem | BundleOffer>(it
 export function normalizeEntitlement(value: unknown, index: number): EntitlementItem {
   if (!isRecord(value)) throw new Error(`Entitlement ${index + 1} must be an object.`);
 
-  const verseKey = stringValue(value.verseKey, `item_${index + 1}`);
+  const rawKey = stringValue(value.verseKey);
+  const fallbackName = stringValue(value.name, `Item ${index + 1}`);
+  const verseKey = rawKey || sanitizeVerseIdentifier(fallbackName);
   const flags = isRecord(value.flags) ? value.flags : {};
   const triggers = isRecord(value.triggers) ? value.triggers : {};
   const legacyActionHook = isRecord(value.actionHook) ? value.actionHook : {};
@@ -118,7 +127,8 @@ export function normalizeBundle(value: unknown, index: number): BundleOffer {
       })
     : [];
 
-  const verseKey = stringValue(value.verseKey, `bundle_${index + 1}`);
+  const rawKey = stringValue(value.verseKey);
+  const verseKey = rawKey || sanitizeVerseIdentifier(stringValue(value.name, `Bundle ${index + 1}`));
   return {
     id: stringValue(value.id, `bundle-${verseKey}-${index}`),
     verseKey,
@@ -137,7 +147,8 @@ export function normalizeBundle(value: unknown, index: number): BundleOffer {
 
 export function normalizeOfferDisplayGroup(value: unknown, index: number): OfferDisplayGroup {
   if (!isRecord(value)) throw new Error(`Offer display group ${index + 1} must be an object.`);
-  const verseKey = stringValue(value.verseKey, `offer_store_${index + 1}`);
+  const rawKey = stringValue(value.verseKey);
+  const verseKey = rawKey || sanitizeVerseIdentifier(stringValue(value.name, `Offer Store ${index + 1}`));
   const entries = Array.isArray(value.entries) ? value.entries.map((entry, entryIndex) => {
     if (!isRecord(entry)) throw new Error(`Offer display group ${index + 1}, entry ${entryIndex + 1} must be an object.`);
     const entitlementId = stringValue(entry.entitlementId);
@@ -159,7 +170,74 @@ export function normalizeOfferDisplayGroup(value: unknown, index: number): Offer
   };
 }
 
-export function parseManagedData(value: unknown): { entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups: OfferDisplayGroup[] } {
+interface RepairedManagedData {
+  entitlements: EntitlementItem[];
+  bundles: BundleOffer[];
+  offerDisplayGroups: OfferDisplayGroup[];
+}
+
+function repairProjectVerseKeys(
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  offerDisplayGroups: OfferDisplayGroup[],
+  retiredVerseKeys: string[] = [],
+): RepairedManagedData {
+  const allocator = createVerseKeyAllocator([], retiredVerseKeys);
+  const alternateReplacements = new Map<string, string>();
+
+  const preserveOrRepair = (currentKey: string, displayName: string, fallbackName: string): string => {
+    if (isValidVerseIdentifier(currentKey) && allocator.reserveExisting(currentKey)) return currentKey;
+    return allocator.allocate(displayName || fallbackName);
+  };
+
+  const repairedEntitlements = entitlements.map((item, index) => {
+    const previousKey = item.verseKey;
+    const verseKey = preserveOrRepair(previousKey, item.name, `Item ${index + 1}`);
+    const purchaseEventName = !isValidVerseIdentifier(previousKey)
+      && (!item.purchaseEventName || item.purchaseEventName === `${previousKey}_GrantedEvent`)
+      ? `${verseKey}_GrantedEvent`
+      : item.purchaseEventName;
+    return { ...item, verseKey, purchaseEventName };
+  });
+
+  for (const item of repairedEntitlements) {
+    const repairedAlternates = (item.alternateOffers ?? []).map((offer, index) => {
+      const previousKey = offer.verseKey;
+      const canPreserve = isValidVerseIdentifier(previousKey) && allocator.reserveExisting(previousKey);
+      const verseKey = canPreserve
+        ? previousKey
+        : allocator.allocateAlternate(item.verseKey);
+      if (previousKey && previousKey !== verseKey && !isValidVerseIdentifier(previousKey)) {
+        const replacementKey = `${item.id}\u0000${previousKey.toLowerCase()}`;
+        if (!alternateReplacements.has(replacementKey)) alternateReplacements.set(replacementKey, verseKey);
+      }
+      return { ...offer, verseKey };
+    });
+    if (item.alternateOffers !== undefined) item.alternateOffers = repairedAlternates;
+  }
+
+  const repairedBundles = bundles.map((bundle, index) => ({
+    ...bundle,
+    verseKey: preserveOrRepair(bundle.verseKey, bundle.name, `Bundle ${index + 1}`),
+  }));
+  const repairedOfferDisplayGroups = offerDisplayGroups.map((group, index) => ({
+    ...group,
+    verseKey: preserveOrRepair(group.verseKey, group.name, `Offer Store ${index + 1}`),
+  }));
+
+  const repairOfferReference = <T extends { entitlementId?: string; offerVerseKey?: string }>(entry: T): T => {
+    if (!entry.entitlementId || !entry.offerVerseKey) return entry;
+    const replacement = alternateReplacements.get(`${entry.entitlementId}\u0000${entry.offerVerseKey.toLowerCase()}`);
+    return replacement ? { ...entry, offerVerseKey: replacement } : entry;
+  };
+
+  for (const bundle of repairedBundles) bundle.items = bundle.items.map(repairOfferReference);
+  for (const group of repairedOfferDisplayGroups) group.entries = group.entries.map(repairOfferReference);
+
+  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups };
+}
+
+export function parseManagedData(value: unknown): { entitlements: EntitlementItem[]; bundles: BundleOffer[]; offerDisplayGroups: OfferDisplayGroup[]; retiredVerseKeys: string[] } {
   if (!isRecord(value)) throw new Error('Preset must contain a JSON object.');
   if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) {
     throw new Error('Preset schemaVersion must be 2, 3, or 4. Future, missing, and unsupported schemas are not imported.');
@@ -168,11 +246,16 @@ export function parseManagedData(value: unknown): { entitlements: EntitlementIte
   if (value.bundles !== undefined && !Array.isArray(value.bundles)) throw new Error('Preset bundles must be an array.');
   if (value.offerDisplayGroups !== undefined && !Array.isArray(value.offerDisplayGroups)) throw new Error('Preset offerDisplayGroups must be an array.');
 
-  return {
-    entitlements: value.entitlements.map(normalizeEntitlement),
-    bundles: (value.bundles ?? []).map(normalizeBundle),
-    offerDisplayGroups: (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup),
-  };
+  const entitlements = value.entitlements.map(normalizeEntitlement);
+  const bundles = (value.bundles ?? []).map(normalizeBundle);
+  const offerDisplayGroups = (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup);
+  const repaired = repairProjectVerseKeys(
+    entitlements,
+    bundles,
+    offerDisplayGroups,
+    normalizeRetiredVerseKeys(value.retiredVerseKeys),
+  );
+  return { ...repaired, retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys) };
 }
 
 export function normalizeProjectConfig(value: unknown, fallback: ProjectConfig): ProjectConfig {
@@ -200,16 +283,30 @@ export function parseStoredArray(value: string | null, kind: 'entitlements' | 'b
   if (!value) return null;
   const parsed = JSON.parse(value) as unknown;
   if (!Array.isArray(parsed)) throw new Error(`Stored ${kind} data is not an array.`);
-  return kind === 'entitlements' ? parsed.map(normalizeEntitlement) : kind === 'bundles' ? parsed.map(normalizeBundle) : parsed.map(normalizeOfferDisplayGroup);
+  const repaired = repairProjectVerseKeys(
+    kind === 'entitlements' ? parsed.map(normalizeEntitlement) : [],
+    kind === 'bundles' ? parsed.map(normalizeBundle) : [],
+    kind === 'offerDisplayGroups' ? parsed.map(normalizeOfferDisplayGroup) : [],
+  );
+  return kind === 'entitlements' ? repaired.entitlements : kind === 'bundles' ? repaired.bundles : repaired.offerDisplayGroups;
 }
 
-export function cleanManagedData(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[] = []) {
-  return {
+export function cleanManagedData(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[] = [], retiredVerseKeys: string[] = []) {
+  const clean: {
+    schemaVersion: 4;
+    entitlements: EntitlementItem[];
+    bundles: BundleOffer[];
+    offerDisplayGroups: OfferDisplayGroup[];
+    retiredVerseKeys?: string[];
+  } = {
     schemaVersion: 4 as const,
     entitlements: entitlements.map(stripTransientImages),
     bundles: bundles.map(stripTransientImages),
     offerDisplayGroups,
   };
+  const normalizedRetiredVerseKeys = normalizeRetiredVerseKeys(retiredVerseKeys);
+  if (normalizedRetiredVerseKeys.length) clean.retiredVerseKeys = normalizedRetiredVerseKeys;
+  return clean;
 }
 
 export function normalizeCountryCodes(value: unknown): string[] {

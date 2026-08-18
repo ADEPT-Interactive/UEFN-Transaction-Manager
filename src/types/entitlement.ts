@@ -120,4 +120,6 @@ export interface ManagedProjectData {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups?: OfferDisplayGroup[];
+  /** Stable keys that were issued and must not be silently reassigned. */
+  retiredVerseKeys?: string[];
 }

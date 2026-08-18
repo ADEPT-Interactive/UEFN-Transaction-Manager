@@ -1,4 +1,5 @@
-import { BundleOffer, EntitlementItem } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, OfferDisplayGroup } from '../types/entitlement';
+import { createVerseKeyAllocator } from './verseIdentity';
 
 function uniqueIdentifier(preferred: string, used: Set<string>): string {
   let candidate = preferred;
@@ -13,21 +14,18 @@ export function duplicateEntitlement(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[],
   idFactory: () => string = () => crypto.randomUUID(),
+  offerDisplayGroups: OfferDisplayGroup[] = [],
 ): EntitlementItem {
-  const usedOfferKeys = new Set<string>();
-  for (const entitlement of entitlements) {
-    usedOfferKeys.add(entitlement.verseKey.toLowerCase());
-    for (const offer of entitlement.alternateOffers ?? []) usedOfferKeys.add(offer.verseKey.toLowerCase());
-  }
-  for (const bundle of bundles) usedOfferKeys.add(bundle.verseKey.toLowerCase());
-
-  const verseKey = uniqueIdentifier(`${item.verseKey}_copy`, usedOfferKeys);
+  const usedKeys = entitlements.flatMap(entitlement => [entitlement.verseKey, ...(entitlement.alternateOffers ?? []).map(offer => offer.verseKey)])
+    .concat(bundles.map(bundle => bundle.verseKey), offerDisplayGroups.map(group => group.verseKey));
+  const allocator = createVerseKeyAllocator(usedKeys);
+  const verseKey = allocator.allocate(`${item.name} Copy`);
   const usedEvents = new Set(entitlements.map(entitlement => entitlement.purchaseEventName.toLowerCase()));
   const purchaseEventName = uniqueIdentifier(`${verseKey}_GrantedEvent`, usedEvents);
   const alternateOffers = (item.alternateOffers ?? []).map(offer => ({
     ...offer,
     id: `offer-${idFactory()}`,
-    verseKey: uniqueIdentifier(`${offer.verseKey}_copy`, usedOfferKeys),
+    verseKey: allocator.allocateAlternate(verseKey),
     name: `${offer.name} Copy`,
     restrictions: {
       ...offer.restrictions,

@@ -1,6 +1,9 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
+import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier } from './verseIdentity';
+
+export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
 const MAX_ENTITLEMENTS = 100;
 const MAX_NAME_LENGTH = 50;
@@ -22,18 +25,11 @@ const MODERATION_LEET_REPLACEMENTS: Record<string, string> = {
 };
 
 export function validateVerseIdentifier(identifier: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
+  return isValidVerseIdentifier(identifier);
 }
 
 export function validateTextureExpression(expression: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/.test(expression);
-}
-
-export function sanitizeVerseIdentifier(input: string): string {
-  let clean = input.trim().replace(/[^A-Za-z0-9_]/g, '_');
-  clean = clean.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-  if (/^[0-9]/.test(clean)) clean = `item_${clean}`;
-  return clean || 'item';
 }
 
 export function toPascalCase(value: string): string {
@@ -407,7 +403,13 @@ export function validateProjectConfig(config: ProjectConfig): ValidationIssue[] 
   return issues;
 }
 
-export function validateEntireProject(entitlements: EntitlementItem[], bundles: BundleOffer[] = [], config?: ProjectConfig, offerDisplayGroups: OfferDisplayGroup[] = []): ValidationIssue[] {
+export function validateEntireProject(
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[] = [],
+  config?: ProjectConfig,
+  offerDisplayGroups: OfferDisplayGroup[] = [],
+  retiredVerseKeys: string[] = [],
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (entitlements.length === 0) issues.push(issue('project-empty', 'error', 'Add at least one entitlement before generating Verse.', 'entitlements_min'));
   if (entitlements.length > MAX_ENTITLEMENTS) issues.push(issue('project-max-entitlements', 'error', `Projects may define at most ${MAX_ENTITLEMENTS} distinct entitlements.`, 'entitlements_max'));
@@ -466,8 +468,10 @@ export function validateEntireProject(entitlements: EntitlementItem[], bundles: 
   });
 
   const offerKeyOwners = new Map<string, string>();
+  const retiredKeySet = new Set(retiredVerseKeys.map(key => key.toLowerCase()));
   const registerOfferKey = (name: string, owner: string, entitlementId?: string, bundleId?: string) => {
     const key = name.toLowerCase();
+    if (retiredKeySet.has(key)) issues.push(issue(`retired-offer-key-${owner}-${key}`, 'error', `Verse key "${name}" was previously issued and retired. Reusing it would attach old external Verse references to a different object.`, 'retired_verse_key_reuse', 'verseKey', entitlementId, bundleId));
     const previous = offerKeyOwners.get(key);
     if (previous) issues.push(issue(`offer-key-${owner}-${key}`, 'error', `Offer Verse key "${name}" conflicts between ${previous} and ${owner}.`, 'offer_identifier_unique', 'verseKey', entitlementId, bundleId));
     else offerKeyOwners.set(key, owner);
@@ -477,6 +481,9 @@ export function validateEntireProject(entitlements: EntitlementItem[], bundles: 
     (item.alternateOffers ?? []).forEach((offer, offerIndex) => registerOfferKey(offer.verseKey, `alternate offer ${offer.name || offerIndex + 1}`, item.id));
   });
   bundles.forEach((bundle, bundleIndex) => registerOfferKey(bundle.verseKey, `bundle ${bundle.name || bundleIndex + 1}`, undefined, bundle.id));
+  offerDisplayGroups.forEach(group => {
+    if (retiredKeySet.has(group.verseKey.toLowerCase())) issues.push(issue(`retired-display-key-${group.id}`, 'error', `Verse key "${group.verseKey}" was previously issued and retired. Reusing it would attach old external Verse references to a different storefront.`, 'retired_verse_key_reuse', 'verseKey'));
+  });
 
   const generatedSymbols = new Map<string, string>();
   const registerGeneratedSymbol = (name: string, owner: string) => {

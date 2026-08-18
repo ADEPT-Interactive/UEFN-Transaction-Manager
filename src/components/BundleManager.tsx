@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Boxes, Edit3, Plus, Trash2, X } from 'lucide-react';
 import { BundleOffer, EntitlementItem } from '../types/entitlement';
 import { sanitizeVerseIdentifier, validateBundleOffer } from '../services/validator';
+import { draftVerseKeyForName } from '../services/verseIdentity';
 import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
 import { PLACEHOLDER_ICON_ASSET_NAME } from '../constants/placeholderIcon';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -11,12 +12,13 @@ interface BundleManagerProps {
   bundles: BundleOffer[];
   entitlements: EntitlementItem[];
   assetFolderName: string;
+  allocateVerseKey: (name: string) => string;
   onChange: (bundles: BundleOffer[]) => void;
 }
 
-const emptyBundle = (assetFolder: string): BundleOffer => ({
-  id: `bundle-${Date.now()}`,
-  verseKey: 'starter_bundle',
+const emptyBundle = (assetFolder: string, verseKey: string): BundleOffer => ({
+  id: `bundle-${crypto.randomUUID()}`,
+  verseKey,
   name: 'Starter Bundle',
   shortDescription: 'A collection of island entitlements.',
   description: 'Purchase multiple entitlements together in one offer.',
@@ -28,7 +30,7 @@ const emptyBundle = (assetFolder: string): BundleOffer => ({
   items: [],
 });
 
-export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitlements, assetFolderName, onChange }) => {
+export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitlements, assetFolderName, allocateVerseKey, onChange }) => {
   const [editing, setEditing] = useState<BundleOffer | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BundleOffer | null>(null);
 
@@ -39,7 +41,7 @@ export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitleme
           <h2 id="bundle-heading" className="text-sm font-bold text-white flex items-center gap-2"><Boxes className="w-4 h-4 text-cyan-400" /> Bundle offers</h2>
           <p className="text-xs text-slate-400">Bundles reference one or more offers, preserve exact quantities, and support nested offers up to five levels.</p>
         </div>
-        <button type="button" onClick={() => setEditing(emptyBundle(assetFolderName))} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700">
+        <button type="button" onClick={() => setEditing(emptyBundle(assetFolderName, allocateVerseKey('Starter Bundle')))} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700">
           <Plus className="w-3.5 h-3.5" /> Add bundle
         </button>
       </div>
@@ -117,7 +119,7 @@ const BundleEditorModal: React.FC<{
         <div className="flex items-center justify-between mb-5"><h2 id="bundle-dialog-title" className="font-bold text-white">{isExisting ? 'Edit bundle offer' : 'Create bundle offer'}</h2><button type="button" aria-label="Close bundle editor" onClick={onClose} className="p-2 text-slate-400 hover:text-white"><X className="w-5 h-5" /></button></div>
         <form onSubmit={event => { event.preventDefault(); if (!errors.length) onSave(form); }} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-300">Display name<input value={form.name} maxLength={50} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" /></label>
+            <label className="text-xs text-slate-300">Display name<input value={form.name} maxLength={50} onChange={e => setForm({ ...form, name: e.target.value, verseKey: draftVerseKeyForName(form.verseKey, form.name, e.target.value, isExisting) })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" /></label>
             <label className="text-xs text-slate-300">Verse key<input value={form.verseKey} onChange={e => setForm({ ...form, verseKey: sanitizeVerseIdentifier(e.target.value) })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 font-mono" /></label>
             <label className="text-xs text-slate-300 sm:col-span-2">Short description<input value={form.shortDescription} maxLength={100} onChange={e => setForm({ ...form, shortDescription: e.target.value })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" /></label>
             <label className="text-xs text-slate-300 sm:col-span-2">Description<textarea value={form.description} maxLength={500} onChange={e => setForm({ ...form, description: e.target.value })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" /></label>

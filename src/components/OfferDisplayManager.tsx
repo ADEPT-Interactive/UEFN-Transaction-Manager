@@ -2,19 +2,21 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Edit3, LayoutGrid, Plus, Store, Trash2, X } from 'lucide-react';
 import { BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup } from '../types/entitlement';
 import { sanitizeVerseIdentifier, toPascalCase, validateOfferDisplayGroup } from '../services/validator';
+import { draftVerseKeyForName } from '../services/verseIdentity';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface OfferDisplayManagerProps {
   groups: OfferDisplayGroup[];
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
+  allocateVerseKey: (name: string) => string;
   onChange: (groups: OfferDisplayGroup[]) => void;
 }
 
-const emptyGroup = (groups: OfferDisplayGroup[]): OfferDisplayGroup => {
+const emptyGroup = (groups: OfferDisplayGroup[], allocateVerseKey: (name: string) => string): OfferDisplayGroup => {
   const ordinal = groups.length + 1;
-  const verseKey = ordinal === 1 ? 'coin_store' : `offer_store_${ordinal}`;
   const name = ordinal === 1 ? 'Coin Store' : `Offer Store ${ordinal}`;
+  const verseKey = allocateVerseKey(name);
   return ({
   id: `store-${crypto.randomUUID()}`,
   verseKey,
@@ -29,7 +31,7 @@ const entryKey = (entry: OfferDisplayEntry) => entry.bundleId
   ? `bundle:${entry.bundleId}`
   : `entitlement:${entry.entitlementId}:${entry.offerVerseKey ?? ''}`;
 
-export const OfferDisplayManager: React.FC<OfferDisplayManagerProps> = ({ groups, entitlements, bundles, onChange }) => {
+export const OfferDisplayManager: React.FC<OfferDisplayManagerProps> = ({ groups, entitlements, bundles, allocateVerseKey, onChange }) => {
   const [editing, setEditing] = useState<OfferDisplayGroup | null>(null);
   const [pendingDelete, setPendingDelete] = useState<OfferDisplayGroup | null>(null);
   return (
@@ -39,7 +41,7 @@ export const OfferDisplayManager: React.FC<OfferDisplayManagerProps> = ({ groups
           <h2 id="offer-display-heading" className="flex items-center gap-2 text-sm font-bold text-white"><Store className="h-4 w-4 text-cyan-400" /> Offer displays</h2>
           <p className="text-xs text-slate-400">Create focused storefronts such as a Coin Store or Upgrade Shop. Each display shows selected offers together; it does not sell them as one bundle.</p>
         </div>
-        <button type="button" onClick={() => setEditing(emptyGroup(groups))} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold hover:bg-slate-700"><Plus className="h-3.5 w-3.5" /> Add offer display</button>
+        <button type="button" onClick={() => setEditing(emptyGroup(groups, allocateVerseKey))} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold hover:bg-slate-700"><Plus className="h-3.5 w-3.5" /> Add offer display</button>
       </div>
       {groups.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-800 px-4 py-6 text-center text-xs text-slate-500">No focused storefronts configured. The generated <code>OpenStorefront(Player)</code> function still shows every offer.</div> : <div className="grid gap-3 md:grid-cols-2">{groups.map(group => <article key={group.id} className="flex items-start justify-between gap-3 rounded-2xl border border-slate-800 bg-[#0f1629]/70 p-4"><div><h3 className="text-sm font-bold text-white">{group.name}</h3><p className="mt-0.5 font-mono text-[11px] text-cyan-300">Open{toPascalCase(group.verseKey)}(Player)</p><p className="mt-1 text-xs text-slate-400">{group.entries.length} selected offer{group.entries.length === 1 ? '' : 's'}{group.generateTriggerBinding ? ` · ${group.triggerDeviceName}` : ''}</p></div><div className="flex gap-1"><button type="button" aria-label={`Edit ${group.name}`} onClick={() => setEditing(group)} className="p-2 text-slate-400 hover:text-cyan-300"><Edit3 className="h-4 w-4" /></button><button type="button" aria-label={`Delete ${group.name}`} onClick={() => setPendingDelete(group)} className="p-2 text-slate-400 hover:text-rose-300"><Trash2 className="h-4 w-4" /></button></div></article>)}</div>}
       <OfferDisplayEditor group={editing} groups={groups} entitlements={entitlements} bundles={bundles} onClose={() => setEditing(null)} onSave={group => { onChange(groups.some(candidate => candidate.id === group.id) ? groups.map(candidate => candidate.id === group.id ? group : candidate) : [...groups, group]); setEditing(null); }} />
@@ -88,10 +90,8 @@ const OfferDisplayEditor: React.FC<{
   const toggleEntry = (option: typeof options[number]) => setForm(previous => previous && ({ ...previous, entries: selected.has(option.key) ? previous.entries.filter(entry => entryKey(entry) !== option.key) : [...previous.entries, option.entry] }));
   const updateKeyFromName = (name: string) => setForm(previous => {
     if (!previous) return previous;
-    const priorGeneratedKey = sanitizeVerseIdentifier(previous.name.toLowerCase());
-    const nextGeneratedKey = sanitizeVerseIdentifier(name.toLowerCase());
-    const shouldUpdateKey = previous.verseKey === priorGeneratedKey;
-    const nextKey = shouldUpdateKey ? nextGeneratedKey : previous.verseKey;
+    const isExisting = groups.some(candidate => candidate.id === previous.id);
+    const nextKey = draftVerseKeyForName(previous.verseKey, previous.name, name, isExisting);
     const priorGeneratedTrigger = `${toPascalCase(previous.verseKey)}Triggers`;
     const nextTrigger = previous.triggerDeviceName === priorGeneratedTrigger ? `${toPascalCase(nextKey)}Triggers` : previous.triggerDeviceName;
     return { ...previous, name, verseKey: nextKey, triggerDeviceName: nextTrigger };

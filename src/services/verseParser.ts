@@ -9,6 +9,7 @@ export interface VerseParseResult {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
+  retiredVerseKeys: string[];
   managed: boolean;
   error?: string;
 }
@@ -28,6 +29,7 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
       entitlements: [],
       bundles: [],
       offerDisplayGroups: [],
+      retiredVerseKeys: [],
       managed: false,
       error: 'This Verse file has no Entitlement Manager manifest. It was left untouched because legacy Verse cannot be imported without losing data.',
     };
@@ -52,6 +54,7 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
       entitlements: [],
       bundles: [],
       offerDisplayGroups: [],
+      retiredVerseKeys: [],
       managed: true,
       error: error instanceof Error ? `The embedded manifest is invalid: ${error.message}` : 'The embedded manifest is invalid.',
     };

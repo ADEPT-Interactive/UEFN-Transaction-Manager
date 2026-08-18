@@ -12,11 +12,12 @@ import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from '
 import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets';
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
-import { validateEntireProject } from './services/validator';
+import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
 import { EditorStatus, FileService } from './services/fileService';
 import { cleanManagedData, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray } from './services/projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
+import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
@@ -137,8 +138,32 @@ function loadOfferDisplayGroups(): OfferDisplayGroup[] {
   }
 }
 
-function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], config: ProjectConfig): string {
-  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups), config: { ...config, contentFolderPath: '' } });
+function loadRetiredVerseKeys(): string[] {
+  try {
+    const stored = localStorage.getItem(storageKey('retiredVerseKeys'));
+    return normalizeRetiredVerseKeys(stored ? JSON.parse(stored) : []);
+  } catch {
+    localStorage.removeItem(storageKey('retiredVerseKeys'));
+    return [];
+  }
+}
+
+function allocateProjectVerseKey(
+  name: string,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  offerDisplayGroups: OfferDisplayGroup[],
+  retiredVerseKeys: string[],
+): string {
+  return createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys).allocate(name);
+}
+
+function addRetiredVerseKeys(current: string[], keys: Iterable<string>): string[] {
+  return normalizeRetiredVerseKeys([...current, ...keys]);
+}
+
+function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig): string {
+  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys), config: { ...config, contentFolderPath: '' } });
 }
 
 async function hydrateProjectImages(
@@ -263,7 +288,8 @@ export const App: React.FC = () => {
   const [entitlements, setEntitlements] = useState(loadEntitlements);
   const [bundles, setBundles] = useState(loadBundles);
   const [offerDisplayGroups, setOfferDisplayGroups] = useState(loadOfferDisplayGroups);
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadConfig()));
+  const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig()));
   const [creationChooserRequest, setCreationChooserRequest] = useState(0);
   const [activeViewMode, setActiveViewMode] = useState<'split' | 'catalog' | 'verse'>('catalog');
   const [editingItem, setEditingItem] = useState<EntitlementItem | null>(null);
@@ -283,18 +309,18 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups), [entitlements, bundles, config, offerDisplayGroups]);
+  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys]);
   const validationIssues = useMemo(() => {
-    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups);
+    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys);
     if (unmanagedTargetFile === config.targetVerseFileName) issues.unshift({
       id: 'unmanaged-target-file', severity: 'error', ruleName: 'managed_file_required', field: 'targetVerseFileName',
       message: `${unmanagedTargetFile} is not managed by this tool and cannot be overwritten. Choose a new target filename in Settings.`,
     });
     return issues;
-  }, [entitlements, bundles, config, offerDisplayGroups, unmanagedTargetFile]);
+  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, unmanagedTargetFile]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
-  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, config), [entitlements, bundles, offerDisplayGroups, config]);
+  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
 
   useEffect(() => {
@@ -304,10 +330,11 @@ export const App: React.FC = () => {
       localStorage.setItem(storageKey('entitlements'), JSON.stringify(clean.entitlements));
       localStorage.setItem(storageKey('bundles'), JSON.stringify(clean.bundles));
       localStorage.setItem(storageKey('offerDisplayGroups'), JSON.stringify(clean.offerDisplayGroups));
+      localStorage.setItem(storageKey('retiredVerseKeys'), JSON.stringify(retiredVerseKeys));
     } catch {
       setStatus({ message: 'Browser storage is full or unavailable. Export a preset to preserve this session.', error: true });
     }
-  }, [config, entitlements, bundles, offerDisplayGroups]);
+  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys]);
 
   useEffect(() => {
     let active = true;
@@ -324,6 +351,7 @@ export const App: React.FC = () => {
       let loadedEntitlements = entitlements;
       let loadedBundles = bundles;
       let loadedOfferDisplayGroups = offerDisplayGroups;
+      let loadedRetiredVerseKeys = retiredVerseKeys;
       const result = await FileService.loadVerseFile(config.targetVerseFileName);
       if (result.success && result.content) {
         const parsed = parseVerseCode(result.content);
@@ -335,9 +363,10 @@ export const App: React.FC = () => {
         loadedEntitlements = parsed.entitlements;
         loadedBundles = parsed.bundles;
         loadedOfferDisplayGroups = parsed.offerDisplayGroups;
+        loadedRetiredVerseKeys = parsed.retiredVerseKeys;
         setUnmanagedTargetFile(null);
         setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, config));
+        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config));
       } else if (result.status !== 404) {
         setStatus({ message: result.error ?? 'The configured Verse file could not be inspected.', error: true });
         return;
@@ -349,6 +378,7 @@ export const App: React.FC = () => {
       setEntitlements(hydrated.entitlements);
       setBundles(hydrated.bundles);
       setOfferDisplayGroups(loadedOfferDisplayGroups);
+      setRetiredVerseKeys(loadedRetiredVerseKeys);
       setStatus({ message: result.success && result.content
         ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.`
         : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
@@ -444,9 +474,10 @@ export const App: React.FC = () => {
     setEntitlements(hydrated.entitlements);
     setBundles(hydrated.bundles);
     setOfferDisplayGroups(parsed.offerDisplayGroups);
+    setRetiredVerseKeys(parsed.retiredVerseKeys);
     setUnmanagedTargetFile(null);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, config));
+    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config));
     setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.` });
   };
 
@@ -481,8 +512,8 @@ export const App: React.FC = () => {
 
   const addPreset = (index: number) => {
     const normalized = normalizeEntitlement(DEFAULT_PRESETS[index % DEFAULT_PRESETS.length], index);
-    const suffix = entitlements.length + 1;
-    setEditingItem({ ...normalized, id: `ent-${Date.now()}`, verseKey: `${normalized.verseKey}_${suffix}`, purchaseEventName: `${normalized.purchaseEventName}_${suffix}`, iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`, iconImageData: undefined, iconFileName: undefined });
+    const verseKey = allocateProjectVerseKey(normalized.name, entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
+    setEditingItem({ ...normalized, id: `new-${crypto.randomUUID()}`, verseKey, iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`, iconImageData: undefined, iconFileName: undefined });
     setIsModalOpen(true);
   };
 
@@ -499,6 +530,7 @@ export const App: React.FC = () => {
         setEntitlements(data.entitlements);
         setBundles(data.bundles);
         setOfferDisplayGroups(data.offerDisplayGroups);
+        setRetiredVerseKeys(data.retiredVerseKeys);
         setConfig(nextConfig);
         setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays. Review validation before saving.` });
       } catch (error) {
@@ -512,7 +544,7 @@ export const App: React.FC = () => {
   const addNew = () => {
     const index = entitlements.length + 1;
     setEditingItem(normalizeEntitlement({
-      id: `new-${Date.now()}`, verseKey: `item_${index}`, name: '',
+      id: `new-${crypto.randomUUID()}`, verseKey: `item_${index}`, name: '',
       shortDescription: '', description: '',
       iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`, purchaseEventName: `Item${index}GrantedEvent`, restoreOnJoin: true,
     }, index));
@@ -520,7 +552,37 @@ export const App: React.FC = () => {
   };
 
   const saveModalItem = (item: EntitlementItem) => {
-    const persistedItem = item.id.startsWith('new-') ? { ...item, id: `ent-${crypto.randomUUID()}` } : item;
+    const isDraft = item.id.startsWith('new-');
+    const previousItem = entitlements.find(existing => existing.id === item.id);
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
+    const shouldAllocateDraftKey = isDraft && item.verseKey === sanitizeVerseIdentifier(item.name);
+    const draftVerseKey = shouldAllocateDraftKey ? allocator.allocate(item.name) : item.verseKey;
+    if (!shouldAllocateDraftKey && isDraft) allocator.reserveExisting(item.verseKey);
+    const persistedId = isDraft ? `ent-${crypto.randomUUID()}` : item.id;
+    const generatedTriggerNames = {
+      triggerDeviceName: item.triggers.triggerDeviceName === `${item.verseKey}_OfferTriggers` ? `${draftVerseKey}_OfferTriggers` : item.triggers.triggerDeviceName,
+      buttonDeviceName: item.triggers.buttonDeviceName === `${item.verseKey}_Buttons` ? `${draftVerseKey}_Buttons` : item.triggers.buttonDeviceName,
+      mutatorZoneName: item.triggers.mutatorZoneName === `${item.verseKey}_Zones` ? `${draftVerseKey}_Zones` : item.triggers.mutatorZoneName,
+    };
+    const persistedItem = {
+      ...item,
+      id: persistedId,
+      verseKey: draftVerseKey,
+      triggers: { ...item.triggers, ...generatedTriggerNames },
+      alternateOffers: (item.alternateOffers ?? []).map(offer => {
+        const isNewAlternate = offer.id.startsWith('new-alt-');
+        const verseKey = isNewAlternate ? allocator.allocateAlternate(draftVerseKey) : offer.verseKey;
+        return { ...offer, id: isNewAlternate ? `offer-${crypto.randomUUID()}` : offer.id, verseKey };
+      }),
+    };
+    const retired = [
+      ...(previousItem && previousItem.verseKey !== persistedItem.verseKey ? [previousItem.verseKey] : []),
+      ...(previousItem?.alternateOffers ?? []).flatMap(previousOffer => {
+        const nextOffer = persistedItem.alternateOffers?.find(offer => offer.id === previousOffer.id);
+        return !nextOffer || nextOffer.verseKey !== previousOffer.verseKey ? [previousOffer.verseKey] : [];
+      }),
+    ];
+    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
     setEntitlements(items => items.some(existing => existing.id === item.id) ? items.map(existing => existing.id === item.id ? persistedItem : existing) : [...items, persistedItem]);
     const validOfferKeys = new Set([persistedItem.verseKey, ...(persistedItem.alternateOffers ?? []).map(offer => offer.verseKey)]);
     setOfferDisplayGroups(groups => groups.map(group => ({
@@ -532,6 +594,7 @@ export const App: React.FC = () => {
   };
 
   const deleteItem = (item: EntitlementItem) => {
+    setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, [item.verseKey, ...(item.alternateOffers ?? []).map(offer => offer.verseKey)]));
     setEntitlements(items => items.filter(candidate => candidate.id !== item.id));
     setBundles(items => items.map(bundle => ({ ...bundle, items: bundle.items.filter(entry => entry.entitlementId !== item.id) })));
     setOfferDisplayGroups(groups => groups.map(group => ({ ...group, entries: group.entries.filter(entry => entry.entitlementId !== item.id) })));
@@ -541,15 +604,52 @@ export const App: React.FC = () => {
   const listProps = {
     entitlements, bundles, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
-    onDuplicate: (item: EntitlementItem) => setEntitlements(items => [...items, duplicateEntitlement(item, items, bundles)]),
+    onDuplicate: (item: EntitlementItem) => setEntitlements(items => [...items, duplicateEntitlement(item, items, bundles, crypto.randomUUID, offerDisplayGroups)]),
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
   };
 
   const requestOfferCreation = () => setCreationChooserRequest(request => request + 1);
   const updateBundles = (nextBundles: BundleOffer[]) => {
-    const validBundleIds = new Set(nextBundles.map(bundle => bundle.id));
-    setBundles(nextBundles);
+    const existingById = new Map(bundles.map(bundle => [bundle.id, bundle]));
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
+    const finalizedBundles = nextBundles.map(bundle => {
+      const isNew = !existingById.has(bundle.id);
+      const shouldAllocate = isNew && bundle.verseKey === sanitizeVerseIdentifier(bundle.name);
+      return shouldAllocate ? { ...bundle, verseKey: allocator.allocate(bundle.name) } : bundle;
+    });
+    const retired = bundles.flatMap(previous => {
+      const next = finalizedBundles.find(candidate => candidate.id === previous.id);
+      return !next || next.verseKey !== previous.verseKey ? [previous.verseKey] : [];
+    });
+    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
+    const validBundleIds = new Set(finalizedBundles.map(bundle => bundle.id));
+    setBundles(finalizedBundles);
     setOfferDisplayGroups(groups => groups.map(group => ({ ...group, entries: group.entries.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)) })));
+  };
+
+  const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
+  const updateOfferDisplayGroups = (nextGroups: OfferDisplayGroup[]) => {
+    const existingById = new Map(offerDisplayGroups.map(group => [group.id, group]));
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
+    const finalizedGroups = nextGroups.map(group => {
+      const isNew = !existingById.has(group.id);
+      const shouldAllocate = isNew && group.verseKey === sanitizeVerseIdentifier(group.name);
+      if (!shouldAllocate) return group;
+      const nextKey = allocator.allocate(group.name);
+      return {
+        ...group,
+        verseKey: nextKey,
+        triggerDeviceName: group.triggerDeviceName === `${toPascalCase(group.verseKey)}Triggers`
+          ? `${toPascalCase(nextKey)}Triggers`
+          : group.triggerDeviceName,
+      };
+    });
+    const retired = offerDisplayGroups.flatMap(previous => {
+      const next = finalizedGroups.find(candidate => candidate.id === previous.id);
+      return !next || next.verseKey !== previous.verseKey ? [previous.verseKey] : [];
+    });
+    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
+    setOfferDisplayGroups(finalizedGroups);
   };
 
   return (
@@ -557,7 +657,7 @@ export const App: React.FC = () => {
       <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
       <Header
         config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
-        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups) })}
+        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys) })}
         onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
@@ -575,8 +675,8 @@ export const App: React.FC = () => {
       <main className="flex-1 px-4 lg:px-8 py-6">
         <EditorCapabilityNotice status={editorStatus} />
         {entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} onCreateEntitlement={requestOfferCreation} />}
-        {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} onChange={setOfferDisplayGroups} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div></div>
-          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} onChange={setOfferDisplayGroups} /></>}</div>
+        {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateOfferDisplayGroups} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div></div>
+          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateOfferDisplayGroups} /></>}</div>
           : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div>}
       </main>
 
