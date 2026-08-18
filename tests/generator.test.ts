@@ -357,6 +357,48 @@ test('new marketplace safeguards and public helpers are generated', () => {
   assert.match(source, /Shop zone entered; use a deliberate shop interaction/);
 });
 
+test('generated managed-file guidance keeps gameplay integration in external Verse', () => {
+  const source = generateVerseCode(items, bundles, config);
+  const migrated = generateVerseCode(items, bundles, config, [], [], { generatedApiVersion: 2, legacyApiCompatibility: true });
+
+  assert.match(source, /Generated and managed by ADEPT Interactive UEFN Entitlement Manager\. Do not edit manually\./);
+  assert.match(source, /Configure through UEM and integrate from your own Verse using the generated public API/);
+  assert.match(source, /Subscribe to the generated entitlement delta events from your own Verse to apply gameplay effects/);
+  assert.match(source, /Do not edit these handlers; regeneration may replace the managed implementation/);
+  assert.doesNotMatch(source, /Apply gameplay benefits here/);
+  assert.doesNotMatch(source, /Do not rely on BuyOffer or GrantEntitlement return values/);
+  assert.match(migrated, /Legacy UEM API compatibility only\. Prefer the canonical \*_GrantedEvent, \*_RemovedEvent, and \*_ReconciledEvent from your own Verse\./);
+  assert.doesNotMatch(migrated, /Prefer .*PurchasedEvent/);
+});
+
+test('canonical ownership and count helpers query entitlement state once and exclude offers', () => {
+  const itemWithAlternate = structuredClone(items[0]);
+  itemWithAlternate.alternateOffers = [{
+    id: 'vip-alt', verseKey: 'vip_pass_mobile', name: 'VIP Mobile', shortDescription: 'Mobile VIP access.', description: 'VIP access for mobile.', priceVBucks: 400,
+    iconTexture: 'EntitlementIcons.Icon_VIP', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+  const source = generateVerseCode([itemWithAlternate, items[1]], bundles, config, [{
+    id: 'coin-store', verseKey: 'coin_store', name: 'Coin Store', generateTriggerBinding: false,
+    triggerDeviceName: 'CoinStoreTriggers', entries: [{ entitlementId: 'vip' }, { bundleId: 'starter' }],
+  }]);
+
+  for (const [stem, verseKey] of [['VipPass', 'vip_pass'], ['MysteryCrate', 'mystery_crate']] as const) {
+    assert.match(source, new RegExp(`Get${stem}Count<public>\\(Player:player\\)<suspends>:int`));
+    assert.match(source, new RegExp(`Has${stem}<public>\\(Player:player\\)<suspends>:logic`));
+    assert.match(source, new RegExp(`Get${stem}Count<public>[\\s\\S]+GetPurchasedEntitlements\\(Player, ManagedEntitlements\\.${verseKey}_entitlement\\)`));
+    assert.match(source, new RegExp(`Has${stem}<public>[\\s\\S]+OwnedCount := Get${stem}Count\\(Player\\)[\\s\\S]+if \\(OwnedCount > 0\\):[\\s\\S]+return true[\\s\\S]+false`));
+    assert.match(source, new RegExp(`ReconcilePlayerEntitlements\\(Player:player\\)<suspends>:void =[^]*${stem}OwnedCount := Get${stem}Count\\(Player\\)`));
+  }
+
+  assert.equal((source.match(/GetVipPassCount<public>/g) ?? []).length, 1);
+  assert.equal((source.match(/HasVipPass<public>/g) ?? []).length, 1);
+  assert.doesNotMatch(source, /GetVipPassMobileCount<public>|HasVipPassMobile<public>/);
+  assert.doesNotMatch(source, /GetStarterBundleCount<public>|HasStarterBundle<public>/);
+  assert.doesNotMatch(source, /GetCoinStoreCount<public>|HasCoinStore<public>/);
+  assert.match(source, /GetMysteryCrateCount<public>[\s\S]+ManagedEntitlements\.mystery_crate_entitlement/);
+  assert.match(source, /GetMysteryCrateCount<public>[\s\S]+if \(Purchase := Purchases\[0\]\):[\s\S]+return Purchase\(1\)[\s\S]+0/);
+});
+
 test('GetMinPurchaseAge emits every configured restriction with a return and omits no-op overrides', () => {
   const cases: Array<{ name: string; restrictions?: OfferRestrictions }> = [
     { name: 'country only', restrictions: { blockedCountryCodes: ['CG'], blockedPlatformFamilies: [] } },

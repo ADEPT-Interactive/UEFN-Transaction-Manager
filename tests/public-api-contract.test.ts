@@ -4,6 +4,7 @@ import { generateVerseCode } from '../src/services/verseGenerator';
 import { publicApiBundles, publicApiConfig, publicApiDisplayGroups, publicApiItems } from './public-api-fixture';
 
 const legacyApiOptions = { generatedApiVersion: 1 as const };
+const canonicalApiOptions = { generatedApiVersion: 2 as const };
 
 function publicDeclarations(source: string): string[] {
   return source
@@ -139,4 +140,15 @@ test('public helper signatures preserve current return and suspension contracts'
   assert.match(source, /PromptBuyDynamicBundle<public>\(Player:player\):void/);
   assert.match(source, /ShowStorefront<public>\(Player:player\)<suspends>:void/);
   assert.match(source, /OpenStorefront<public>\(Player:player\):void/);
+});
+
+test('canonical ownership query helpers are public, suspending, and entitlement-scoped', () => {
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], canonicalApiOptions);
+  for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
+    assert.match(source, new RegExp(`Get${stem}Count<public>\\(Player:player\\)<suspends>:int`));
+    assert.match(source, new RegExp(`Has${stem}<public>\\(Player:player\\)<suspends>:logic`));
+  }
+  assert.doesNotMatch(source, /GetMysteryItemMobileCount<public>|HasMysteryItemMobile<public>/);
+  assert.doesNotMatch(source, /GetStarterBundleCount<public>|HasStarterBundle<public>/);
+  assert.doesNotMatch(source, /GetCoinStoreCount<public>|HasCoinStore<public>/);
 });

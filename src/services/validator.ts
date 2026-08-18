@@ -457,6 +457,8 @@ export function validateEntireProject(
       registerMember(`${pascal}_GrantedEvent`, item, 'verseKey');
       registerMember(`${pascal}_RemovedEvent`, item, 'verseKey');
       registerMember(`${pascal}_ReconciledEvent`, item, 'verseKey');
+      registerMember(`Get${pascal}Count`, item, 'verseKey');
+      registerMember(`Has${pascal}`, item, 'verseKey');
     }
     registerMember(`Process${pascal}Grant`, item, 'verseKey');
     registerMember(`Process${pascal}Removal`, item, 'verseKey');

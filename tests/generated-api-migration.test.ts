@@ -22,13 +22,15 @@ test('canonical API stems derive from stable keys, including numeric segments', 
   assert.equal(toVerseApiStem('__'), 'Item');
 });
 
-test('new API-v2 output exposes only canonical event, purchase, and storefront names', () => {
+test('new API-v2 output exposes canonical events, ownership queries, purchase, and storefront names', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], apiV2);
-  assert.equal(publicDeclarationCount(source), 88);
+  assert.equal(publicDeclarationCount(source), 96);
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
     assert.match(source, new RegExp(`${stem}_GrantedEvent<public>:event\\(tuple\\(player, int\\)\\)`));
     assert.match(source, new RegExp(`${stem}_RemovedEvent<public>:event\\(tuple\\(player, int\\)\\)`));
     assert.match(source, new RegExp(`${stem}_ReconciledEvent<public>:event\\(tuple\\(player, int\\)\\)`));
+    assert.match(source, new RegExp(`Get${stem}Count<public>\\(Player:player\\)<suspends>:int`));
+    assert.match(source, new RegExp(`Has${stem}<public>\\(Player:player\\)<suspends>:logic`));
     assert.doesNotMatch(source, new RegExp(`\\n\\s+${stem}(?:Entitlement|Ownership|Quantity|Purchase).*<public>`));
   }
   assert.match(source, /OpenAccessPassPurchase<public>\(Player:player\):void =/);
@@ -52,8 +54,10 @@ test('canonical event semantics collapse redundant legacy families', () => {
 
 test('migrated API-v2 output dual-signals reproducible v1 events and wraps old purchase helpers', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], migratedApiV2);
-  assert.equal(publicDeclarationCount(source), 121);
+  assert.equal(publicDeclarationCount(source), 129);
   assert.match(source, /AccessPass_GrantedEvent<public>/);
+  assert.match(source, /GetAccessPassCount<public>\(Player:player\)<suspends>:int/);
+  assert.match(source, /HasAccessPass<public>\(Player:player\)<suspends>:logic/);
   assert.match(source, /AccessPassEntitlementGrantedEvent<public>/);
   assert.match(source, /AccessPassPurchaseEvent<public>/);
   assert.match(source, /AccessPass_GrantedEvent\.Signal\(\(Player, Quantity\)\)/);
@@ -92,6 +96,8 @@ test('API-version parsing defaults old manifests to v1 and migration is idempote
   renamed[0].name = 'Renamed Access Offer';
   const renamedSource = generateVerseCode(renamed, publicApiBundles, publicApiConfig, publicApiDisplayGroups, [], apiV2);
   assert.match(renamedSource, /AccessPass_GrantedEvent<public>/);
+  assert.match(renamedSource, /GetAccessPassCount<public>/);
+  assert.doesNotMatch(renamedSource, /GetRenamedAccessOfferCount<public>/);
   assert.doesNotMatch(renamedSource, /RenamedAccessOffer_GrantedEvent<public>/);
 });
 
@@ -112,7 +118,9 @@ test('legacy timestamp-style keys and retired keys remain deterministic across s
     assert.deepEqual(parsed.retiredVerseKeys, ['old_entitlement_key']);
     const source = generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, [], parsed.retiredVerseKeys, migratedApiV2);
     assert.match(source, /DurableEntitlement1712345678_GrantedEvent<public>/);
+    assert.match(source, /GetDurableEntitlement1712345678Count<public>/);
     assert.doesNotMatch(source, /DurableEntitlement1712345678_2_GrantedEvent/);
+    assert.doesNotMatch(source, /GetDurableEntitlement1712345678_2Count<public>/);
   }
 });
 
@@ -158,4 +166,6 @@ test('explicit API v1 output remains available as the historical baseline', () =
   assert.match(source, /AccessPassEntitlementGrantedEvent<public>/);
   assert.match(source, /ShowStorefront<public>/);
   assert.doesNotMatch(source, /AccessPass_GrantedEvent<public>/);
+  assert.doesNotMatch(source, /GetAccessPassCount<public>|HasAccessPass<public>/);
+  assert.match(source, /AccessPassPurchases := GetPurchasedEntitlements\(Player, Phase4PublicApiEntitlements\.access_pass_entitlement\)/);
 });

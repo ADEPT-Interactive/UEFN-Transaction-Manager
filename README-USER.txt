@@ -21,6 +21,8 @@ canonical public events and functions to your gameplay systems. New projects use
 stable-key-based names such as OpenDurableEntitlementPurchase and
 DurableEntitlement_GrantedEvent. Existing API-v1 projects retain compatible
 legacy names during migration where their historical identity is reproducible.
+Use Get<StableKeyStem>Count and Has<StableKeyStem> from your own Verse to query
+current Marketplace ownership; do not edit the managed file.
 
 Test purchases, cancellations, refunds, consumption, saved state, and rejoin
 behavior in a real UEFN session before publishing.

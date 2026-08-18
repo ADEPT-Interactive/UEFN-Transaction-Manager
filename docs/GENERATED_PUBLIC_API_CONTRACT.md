@@ -1,6 +1,6 @@
 # Generated Verse Public API Contract
 
-Status: Phase 6 canonical API migration, 2026-08-18
+Status: Phase 7 canonical API migration and ownership queries, 2026-08-18
 
 This document defines the generated Verse surface that UEFN Entitlement Manager may expose to a creator's own Verse. It is a compatibility contract. The generated API version is separate from the managed-data schema version.
 
@@ -26,7 +26,7 @@ Display names, generated display modules, and persistent manifest IDs are data a
 
 The baseline was generated from `tests/public-api-fixture.ts` into `temp/phase4_public_api_fixture.verse`. The representative project contains four entitlements, one alternate offer, two durable items, two consumables, a paid-random item with odds, static and nested bundles, a dynamic remaining-quantity bundle, two focused storefronts, age/country/platform restrictions, trigger/button/zone bindings, auto-consume, and a global storefront binding.
 
-The clean API-v2 output contains 88 explicit `<public>` declarations and 9 UEFN-exposed `@editable` arrays for this fixture. The same fixture contains 100 declarations as API v1 and 121 when API-v1 compatibility is retained during migration. Counts vary with the catalog.
+The clean API-v2 output contains 96 explicit `<public>` declarations and 9 UEFN-exposed `@editable` arrays for this fixture. The same fixture contains 100 declarations as API v1 and 129 when API-v1 compatibility is retained during migration. Counts vary with the catalog. API-v2 ownership queries add two supported helpers per entitlement; they are not generated for alternate offers, bundles, or storefronts.
 
 | Category | Current generated declarations | Fixture count | Classification |
 | --- | --- | ---: | --- |
@@ -38,6 +38,7 @@ The clean API-v2 output contains 88 explicit `<public>` declarations and 9 UEFN-
 | Offer module and classes | `${offersModule}<public>`, `${verseKey}_offer<public>`, plus `${verseKey}_dynamic_offer<public>` for dynamic bundles | 10 | Potentially useful, needs justification |
 | Entitlement events | `<Stem>_GrantedEvent`, `<Stem>_RemovedEvent`, and `<Stem>_ReconciledEvent` in v2; old families only in v1 or migrated compatibility output | 12 | Supported canonical tuple events |
 | Grant and consume helpers | `Grant${Pascal}<public>`, `Consume${Pascal}<public>` for consumables | 6 | Supported developer API |
+| Ownership/count query helpers | `Get${Stem}Count<public>` and `Has${Stem}<public>` for each entitlement | 8 | Supported canonical API |
 | Purchase helpers | `Open${Stem}Purchase<public>` for items, alternates, and bundles | 8 | Supported canonical API |
 | Global storefront helpers | `OpenAllOffersStore<public>` | 1 | Supported canonical API |
 | Focused storefront helpers | `Open${StoreStem}<public>` per offer display group | 2 | Supported canonical API |
@@ -57,6 +58,8 @@ These are the deliberate integration points for creator-authored Verse:
 - `${Stem}_ReconciledEvent<public>:event(tuple(player, int))`.
 - `Grant${Pascal}<public>(Player:player, Quantity:int)<suspends>:void`.
 - `Consume${Pascal}<public>(Player:player, Quantity:int)<suspends>:void` for consumables.
+- `Get${Stem}Count<public>(Player:player)<suspends>:int` for each managed entitlement.
+- `Has${Stem}<public>(Player:player)<suspends>:logic` for each managed entitlement, including consumables.
 - `Open${Stem}Purchase<public>(Player:player):void`, including alternate and bundle variants.
 - `OpenAllOffersStore<public>(Player:player):void`.
 - `Open${StoreStem}<public>(Player:player):void` for focused storefronts.
@@ -117,6 +120,16 @@ X_ReconciledEvent : event(tuple(player, int))
 
 API v2 does not generate `PurchasedEvent`, `OwnershipRemovedEvent`, `QuantityDecreasedEvent`, or a canonical `OwnershipVerifiedEvent`. A positive reconciliation count communicates ownership; migrated API-v1 output still signals the legacy ownership-verification event when it was part of the historical shape.
 
+## Ownership and count query semantics
+
+`Get${Stem}Count(Player)` is a suspending query of the current Marketplace state for the generated concrete entitlement type. It calls `GetPurchasedEntitlements(Player, ${entitlementsModule}.${verseKey}_entitlement)` and returns the owned quantity from the first matching result. If the Marketplace result contains no matching entitlement, it returns `0`. It does not use a cached map or the latest entitlement-change event, so it reflects purchases, direct grants, consumption, decreases, restoration, and other current Marketplace state when the query completes.
+
+`Has${Stem}(Player)` calls the corresponding count helper and returns `true` when the count is greater than zero, otherwise `false`. The same predictable rule is used for durable and consumable entitlements: `HasCoins` means the player currently owns at least one coin entitlement, while `GetCoinsCount` supplies the quantity. The helpers are suspending because the underlying Marketplace query suspends.
+
+Alternate offers are purchase paths for the same entitlement inventory and do not create duplicate query helpers. Bundles contain offers whose component entitlements are queried individually, so UEM does not generate `GetStarterBundleCount` or `HasStarterBundle`. Storefronts only open offer dialogs and never receive ownership helpers.
+
+Query helpers and reconciliation events serve different purposes. `Get${Stem}Count` and `Has${Stem}` let external Verse ask for a current snapshot explicitly. `${Stem}_GrantedEvent`, `${Stem}_RemovedEvent`, and `${Stem}_ReconciledEvent` notify external Verse about authoritative deltas or the join-time snapshot. Query helpers do not replace or suppress those events.
+
 ## Grant and consume helpers
 
 `Grant${Pascal}` calls `GrantEntitlement(Player, Entitlement, ?Count := Quantity)`. `Consume${Pascal}` calls `ConsumeEntitlement(Player, Entitlement, ?Count := Quantity)`. Both public helpers validate that the requested quantity is positive, are suspending functions, return `void`, and print a failure message when the underlying optional result is not successful. The underlying result is intentionally discarded by the public contract.
@@ -167,6 +180,25 @@ Transactions : managed_transactions_device = managed_transactions_device{}
 Transactions.OpenAllOffersStore(Player)
 ```
 
+An external device can use the placed generated device for both event integration and an explicit current-state query:
+
+```verse
+using { /Fortnite.com/Devices }
+
+my_game_device := class(creative_device):
+    @editable
+    Transactions : managed_transactions_device = managed_transactions_device{}
+
+    OnBegin<override>()<suspends>:void =
+        Transactions.AccessPass_GrantedEvent.Subscribe(OnAccessPassGranted)
+
+    CheckAccess(Player:player)<suspends>:void =
+        OwnedCount := Transactions.GetAccessPassCount(Player)
+        # Apply game-specific state from OwnedCount in this external device.
+```
+
+The generated managed file remains UEM-owned. Subscribe to its canonical delta events and call its public query helpers from external Verse; do not add gameplay code to generated `Process...` handlers.
+
 The class name, its placement identity, and every editable property name are compatibility-sensitive even though the class declaration and fields are not marked `<public>`. UEFN serializes placed-device property assignments. Editable renames therefore need preservation or an explicit migration, not a silent source-level rename.
 
 ## Compatibility model
@@ -204,14 +236,13 @@ API v2 adds `generatedApiVersion: 2` to new manifests. A missing value safely de
 
 ## Deliberate non-changes and deferrals
 
-Phase 6 does not:
+Phase 7 does not:
 
 - rename entitlement keys, bundle keys, editables, modules, or the device class;
 - change persisted `purchaseEventName`; it remains legacy compatibility data and is not the canonical event identity;
 - change Grant or Consume return types;
-- add query helpers;
 - genericize purchase or storefront execution;
-- change reconciliation, logging, or zone behavior;
+- optimize reconciliation beyond its per-entitlement Marketplace query architecture, or change logging or zone behavior;
 - implement dynamic-offer live restriction parity;
 - add richer external-disclosure location modeling;
 - add a structured probability or reward editor.

@@ -76,6 +76,25 @@ Transactions.DurableEntitlement_ReconciledEvent.Subscribe(OnReconciled)
 
 The global storefront helper is `OpenAllOffersStore(Player)`. Focused storefronts use `Open<StableKeyStem>(Player)`. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
 
+Use the generated device from your own Verse for both event integration and current Marketplace queries:
+
+```verse
+using { /Fortnite.com/Devices }
+
+my_game_device := class(creative_device):
+    @editable
+    Transactions : managed_transactions_device = managed_transactions_device{}
+
+    OnBegin<override>()<suspends>:void =
+        Transactions.AccessPass_GrantedEvent.Subscribe(OnAccessPassGranted)
+
+    CheckAccess(Player:player)<suspends>:void =
+        OwnedCount := Transactions.GetAccessPassCount(Player)
+        # Apply game-specific state from OwnedCount in this external device.
+```
+
+`GetAccessPassCount` and `HasAccessPass` query current Marketplace state. The same `Get<StableKeyStem>Count` and `Has<StableKeyStem>` helpers are generated for consumables; `HasX` means the current count is greater than zero. Alternate offers share the parent entitlement's helpers, while bundles and storefronts do not get ownership helpers.
+
 UEM automatically migrates manifests without `generatedApiVersion` as API v1. Migrated projects receive the canonical API plus reproducible `PromptBuy...`, legacy event, `OpenStorefront`, and unsafe `Show...` compatibility symbols where possible. New API-v2 projects do not generate those legacy symbols. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
 
 ## Native icon import
