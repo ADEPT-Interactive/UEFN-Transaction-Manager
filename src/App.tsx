@@ -8,13 +8,13 @@ import { ValidationReportModal } from './components/ValidationReportModal';
 import { ProjectSettingsModal } from './components/ProjectSettingsModal';
 import { BundleManager } from './components/BundleManager';
 import { OfferDisplayManager } from './components/OfferDisplayManager';
-import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from './types/entitlement';
+import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from './types/entitlement';
 import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets';
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
 import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
 import { EditorStatus, FileService } from './services/fileService';
-import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray } from './services/projectSchema';
+import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray, parseStoredStorefrontMembership } from './services/projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
 import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
@@ -123,13 +123,20 @@ function loadBundles(): BundleOffer[] {
   }
 }
 
-function loadOfferDisplayGroups(): OfferDisplayGroup[] {
+function loadStorefrontMembership(entitlements: EntitlementItem[], bundles: BundleOffer[]): StorefrontMembership {
   try {
-    return (parseStoredArray(localStorage.getItem(storageKey('offerDisplayGroups')), 'offerDisplayGroups') as OfferDisplayGroup[] | null) ?? [];
+    const stored = localStorage.getItem(storageKey('storefrontMembership')) ?? localStorage.getItem(storageKey('offerDisplayGroups'));
+    return parseStoredStorefrontMembership(stored, entitlements, bundles);
   } catch {
-    localStorage.removeItem(storageKey('offerDisplayGroups'));
-    return [];
+    localStorage.removeItem(storageKey('storefrontMembership'));
+    return legacyStorefrontMembershipFallback(entitlements, bundles);
   }
+}
+
+function legacyStorefrontMembershipFallback(entitlements: EntitlementItem[], bundles: BundleOffer[]): StorefrontMembership {
+  const allOffers: StorefrontMembership['allOffers'] = entitlements.flatMap(item => [{ entitlementId: item.id }, ...(item.alternateOffers ?? []).map(offer => ({ entitlementId: item.id, offerVerseKey: offer.verseKey }))] as StorefrontMembership['allOffers'])
+    .concat(bundles.filter(bundle => !bundle.dynamicRemaining).map(bundle => ({ bundleId: bundle.id }) as StorefrontMembership['allOffers'][number]));
+  return { allOffers, focused: [] };
 }
 
 function loadRetiredVerseKeys(): string[] {
@@ -146,18 +153,18 @@ function allocateProjectVerseKey(
   name: string,
   entitlements: EntitlementItem[],
   bundles: BundleOffer[],
-  offerDisplayGroups: OfferDisplayGroup[],
+  storefrontMembership: StorefrontMembership,
   retiredVerseKeys: string[],
 ): string {
-  return createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys).allocate(name);
+  return createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys).allocate(name);
 }
 
 function addRetiredVerseKeys(current: string[], keys: Iterable<string>): string[] {
   return normalizeRetiredVerseKeys([...current, ...keys]);
 }
 
-function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], offerDisplayGroups: OfferDisplayGroup[], retiredVerseKeys: string[], config: ProjectConfig): string {
-  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys), config: { ...config, contentFolderPath: '' } });
+function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], storefrontMembership: StorefrontMembership, retiredVerseKeys: string[], config: ProjectConfig): string {
+  return JSON.stringify({ ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys), config: { ...config, contentFolderPath: '' } });
 }
 
 async function hydrateProjectImages(
@@ -281,10 +288,10 @@ export const App: React.FC = () => {
   const [config, setConfig] = useState(loadConfig);
   const [entitlements, setEntitlements] = useState(loadEntitlements);
   const [bundles, setBundles] = useState(loadBundles);
-  const [offerDisplayGroups, setOfferDisplayGroups] = useState(loadOfferDisplayGroups);
+  const [storefrontMembership, setStorefrontMembership] = useState(() => loadStorefrontMembership(loadEntitlements(), loadBundles()));
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
   const [projectDataDiagnostics, setProjectDataDiagnostics] = useState<string[]>([]);
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadOfferDisplayGroups(), loadRetiredVerseKeys(), loadConfig()));
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadStorefrontMembership(loadEntitlements(), loadBundles()), loadRetiredVerseKeys(), loadConfig()));
   const [creationChooserRequest, setCreationChooserRequest] = useState(0);
   const [activeViewMode, setActiveViewMode] = useState<'split' | 'catalog' | 'verse'>('catalog');
   const [editingItem, setEditingItem] = useState<EntitlementItem | null>(null);
@@ -304,9 +311,9 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys), [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys]);
+  const verseCode = useMemo(() => generateVerseCode(entitlements, bundles, config, storefrontMembership, retiredVerseKeys), [entitlements, bundles, config, storefrontMembership, retiredVerseKeys]);
   const validationIssues = useMemo(() => {
-    const issues = validateEntireProject(entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys);
+    const issues = validateEntireProject(entitlements, bundles, config, storefrontMembership, retiredVerseKeys);
     if (projectDataDiagnostics.length) issues.unshift({
       id: 'project-data-migration', severity: 'warning', ruleName: 'project_data_migration', field: 'verseKey',
       message: `Project data was migrated or normalized while loading. Review: ${projectDataDiagnostics.join(' ')}`,
@@ -316,24 +323,25 @@ export const App: React.FC = () => {
       message: `${unmanagedTargetFile} is not managed by this tool and cannot be overwritten. Choose a new target filename in Settings.`,
     });
     return issues;
-  }, [entitlements, bundles, config, offerDisplayGroups, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
+  }, [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
-  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config), [entitlements, bundles, offerDisplayGroups, retiredVerseKeys, config]);
+  const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
 
   useEffect(() => {
     try {
       localStorage.setItem(storageKey('config'), JSON.stringify({ ...config, contentFolderPath: '' }));
-      const clean = cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
+      const clean = cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys);
       localStorage.setItem(storageKey('entitlements'), JSON.stringify(clean.entitlements));
       localStorage.setItem(storageKey('bundles'), JSON.stringify(clean.bundles));
-      localStorage.setItem(storageKey('offerDisplayGroups'), JSON.stringify(clean.offerDisplayGroups));
+      localStorage.setItem(storageKey('storefrontMembership'), JSON.stringify(clean.storefrontMembership));
+      localStorage.removeItem(storageKey('offerDisplayGroups'));
       localStorage.setItem(storageKey('retiredVerseKeys'), JSON.stringify(retiredVerseKeys));
     } catch {
       setStatus({ message: 'Browser storage is full or unavailable. Export a preset to preserve this session.', error: true });
     }
-  }, [config, entitlements, bundles, offerDisplayGroups, retiredVerseKeys]);
+  }, [config, entitlements, bundles, storefrontMembership, retiredVerseKeys]);
 
   useEffect(() => {
     let active = true;
@@ -349,7 +357,7 @@ export const App: React.FC = () => {
       setEditorStatus(await FileService.getEditorStatus());
       let loadedEntitlements = entitlements;
       let loadedBundles = bundles;
-      let loadedOfferDisplayGroups = offerDisplayGroups;
+      let loadedStorefrontMembership = storefrontMembership;
       let loadedRetiredVerseKeys = retiredVerseKeys;
       let loadedProjectDataDiagnostics: string[] = [];
       const result = await FileService.loadVerseFile(config.targetVerseFileName);
@@ -362,12 +370,12 @@ export const App: React.FC = () => {
         }
         loadedEntitlements = parsed.entitlements;
         loadedBundles = parsed.bundles;
-        loadedOfferDisplayGroups = parsed.offerDisplayGroups;
+        loadedStorefrontMembership = parsed.storefrontMembership;
         loadedRetiredVerseKeys = parsed.retiredVerseKeys;
         loadedProjectDataDiagnostics = parsed.projectDataDiagnostics;
         setUnmanagedTargetFile(null);
         setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedOfferDisplayGroups, loadedRetiredVerseKeys, config));
+        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedStorefrontMembership, loadedRetiredVerseKeys, config));
       } else if (result.status !== 404) {
         setStatus({ message: result.error ?? 'The configured Verse file could not be inspected.', error: true });
         return;
@@ -378,7 +386,7 @@ export const App: React.FC = () => {
       if (!active) return;
       setEntitlements(hydrated.entitlements);
       setBundles(hydrated.bundles);
-      setOfferDisplayGroups(loadedOfferDisplayGroups);
+      setStorefrontMembership(loadedStorefrontMembership);
       setRetiredVerseKeys(loadedRetiredVerseKeys);
       setProjectDataDiagnostics(loadedProjectDataDiagnostics);
       const diagnosticNote = loadedProjectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
@@ -476,12 +484,12 @@ export const App: React.FC = () => {
     const hydrated = await hydrateProjectImages(parsed.entitlements, parsed.bundles, config.assetFolderName);
     setEntitlements(hydrated.entitlements);
     setBundles(hydrated.bundles);
-    setOfferDisplayGroups(parsed.offerDisplayGroups);
+    setStorefrontMembership(parsed.storefrontMembership);
     setRetiredVerseKeys(parsed.retiredVerseKeys);
     setProjectDataDiagnostics(parsed.projectDataDiagnostics);
     setUnmanagedTargetFile(null);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.offerDisplayGroups, parsed.retiredVerseKeys, config));
+    setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, parsed.storefrontMembership, parsed.retiredVerseKeys, config));
     const diagnosticNote = parsed.projectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
     setStatus({ message: `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${diagnosticNote}` });
   };
@@ -517,7 +525,7 @@ export const App: React.FC = () => {
 
   const addPreset = (index: number) => {
     const normalized = normalizeEntitlement(DEFAULT_PRESETS[index % DEFAULT_PRESETS.length], index);
-    const verseKey = allocateProjectVerseKey(normalized.name, entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
+    const verseKey = allocateProjectVerseKey(normalized.name, entitlements, bundles, storefrontMembership, retiredVerseKeys);
     setEditingItem({ ...normalized, id: `new-${crypto.randomUUID()}`, verseKey, iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`, iconImageData: undefined, iconFileName: undefined });
     setIsModalOpen(true);
   };
@@ -534,11 +542,11 @@ export const App: React.FC = () => {
         const nextConfig = normalizeProjectConfig(raw?.config, config);
         setEntitlements(data.entitlements);
         setBundles(data.bundles);
-        setOfferDisplayGroups(data.offerDisplayGroups);
+        setStorefrontMembership(data.storefrontMembership);
         setRetiredVerseKeys(data.retiredVerseKeys);
         setProjectDataDiagnostics([...new Set([...data.projectDataDiagnostics, ...legacyProjectConfigDiagnostics(raw)])]);
         setConfig(nextConfig);
-        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.offerDisplayGroups.length} offer displays. Review validation before saving.` });
+        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.storefrontMembership.focused.length} focused storefronts. Review validation before saving.` });
       } catch (error) {
         setStatus({ message: error instanceof Error ? `Preset rejected: ${error.message}` : 'Preset JSON is invalid.', error: true });
       }
@@ -560,7 +568,7 @@ export const App: React.FC = () => {
   const saveModalItem = (item: EntitlementItem) => {
     const isDraft = item.id.startsWith('new-');
     const previousItem = entitlements.find(existing => existing.id === item.id);
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
     const shouldAllocateDraftKey = isDraft && item.verseKey === sanitizeVerseIdentifier(item.name);
     const draftVerseKey = shouldAllocateDraftKey ? allocator.allocate(item.name) : item.verseKey;
     if (!shouldAllocateDraftKey && isDraft) allocator.reserveExisting(item.verseKey);
@@ -586,10 +594,18 @@ export const App: React.FC = () => {
     if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
     setEntitlements(items => items.some(existing => existing.id === item.id) ? items.map(existing => existing.id === item.id ? persistedItem : existing) : [...items, persistedItem]);
     const validOfferKeys = new Set([persistedItem.verseKey, ...(persistedItem.alternateOffers ?? []).map(offer => offer.verseKey)]);
-    setOfferDisplayGroups(groups => groups.map(group => ({
-      ...group,
-      entries: group.entries.map(entry => entry.entitlementId === item.id ? { ...entry, entitlementId: persistedItem.id } : entry).filter(entry => entry.entitlementId !== persistedItem.id || !entry.offerVerseKey || validOfferKeys.has(entry.offerVerseKey)),
-    })));
+    setStorefrontMembership(current => ({
+      allOffers: [
+        ...current.allOffers
+          .map(entry => entry.entitlementId === item.id ? { ...entry, entitlementId: persistedItem.id } : entry)
+          .filter(entry => entry.entitlementId !== persistedItem.id || !entry.offerVerseKey || validOfferKeys.has(entry.offerVerseKey)),
+        ...(isDraft && !current.allOffers.some(entry => entry.entitlementId === persistedItem.id) ? [{ entitlementId: persistedItem.id }] : []),
+      ],
+      focused: current.focused.map(group => ({
+        ...group,
+        entries: group.entries.map(entry => entry.entitlementId === item.id ? { ...entry, entitlementId: persistedItem.id } : entry).filter(entry => entry.entitlementId !== persistedItem.id || !entry.offerVerseKey || validOfferKeys.has(entry.offerVerseKey)),
+      })),
+    }));
     setIsModalOpen(false);
     setEditingItem(null);
   };
@@ -598,21 +614,28 @@ export const App: React.FC = () => {
     setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, [item.verseKey, ...(item.alternateOffers ?? []).map(offer => offer.verseKey)]));
     setEntitlements(items => items.filter(candidate => candidate.id !== item.id));
     setBundles(items => items.map(bundle => ({ ...bundle, items: bundle.items.filter(entry => entry.entitlementId !== item.id) })));
-    setOfferDisplayGroups(groups => groups.map(group => ({ ...group, entries: group.entries.filter(entry => entry.entitlementId !== item.id) })));
+    setStorefrontMembership(current => ({
+      allOffers: current.allOffers.filter(entry => entry.entitlementId !== item.id),
+      focused: current.focused.map(group => ({ ...group, entries: group.entries.filter(entry => entry.entitlementId !== item.id) })),
+    }));
     setPendingDelete(null);
   };
 
   const listProps = {
     entitlements, bundles, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
-    onDuplicate: (item: EntitlementItem) => setEntitlements(items => [...items, duplicateEntitlement(item, items, bundles, crypto.randomUUID, offerDisplayGroups)]),
+    onDuplicate: (item: EntitlementItem) => {
+      const copy = duplicateEntitlement(item, entitlements, bundles, crypto.randomUUID, storefrontMembership.focused);
+      setEntitlements(items => [...items, copy]);
+      setStorefrontMembership(current => ({ ...current, allOffers: current.allOffers.some(entry => entry.entitlementId === copy.id) ? current.allOffers : [...current.allOffers, { entitlementId: copy.id }] }));
+    },
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
   };
 
   const requestOfferCreation = () => setCreationChooserRequest(request => request + 1);
   const updateBundles = (nextBundles: BundleOffer[]) => {
     const existingById = new Map(bundles.map(bundle => [bundle.id, bundle]));
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
     const finalizedBundles = nextBundles.map(bundle => {
       const isNew = !existingById.has(bundle.id);
       const shouldAllocate = isNew && bundle.verseKey === sanitizeVerseIdentifier(bundle.name);
@@ -625,26 +648,45 @@ export const App: React.FC = () => {
     if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
     const validBundleIds = new Set(finalizedBundles.map(bundle => bundle.id));
     setBundles(finalizedBundles);
-    setOfferDisplayGroups(groups => groups.map(group => ({ ...group, entries: group.entries.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)) })));
+    const previouslyKnownIds = new Set(bundles.map(bundle => bundle.id));
+    const newlyCreatedStatic = finalizedBundles.filter(bundle => !previouslyKnownIds.has(bundle.id) && !bundle.dynamicRemaining).map(bundle => ({ bundleId: bundle.id }));
+    setStorefrontMembership(current => ({
+      allOffers: [...current.allOffers.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)), ...newlyCreatedStatic],
+      focused: current.focused.map(group => ({ ...group, entries: group.entries.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)) })),
+    }));
   };
 
-  const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, offerDisplayGroups, retiredVerseKeys);
-  const updateOfferDisplayGroups = (nextGroups: OfferDisplayGroup[]) => {
-    const existingById = new Map(offerDisplayGroups.map(group => [group.id, group]));
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, offerDisplayGroups), retiredVerseKeys);
-    const finalizedGroups = nextGroups.map(group => {
+  const duplicateBundle = (bundle: BundleOffer) => {
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
+    const copy: BundleOffer = {
+      ...bundle,
+      id: `bundle-${crypto.randomUUID()}`,
+      verseKey: allocator.allocate(`${bundle.name} Copy`),
+      name: `${bundle.name} Copy`,
+      items: bundle.items.map(entry => ({ ...entry })),
+      restrictions: bundle.restrictions ? { ...bundle.restrictions, blockedCountryCodes: [...bundle.restrictions.blockedCountryCodes], blockedPlatformFamilies: [...bundle.restrictions.blockedPlatformFamilies] } : undefined,
+    };
+    setBundles(current => [...current, copy]);
+    if (!copy.dynamicRemaining) setStorefrontMembership(current => ({ ...current, allOffers: [...current.allOffers, { bundleId: copy.id }] }));
+  };
+
+  const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, storefrontMembership, retiredVerseKeys);
+  const updateStorefrontMembership = (nextMembership: StorefrontMembership) => {
+    const existingById = new Map(storefrontMembership.focused.map(group => [group.id, group]));
+    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
+    const finalizedGroups = nextMembership.focused.map(group => {
       const isNew = !existingById.has(group.id);
       const shouldAllocate = isNew && group.verseKey === sanitizeVerseIdentifier(group.name);
       if (!shouldAllocate) return group;
       const nextKey = allocator.allocate(group.name);
       return { ...group, verseKey: nextKey };
     });
-    const retired = offerDisplayGroups.flatMap(previous => {
+    const retired = storefrontMembership.focused.flatMap(previous => {
       const next = finalizedGroups.find(candidate => candidate.id === previous.id);
       return !next || next.verseKey !== previous.verseKey ? [previous.verseKey] : [];
     });
     if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
-    setOfferDisplayGroups(finalizedGroups);
+    setStorefrontMembership({ allOffers: nextMembership.allOffers, focused: finalizedGroups });
   };
 
   return (
@@ -652,7 +694,7 @@ export const App: React.FC = () => {
       <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
       <Header
         config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
-        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys) })}
+        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
         onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
@@ -670,15 +712,15 @@ export const App: React.FC = () => {
       <main className="flex-1 px-4 lg:px-8 py-6">
         <EditorCapabilityNotice status={editorStatus} />
         {entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} onCreateEntitlement={requestOfferCreation} />}
-        {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateOfferDisplayGroups} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div></div>
-          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} /><OfferDisplayManager groups={offerDisplayGroups} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateOfferDisplayGroups} /></>}</div>
-          : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div>}
+        {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div></div>
+          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
+          : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div>}
       </main>
 
       <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
-      <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} />
+      <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and focused storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />

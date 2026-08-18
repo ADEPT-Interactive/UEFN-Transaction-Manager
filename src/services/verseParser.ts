@@ -1,4 +1,4 @@
-import { BundleOffer, EntitlementItem, OfferDisplayGroup } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, OfferDisplayGroup, StorefrontMembership } from '../types/entitlement';
 import { parseManagedData } from './projectSchema';
 
 export const MANIFEST_BEGIN = '# UEFN_ENTITLEMENT_MANAGER_DATA_BEGIN';
@@ -8,6 +8,8 @@ const MANIFEST_LINE = '# UEM_DATA ';
 export interface VerseParseResult {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
+  storefrontMembership: StorefrontMembership;
+  /** @deprecated Use storefrontMembership.focused. */
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
   projectDataDiagnostics: string[];
@@ -29,6 +31,7 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
     return {
       entitlements: [],
       bundles: [],
+      storefrontMembership: { allOffers: [], focused: [] },
       offerDisplayGroups: [],
       retiredVerseKeys: [],
       projectDataDiagnostics: [],
@@ -55,6 +58,7 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
     return {
       entitlements: [],
       bundles: [],
+      storefrontMembership: { allOffers: [], focused: [] },
       offerDisplayGroups: [],
       retiredVerseKeys: [],
       projectDataDiagnostics: [],

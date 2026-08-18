@@ -88,7 +88,7 @@ test('legacy custom editable names load, warn, and converge to canonical output'
   const parsed = parseManagedData({ schemaVersion: 4, entitlements: [rawItem], bundles: [], offerDisplayGroups: [rawGroup] });
   assert.equal(parsed.entitlements[0].triggers.generateTriggerBinding, true);
   assert.equal('triggerDeviceName' in parsed.entitlements[0].triggers, false);
-  assert.equal(parsed.projectDataDiagnostics.length, 4);
+  assert.equal(parsed.projectDataDiagnostics.length, 5);
   assert.ok(parsed.projectDataDiagnostics.filter(message => /legacy editable name|reassigned/i.test(message)).length === 3);
   assert.ok(parsed.projectDataDiagnostics.some(message => /Purchase Zone bindings are no longer supported/i.test(message)));
   assert.deepEqual(legacyProjectConfigDiagnostics({ config: { allowAutomaticZonePrompts: true } }), [
@@ -103,7 +103,7 @@ test('legacy custom editable names load, warn, and converge to canonical output'
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered/);
   const cleaned = cleanManagedData(parsed.entitlements, parsed.bundles, parsed.offerDisplayGroups);
   assert.equal('triggerDeviceName' in cleaned.entitlements[0].triggers, false);
-  assert.equal('triggerDeviceName' in cleaned.offerDisplayGroups[0], false);
+  assert.equal('triggerDeviceName' in cleaned.storefrontMembership.focused[0], false);
 });
 
 test('only enabled bindings are emitted and bundles remain one logical storefront surface', () => {

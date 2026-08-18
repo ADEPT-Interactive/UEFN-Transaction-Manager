@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef } from 'react';
 import { BookOpenCheck, ExternalLink, X } from 'lucide-react';
-import { EntitlementItem, OfferDisplayGroup, ProjectConfig } from '../types/entitlement';
+import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
 import { toPascalCase } from '../services/validator';
 import { entitlementEditableNames, storefrontEditableName } from '../services/editableBindings';
 import { handleExternalLinkClick } from '../services/externalLink';
@@ -9,10 +9,10 @@ import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_
 interface SetupPanelProps {
   config: ProjectConfig;
   entitlements: EntitlementItem[];
-  offerDisplayGroups: OfferDisplayGroup[];
+  storefrontMembership: StorefrontMembership;
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, offerDisplayGroups }) => (
+export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, storefrontMembership }) => (
   <div className="space-y-3 text-xs text-slate-300">
     <ol className="grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4">
       <li className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="block text-cyan-300">1. Open your UEFN project</strong><span className="mt-1 block text-slate-400">Open the project you want to use with UEM.</span></li>
@@ -49,7 +49,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, of
             </div>
           );
         })}
-        {offerDisplayGroups.length > 0 && <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="text-white">Focused storefronts</strong><p className="mt-1 text-[11px] text-slate-400">These display selected offers as individually purchasable cards. They are not bundles.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{offerDisplayGroups.map(group => { const pascal = toPascalCase(group.verseKey); return <div key={group.id} className="rounded-lg bg-slate-950/50 p-2"><span className="block font-semibold text-white">{group.name}</span><code className="block text-[10px] text-emerald-200">Open{pascal}(Player)</code>{group.generateTriggerBinding && <span className="mt-1 block text-[10px] text-slate-500">Open trigger array: <code>{storefrontEditableName(group.verseKey)}</code></span>}</div>; })}</div></div>}
+        {storefrontMembership.focused.length > 0 && <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="text-white">Focused storefronts</strong><p className="mt-1 text-[11px] text-slate-400">These display selected offers as individually purchasable cards. They are not bundles.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{storefrontMembership.focused.map(group => { const pascal = toPascalCase(group.verseKey); return <div key={group.id} className="rounded-lg bg-slate-950/50 p-2"><span className="block font-semibold text-white">{group.name}</span><code className="block text-[10px] text-emerald-200">Open{pascal}(Player)</code>{group.generateTriggerBinding && <span className="mt-1 block text-[10px] text-slate-500">Open trigger array: <code>{storefrontEditableName(group.verseKey)}</code></span>}</div>; })}</div></div>}
       </>
     )}
     <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-800 pt-3 text-[11px]">

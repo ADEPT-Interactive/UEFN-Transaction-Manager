@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Boxes, Edit3, Plus, Trash2, X } from 'lucide-react';
+import { Boxes, Copy, Edit3, Plus, Trash2, X } from 'lucide-react';
 import { BundleOffer, EntitlementItem } from '../types/entitlement';
 import { sanitizeVerseIdentifier, validateBundleOffer } from '../services/validator';
 import { draftVerseKeyForName } from '../services/verseIdentity';
@@ -14,6 +14,7 @@ interface BundleManagerProps {
   assetFolderName: string;
   allocateVerseKey: (name: string) => string;
   onChange: (bundles: BundleOffer[]) => void;
+  onDuplicate: (bundle: BundleOffer) => void;
 }
 
 const emptyBundle = (assetFolder: string, verseKey: string): BundleOffer => ({
@@ -30,7 +31,7 @@ const emptyBundle = (assetFolder: string, verseKey: string): BundleOffer => ({
   items: [],
 });
 
-export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitlements, assetFolderName, allocateVerseKey, onChange }) => {
+export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitlements, assetFolderName, allocateVerseKey, onChange, onDuplicate }) => {
   const [editing, setEditing] = useState<BundleOffer | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BundleOffer | null>(null);
 
@@ -53,6 +54,7 @@ export const BundleManager: React.FC<BundleManagerProps> = ({ bundles, entitleme
             <article key={bundle.id} className="rounded-2xl border border-slate-800 bg-[#0f1629]/70 p-4 flex items-start justify-between gap-3">
               <div><h3 className="font-bold text-sm text-white">{bundle.name}</h3><p className="text-[11px] text-cyan-300 font-mono">{bundle.verseKey}_offer</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-400">{bundle.items.length} entries <span aria-hidden="true">·</span> <VBucksIcon className="h-3.5 w-3.5 text-sky-400" /> <span>{bundle.priceVBucks.toLocaleString()} V-Bucks</span></p></div>
               <div className="flex gap-1">
+                <button type="button" aria-label={`Duplicate ${bundle.name}`} onClick={() => onDuplicate(bundle)} className="p-2 text-slate-400 hover:text-slate-200"><Copy className="w-4 h-4" /></button>
                 <button type="button" aria-label={`Edit ${bundle.name}`} onClick={() => setEditing(bundle)} className="p-2 text-slate-400 hover:text-cyan-300"><Edit3 className="w-4 h-4" /></button>
                 <button type="button" aria-label={`Delete ${bundle.name}`} onClick={() => setPendingDelete(bundle)} className="p-2 text-slate-400 hover:text-rose-300"><Trash2 className="w-4 h-4" /></button>
               </div>

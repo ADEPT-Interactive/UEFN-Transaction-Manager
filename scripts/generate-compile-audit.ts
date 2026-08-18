@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generateVerseCode } from '../src/services/verseGenerator';
-import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig } from '../src/types/entitlement';
+import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../src/types/entitlement';
 
 const outputPath = process.argv[2];
 if (!outputPath || path.basename(outputPath) !== 'uem_generator_audit.verse') {
@@ -45,10 +45,10 @@ const bundles: BundleOffer[] = [{
   items: [{ entitlementId: 'audit-coins', quantity: 1 }, { entitlementId: 'audit-access', quantity: 1 }],
 }];
 
-const displays: OfferDisplayGroup[] = [{
-  id: 'audit-store', verseKey: 'uem_audit_store', name: 'Audit Store', generateTriggerBinding: true,
-  triggerDeviceName: 'UemAuditStoreTriggers', entries: [{ entitlementId: 'audit-coins' }, { bundleId: 'audit-bundle' }],
-}];
+const storefrontMembership: StorefrontMembership = {
+  allOffers: [{ entitlementId: 'audit-coins' }, { entitlementId: 'audit-access' }, { bundleId: 'audit-bundle' }],
+  focused: [{ id: 'audit-store', verseKey: 'uem_audit_store', name: 'Audit Store', generateTriggerBinding: true, entries: [{ entitlementId: 'audit-coins' }, { bundleId: 'audit-bundle' }] }],
+};
 
-fs.writeFileSync(outputPath, generateVerseCode(entitlements, bundles, config, displays), 'utf8');
+fs.writeFileSync(outputPath, generateVerseCode(entitlements, bundles, config, storefrontMembership), 'utf8');
 console.log(`Wrote ${outputPath}`);

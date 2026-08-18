@@ -1,8 +1,9 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig, ValidationIssue } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
+import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
@@ -342,7 +343,7 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
   if (!validateVerseIdentifier(group.verseKey)) issues.push(issue(`${group.id}-key`, 'error', 'Offer display Verse key must be a valid Verse identifier.', 'offer_display_identifier', 'verseKey'));
   if (allGroups.some(candidate => candidate.id !== group.id && candidate.verseKey.toLowerCase() === group.verseKey.toLowerCase())) issues.push(issue(`${group.id}-key-duplicate`, 'error', `Offer display Verse key "${group.verseKey}" is already used.`, 'offer_display_identifier_unique', 'verseKey'));
   if (!group.name.trim() || group.name.length > MAX_NAME_LENGTH) issues.push(issue(`${group.id}-name`, 'error', `Offer display title is required and must be ${MAX_NAME_LENGTH} characters or fewer.`, 'offer_display_name', 'name'));
-  if (group.entries.length === 0) issues.push(issue(`${group.id}-entries-min`, 'error', 'An offer display must contain at least one offer.', 'offer_display_entries_min', 'entries'));
+  if (group.entries.length === 0) issues.push(issue(`${group.id}-entries-min`, 'warning', 'This storefront is empty and will show no offers until membership is configured.', 'offer_display_entries_min', 'entries'));
   if (group.entries.length > 100) issues.push(issue(`${group.id}-entries-max`, 'error', 'An offer display may contain at most 100 offers.', 'offer_display_entries_max', 'entries'));
   const seen = new Set<string>();
   for (const [index, entry] of group.entries.entries()) {
@@ -362,6 +363,30 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
     if (seen.has(key)) issues.push(issue(`${group.id}-entry-${index}-duplicate`, 'error', 'Offer displays cannot contain the same offer more than once.', 'offer_display_reference_unique', 'entries'));
     seen.add(key);
   }
+  return issues;
+}
+
+function validateStorefrontEntries(
+  label: string,
+  entries: OfferDisplayEntry[],
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const seen = new Set<string>();
+  entries.forEach((entry, index) => {
+    const resolved = resolveStorefrontEntry(entry, entitlements, bundles);
+    if (!resolved) {
+      issues.push(issue(`storefront-${label}-${index}-missing`, 'error', `${label} references an offer that does not exist or is ambiguous.`, 'storefront_offer_reference_exists', 'entries'));
+      return;
+    }
+    if (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining) {
+      issues.push(issue(`storefront-${label}-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only and cannot be included in a storefront.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, resolved.bundle.id));
+    }
+    const key = offerDisplayEntryKey(resolved.entry);
+    if (seen.has(key)) issues.push(issue(`storefront-${label}-${index}-duplicate`, 'error', `${label} contains the same offer more than once.`, 'storefront_offer_reference_unique', 'entries'));
+    seen.add(key);
+  });
   return issues;
 }
 
@@ -390,7 +415,7 @@ export function validateEntireProject(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[] = [],
   config?: ProjectConfig,
-  offerDisplayGroups: OfferDisplayGroup[] = [],
+  storefrontInput: StorefrontMembership | OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -398,7 +423,18 @@ export function validateEntireProject(
   if (entitlements.length > MAX_ENTITLEMENTS) issues.push(issue('project-max-entitlements', 'error', `Projects may define at most ${MAX_ENTITLEMENTS} distinct entitlements.`, 'entitlements_max'));
   entitlements.forEach(item => issues.push(...validateEntitlement(item, entitlements)));
   bundles.forEach(bundle => issues.push(...validateBundleOffer(bundle, entitlements, bundles)));
-  offerDisplayGroups.forEach(group => issues.push(...validateOfferDisplayGroup(group, entitlements, bundles, offerDisplayGroups)));
+  const storefrontMembership = Array.isArray(storefrontInput)
+    ? legacyStorefrontMembership(entitlements, bundles, storefrontInput)
+    : storefrontInput;
+  if (storefrontMembership.allOffers.length === 0) issues.push(issue('all-offers-empty', 'warning', 'All Offers is empty and will show no offers until eligible offers are explicitly included.', 'all_offers_empty', 'allOffers'));
+  issues.push(...validateStorefrontEntries('All Offers', storefrontMembership.allOffers, entitlements, bundles));
+  storefrontMembership.focused.forEach(group => issues.push(...validateOfferDisplayGroup(group, entitlements, bundles, storefrontMembership.focused)));
+  storefrontMembership.focused.forEach(group => issues.push(...validateStorefrontEntries(group.name || group.verseKey, group.entries, entitlements, bundles)));
+  const focusedIds = new Set<string>();
+  storefrontMembership.focused.forEach(group => {
+    if (focusedIds.has(group.id)) issues.push(issue(`${group.id}-id-duplicate`, 'error', 'Focused storefront IDs must be unique.', 'focused_storefront_id_unique'));
+    focusedIds.add(group.id);
+  });
   if (config) issues.push(...validateProjectConfig(config));
 
   const memberOwners = new Map<string, string>();
@@ -444,7 +480,7 @@ export function validateEntireProject(
   if (config?.generateStorefrontBinding) {
     registerGeneratedMember(storefrontEditableName('AllOffersStore', 'openButtons'), 'config');
   }
-  offerDisplayGroups.forEach(group => {
+  storefrontMembership.focused.forEach(group => {
     const pascal = toPascalCase(group.verseKey);
     registerGeneratedMember(`${pascal}Title`, 'generator');
     registerGeneratedMember(`Show${pascal}Offers`, 'generator');
@@ -470,7 +506,7 @@ export function validateEntireProject(
     (item.alternateOffers ?? []).forEach((offer, offerIndex) => registerOfferKey(offer.verseKey, `alternate offer ${offer.name || offerIndex + 1}`, item.id));
   });
   bundles.forEach((bundle, bundleIndex) => registerOfferKey(bundle.verseKey, `bundle ${bundle.name || bundleIndex + 1}`, undefined, bundle.id));
-  offerDisplayGroups.forEach(group => {
+  storefrontMembership.focused.forEach(group => {
     if (retiredKeySet.has(group.verseKey.toLowerCase())) issues.push(issue(`retired-display-key-${group.id}`, 'error', `Verse key "${group.verseKey}" was previously issued and retired. Reusing it would attach old external Verse references to a different storefront.`, 'retired_verse_key_reuse', 'verseKey'));
   });
 
@@ -490,7 +526,7 @@ export function validateEntireProject(
     (item.alternateOffers ?? []).forEach((offer, index) => registerGeneratedSymbol(toPascalCase(offer.verseKey), `alternate.${item.id}.${index}`));
   });
   bundles.forEach(bundle => registerGeneratedSymbol(toPascalCase(bundle.verseKey), `bundle.${bundle.id}`));
-  offerDisplayGroups.forEach(group => registerGeneratedSymbol(toPascalCase(group.verseKey), `offer-display.${group.id}`));
+  storefrontMembership.focused.forEach(group => registerGeneratedSymbol(toPascalCase(group.verseKey), `offer-display.${group.id}`));
   for (const [memberName, owner] of memberOwners) registerGeneratedSymbol(memberName, `device-member.${owner}`);
 
   const entitlementIds = new Set<string>();
@@ -509,7 +545,7 @@ export function validateEntireProject(
     bundleIds.add(bundle.id);
   });
   const offerDisplayIds = new Set<string>();
-  offerDisplayGroups.forEach(group => {
+  storefrontMembership.focused.forEach(group => {
     if (offerDisplayIds.has(group.id)) issues.push(issue(`${group.id}-id-duplicate`, 'error', 'Offer display record IDs must be unique.', 'offer_display_id_unique'));
     offerDisplayIds.add(group.id);
   });

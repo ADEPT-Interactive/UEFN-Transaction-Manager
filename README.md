@@ -30,7 +30,7 @@ When Python Editor Scripting is enabled, UEM also installs and attaches its proj
 ## What it helps you do
 
 - Create durable, consumable, time-limited, access, and paid-random entitlements.
-- Build individual offers, alternate variants, nested bundles, and focused storefront displays.
+- Build individual offers, alternate variants, nested bundles, and focused storefront displays with explicit offer membership.
 - Configure V-Bucks prices, age requirements, country restrictions, and platform restrictions.
 - Import PNG artwork as native Texture2D assets and use it in generated offers.
 - Generate canonical stable-key-based grant, removal, and reconciliation events for your gameplay code.
@@ -54,7 +54,7 @@ The release is a portable Windows x64 app. It does not need an installer, admini
 ## Typical creator workflow
 
 1. Add entitlements and configure their prices, limits, descriptions, icons, and gameplay options.
-2. Add bundles or offer displays when your storefront needs them.
+2. Add bundles or focused storefronts when your catalog needs them, then edit Storefront membership to choose the concrete offers shown in All Offers and each focused store.
 3. Resolve any validation errors and review advisory warnings.
 4. Select **Save & Compile** to update `managed_transactions.verse` and compile it in UEFN.
 5. Place the generated `managed_transactions_device` in your island.
@@ -74,7 +74,7 @@ Transactions.DurableEntitlement_RemovedEvent.Subscribe(OnRemoved)
 Transactions.DurableEntitlement_ReconciledEvent.Subscribe(OnReconciled)
 ```
 
-The global storefront helper is `OpenAllOffersStore(Player)`. Focused storefronts use `Open<StableKeyStem>(Player)`. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
+The global storefront helper is `OpenAllOffersStore(Player)`. Its offer collection is explicit project configuration, not an automatic list of every offer. Focused storefronts use `Open<StableKeyStem>(Player)` and each has its own ordered membership. Primary and alternate offers are separate Marketplace entries, while static bundles can be included like any other eligible offer. Dynamic remaining-quantity bundles are direct-purchase-only and cannot be added to a storefront. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
 
 Use the generated device from your own Verse for both event integration and current Marketplace queries:
 

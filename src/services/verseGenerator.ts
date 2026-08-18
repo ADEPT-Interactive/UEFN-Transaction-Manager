@@ -1,7 +1,8 @@
-import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
-import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup } from './projectSchema';
+import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
+import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup, normalizeStorefrontMembership } from './projectSchema';
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
+import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
 import {
   EDITABLE_CATEGORY_LABELS,
   EDITABLE_METADATA_SYMBOLS,
@@ -38,10 +39,10 @@ function canonicalizeManifestValue(value: unknown): unknown {
 function manifestLines(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[],
-  offerDisplayGroups: OfferDisplayGroup[],
+  storefrontMembership: StorefrontMembership,
   retiredVerseKeys: string[],
 ): string {
-  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, offerDisplayGroups, retiredVerseKeys))));
+  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys))));
   const chunks = encoded.match(/.{1,100}/g) ?? [];
   return `${MANIFEST_BEGIN}\n${chunks.map(chunk => `# UEM_DATA ${chunk}`).join('\n')}\n${MANIFEST_END}\n\n`;
 }
@@ -286,26 +287,14 @@ function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementIte
   return `${offerKey}_offer{}`;
 }
 
-function allOfferReferences(entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string[] {
+function storefrontReferences(entries: OfferDisplayEntry[], entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string[] {
   const references: string[] = [];
-  for (const item of entitlements) {
-    references.push(`${offersModule}.${item.verseKey}_offer{}`);
-    for (const alternate of item.alternateOffers ?? []) references.push(`${offersModule}.${alternate.verseKey}_offer{}`);
-  }
-  for (const bundle of bundles) {
-    if (!bundle.dynamicRemaining) references.push(`${offersModule}.${bundle.verseKey}_offer{}`);
+  for (const entry of entries) {
+    const resolved = resolveStorefrontEntry(entry, entitlements, bundles);
+    if (!resolved || (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining)) continue;
+    references.push(`${offersModule}.${resolved.offerVerseKey}_offer{}`);
   }
   return references;
-}
-
-function resolveOfferDisplayEntry(entry: OfferDisplayEntry, entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string | undefined {
-  if (entry.bundleId) {
-    const bundle = bundles.find(candidate => candidate.id === entry.bundleId);
-    if (bundle?.dynamicRemaining) return undefined;
-    return `${offersModule}.${bundle?.verseKey ?? 'invalid'}_offer{}`;
-  }
-  const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
-  return `${offersModule}.${entry.offerVerseKey ?? item?.verseKey ?? 'invalid'}_offer{}`;
 }
 
 function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[], visited = new Set<string>()): string[] {
@@ -332,14 +321,17 @@ export function generateVerseCode(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[] = [],
   config: ProjectConfig,
-  offerDisplayGroups: OfferDisplayGroup[] = [],
+  storefrontInput: StorefrontMembership | OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
 ): string {
   // Keep direct generation and parse -> regenerate output identical even when
   // callers provide older or partially populated managed-data shapes.
   entitlements = entitlements.map(normalizeEntitlement);
   bundles = bundles.map(normalizeBundle);
-  offerDisplayGroups = offerDisplayGroups.map(normalizeOfferDisplayGroup);
+  const storefrontMembership = Array.isArray(storefrontInput)
+    ? legacyStorefrontMembership(entitlements, bundles, storefrontInput.map(normalizeOfferDisplayGroup))
+    : normalizeStorefrontMembership(storefrontInput, entitlements, bundles).membership;
+  const offerDisplayGroups = storefrontMembership.focused;
   const infoModule = config.infoModuleName;
   const entModule = config.entitlementsModuleName;
   const priceModule = config.pricesModuleName;
@@ -353,7 +345,7 @@ export function generateVerseCode(
     '# Generated and managed by ADEPT Interactive UEFN Entitlement Manager. Do not edit manually.',
     '# Configure through UEM and integrate from your own Verse using the generated public API; regeneration may replace this file.',
     '',
-    manifestLines(entitlements, bundles, offerDisplayGroups, retiredVerseKeys),
+    manifestLines(entitlements, bundles, storefrontMembership, retiredVerseKeys),
     'using { /Fortnite.com/Devices }',
     'using { /Fortnite.com/Marketplace }',
     'using { /Fortnite.com/Playspaces }',
@@ -710,7 +702,7 @@ export function generateVerseCode(
     }
   }
 
-  const allOffers = allOfferReferences(entitlements, bundles, offersModule);
+  const allOffers = storefrontReferences(storefrontMembership.allOffers, entitlements, bundles, offersModule);
   push('    AllOffersStoreTitle<localizes>:message = "All Offers"', '');
   push('    ShowAllOffers(Player:player)<suspends>:void =');
   if (allOffers.length) push(`        ExecuteStorefront(Player, array{${allOffers.join(', ')}}, AllOffersStoreTitle)`);
@@ -726,9 +718,7 @@ export function generateVerseCode(
 
   for (const group of offerDisplayGroups) {
     const pascal = toVerseApiStem(group.verseKey);
-    const references = group.entries
-      .map(entry => resolveOfferDisplayEntry(entry, entitlements, bundles, offersModule))
-      .filter((reference): reference is string => Boolean(reference));
+    const references = storefrontReferences(group.entries, entitlements, bundles, offersModule);
     push(
       `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
       '',

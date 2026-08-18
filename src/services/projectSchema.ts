@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayGroup, OfferRestrictions, ProjectConfig } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import {
   createVerseKeyAllocator,
   isValidVerseIdentifier,
@@ -9,6 +9,7 @@ import {
   entitlementEditableNames,
   storefrontEditableName,
 } from './editableBindings';
+import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -160,6 +161,99 @@ export function normalizeOfferDisplayGroup(value: unknown, index: number): Offer
   };
 }
 
+function rawOfferDisplayEntry(value: unknown, index: number, ownerLabel: string): OfferDisplayEntry {
+  if (!isRecord(value)) throw new Error(`${ownerLabel}, entry ${index + 1} must be an object.`);
+  const entitlementId = stringValue(value.entitlementId) || stringValue(value.entitlementKey);
+  const bundleId = stringValue(value.bundleId) || stringValue(value.bundleKey);
+  const offerVerseKey = stringValue(value.offerVerseKey) || stringValue(value.offerKey);
+  return {
+    ...(entitlementId ? { entitlementId } : {}),
+    ...(bundleId ? { bundleId } : {}),
+    ...(offerVerseKey ? { offerVerseKey } : {}),
+  };
+}
+
+function normalizeStorefrontEntry(
+  value: unknown,
+  index: number,
+  ownerLabel: string,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  diagnostics: string[],
+): OfferDisplayEntry | undefined {
+  const raw = rawOfferDisplayEntry(value, index, ownerLabel);
+  const itemByReference = raw.entitlementId
+    ? entitlements.find(candidate => candidate.id === raw.entitlementId || candidate.verseKey === raw.entitlementId)
+    : undefined;
+  const bundleByReference = raw.bundleId
+    ? bundles.find(candidate => candidate.id === raw.bundleId || candidate.verseKey === raw.bundleId)
+    : undefined;
+  const resolvedReference = itemByReference ? { ...raw, entitlementId: itemByReference.id } : bundleByReference ? { ...raw, bundleId: bundleByReference.id } : raw;
+  const resolved = resolveStorefrontEntry(resolvedReference, entitlements, bundles);
+  if (!resolved || (raw.entitlementId && raw.bundleId)) {
+    diagnostics.push(`${ownerLabel} referenced an offer that no longer exists or was ambiguous; the reference was removed.`);
+    return undefined;
+  }
+  if (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining) {
+    diagnostics.push(`Dynamic bundle "${resolved.bundle.name || resolved.bundle.verseKey}" was removed from ${ownerLabel} because dynamic remaining-quantity bundles are direct-purchase-only.`);
+    return undefined;
+  }
+  if (resolved.kind === 'alternate' && raw.offerVerseKey !== resolved.offer.verseKey) {
+    diagnostics.push(`${ownerLabel} used an old alternate reference; it was normalized to "${resolved.offer.verseKey}".`);
+  }
+  return resolved.entry;
+}
+
+function normalizeStorefrontEntries(
+  value: unknown,
+  ownerLabel: string,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  diagnostics: string[],
+): OfferDisplayEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: OfferDisplayEntry[] = [];
+  const seen = new Set<string>();
+  value.forEach((raw, index) => {
+    const entry = normalizeStorefrontEntry(raw, index, ownerLabel, entitlements, bundles, diagnostics);
+    if (!entry) return;
+    const key = offerDisplayEntryKey(entry);
+    if (seen.has(key)) {
+      diagnostics.push(`${ownerLabel} contained duplicate membership for the same offer; the later reference was removed.`);
+      return;
+    }
+    seen.add(key);
+    entries.push(entry);
+  });
+  return entries;
+}
+
+export function normalizeStorefrontMembership(
+  value: unknown,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  legacyGroups: OfferDisplayGroup[] = [],
+): { membership: StorefrontMembership; projectDataDiagnostics: string[] } {
+  const diagnostics: string[] = [];
+  const record = isRecord(value) ? value : undefined;
+  const hasExplicitMembership = Boolean(record && (Array.isArray(record.allOffers) || Array.isArray(record.focused)));
+  const focusedRaw = hasExplicitMembership ? record?.focused : legacyGroups;
+  const focused = Array.isArray(focusedRaw)
+    ? focusedRaw.map((group, index) => normalizeOfferDisplayGroup(group, index))
+    : [];
+  const normalizedFocused = focused.map(group => ({
+    ...group,
+    entries: normalizeStorefrontEntries(group.entries, `Storefront "${group.name || group.verseKey}"`, entitlements, bundles, diagnostics),
+  }));
+  const allOffers = hasExplicitMembership
+    ? normalizeStorefrontEntries(record?.allOffers, 'All Offers', entitlements, bundles, diagnostics)
+    : legacyStorefrontMembership(entitlements, bundles, []).allOffers;
+  return {
+    membership: { allOffers, focused: normalizedFocused },
+    projectDataDiagnostics: [...new Set(diagnostics)],
+  };
+}
+
 function legacyEditableNameDiagnostics(value: unknown): string[] {
   if (!isRecord(value)) return [];
   const diagnostics: string[] = [];
@@ -205,6 +299,7 @@ interface RepairedManagedData {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
   offerDisplayGroups: OfferDisplayGroup[];
+  allOfferEntries: OfferDisplayEntry[];
   projectDataDiagnostics: string[];
 }
 
@@ -213,6 +308,7 @@ function repairProjectVerseKeys(
   bundles: BundleOffer[],
   offerDisplayGroups: OfferDisplayGroup[],
   retiredVerseKeys: string[] = [],
+  allOfferEntries: OfferDisplayEntry[] = [],
 ): RepairedManagedData {
   const allocator = createVerseKeyAllocator([], retiredVerseKeys);
   const alternateReplacements = new Map<string, string>();
@@ -270,13 +366,16 @@ function repairProjectVerseKeys(
 
   for (const bundle of repairedBundles) bundle.items = bundle.items.map(repairOfferReference);
   for (const group of repairedOfferDisplayGroups) group.entries = group.entries.map(repairOfferReference);
+  const repairedAllOfferEntries = allOfferEntries.map(repairOfferReference);
 
-  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups, projectDataDiagnostics };
+  return { entitlements: repairedEntitlements, bundles: repairedBundles, offerDisplayGroups: repairedOfferDisplayGroups, allOfferEntries: repairedAllOfferEntries, projectDataDiagnostics };
 }
 
 export function parseManagedData(value: unknown): {
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
+  storefrontMembership: StorefrontMembership;
+  /** @deprecated Use storefrontMembership.focused. Kept for supported callers while data migrates. */
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
   projectDataDiagnostics: string[];
@@ -288,20 +387,36 @@ export function parseManagedData(value: unknown): {
   if (!Array.isArray(value.entitlements)) throw new Error('Preset must contain an entitlements array.');
   if (value.bundles !== undefined && !Array.isArray(value.bundles)) throw new Error('Preset bundles must be an array.');
   if (value.offerDisplayGroups !== undefined && !Array.isArray(value.offerDisplayGroups)) throw new Error('Preset offerDisplayGroups must be an array.');
+  if (value.storefrontMembership !== undefined && !isRecord(value.storefrontMembership)) throw new Error('Preset storefrontMembership must be an object.');
 
   const entitlements = (value.entitlements as unknown[]).map(normalizeEntitlement);
   const bundles = (value.bundles ?? []).map(normalizeBundle);
-  const offerDisplayGroups = (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup);
+  const legacyGroups = (value.offerDisplayGroups ?? []).map(normalizeOfferDisplayGroup);
+  const rawStorefront = isRecord(value.storefrontMembership) ? value.storefrontMembership : undefined;
+  if (rawStorefront && (!Array.isArray(rawStorefront.allOffers) || !Array.isArray(rawStorefront.focused))) throw new Error('Preset storefrontMembership must contain allOffers and focused arrays.');
+  const canonicalGroups = Array.isArray(rawStorefront?.focused) ? rawStorefront.focused.map((group, index) => normalizeOfferDisplayGroup(group, index)) : [];
+  const groupsForRepair = rawStorefront ? canonicalGroups : legacyGroups;
+  const allEntriesForRepair = rawStorefront && Array.isArray(rawStorefront.allOffers)
+    ? rawStorefront.allOffers.map((entry, index) => rawOfferDisplayEntry(entry, index, 'All Offers'))
+    : [];
   const repaired = repairProjectVerseKeys(
     entitlements,
     bundles,
-    offerDisplayGroups,
+    groupsForRepair,
     normalizeRetiredVerseKeys(value.retiredVerseKeys),
+    allEntriesForRepair,
   );
+  const storefrontValue = rawStorefront
+    ? { ...rawStorefront, focused: repaired.offerDisplayGroups, allOffers: repaired.allOfferEntries }
+    : undefined;
+  const storefront = normalizeStorefrontMembership(storefrontValue, repaired.entitlements, repaired.bundles, repaired.offerDisplayGroups);
   return {
-    ...repaired,
+    entitlements: repaired.entitlements,
+    bundles: repaired.bundles,
+    storefrontMembership: storefront.membership,
+    offerDisplayGroups: storefront.membership.focused,
     retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys),
-    projectDataDiagnostics: [...new Set([...legacyEditableNameDiagnostics(value), ...repaired.projectDataDiagnostics])],
+    projectDataDiagnostics: [...new Set([...legacyEditableNameDiagnostics(value), ...repaired.projectDataDiagnostics, ...storefront.projectDataDiagnostics])],
   };
 }
 
@@ -336,17 +451,31 @@ export function parseStoredArray(value: string | null, kind: 'entitlements' | 'b
   return kind === 'entitlements' ? repaired.entitlements : kind === 'bundles' ? repaired.bundles : repaired.offerDisplayGroups;
 }
 
+export function parseStoredStorefrontMembership(
+  value: string | null,
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+): StorefrontMembership {
+  if (!value) return legacyStorefrontMembership(entitlements, bundles);
+  const parsed = JSON.parse(value) as unknown;
+  const legacyGroups = Array.isArray(parsed) ? parsed.map(normalizeOfferDisplayGroup) : [];
+  return normalizeStorefrontMembership(Array.isArray(parsed) ? undefined : parsed, entitlements, bundles, legacyGroups).membership;
+}
+
 export function cleanManagedData(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[],
-  offerDisplayGroups: OfferDisplayGroup[] = [],
+  storefrontInput: StorefrontMembership | OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
 ) {
+  const storefront = Array.isArray(storefrontInput)
+    ? normalizeStorefrontMembership(undefined, entitlements, bundles, storefrontInput).membership
+    : normalizeStorefrontMembership(storefrontInput, entitlements, bundles).membership;
   const clean: {
     schemaVersion: 4;
     entitlements: EntitlementItem[];
     bundles: BundleOffer[];
-    offerDisplayGroups: OfferDisplayGroup[];
+    storefrontMembership: StorefrontMembership;
     retiredVerseKeys?: string[];
   } = {
     schemaVersion: 4 as const,
@@ -354,7 +483,10 @@ export function cleanManagedData(
     // cannot change omitted defaults into newly persisted fields.
     entitlements: entitlements.map((item, index) => stripTransientImages(normalizeEntitlement(item, index))),
     bundles: bundles.map((bundle, index) => stripTransientImages(normalizeBundle(bundle, index))),
-    offerDisplayGroups: offerDisplayGroups.map(normalizeOfferDisplayGroup),
+    storefrontMembership: {
+      allOffers: storefront.allOffers.map(entry => ({ ...entry })),
+      focused: storefront.focused.map(group => normalizeOfferDisplayGroup(group, 0)),
+    },
   };
   const normalizedRetiredVerseKeys = normalizeRetiredVerseKeys(retiredVerseKeys);
   if (normalizedRetiredVerseKeys.length) clean.retiredVerseKeys = normalizedRetiredVerseKeys;

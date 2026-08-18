@@ -82,6 +82,15 @@ export interface OfferDisplayGroup {
   generateTriggerBinding: boolean;
 }
 
+/**
+ * The complete, explicit storefront composition for a managed project.
+ * Entries refer to concrete Marketplace offers, not entitlement ownership.
+ */
+export interface StorefrontMembership {
+  allOffers: OfferDisplayEntry[];
+  focused: OfferDisplayGroup[];
+}
+
 export interface ProjectConfig {
   contentFolderPath: string;
   targetVerseFileName: string;
@@ -110,6 +119,8 @@ export interface ManagedProjectData {
   schemaVersion: 2 | 3 | 4;
   entitlements: EntitlementItem[];
   bundles: BundleOffer[];
+  storefrontMembership?: StorefrontMembership;
+  /** Legacy project-data input. New manifests serialize storefrontMembership. */
   offerDisplayGroups?: OfferDisplayGroup[];
   /** Stable keys that were issued and must not be silently reassigned. */
   retiredVerseKeys?: string[];

@@ -7,7 +7,7 @@ import {
   FileCode, 
   ExternalLink 
 } from 'lucide-react';
-import { EntitlementItem, OfferDisplayGroup, ProjectConfig } from '../types/entitlement';
+import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
 import { SetupPanel } from './SetupPanel';
@@ -16,7 +16,7 @@ interface VersePreviewProps {
   verseCode: string;
   config: ProjectConfig;
   entitlements: EntitlementItem[];
-  offerDisplayGroups: OfferDisplayGroup[];
+  storefrontMembership: StorefrontMembership;
   onSaveToDisk: () => void;
   isSaving: boolean;
   hasErrors: boolean;
@@ -26,7 +26,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
   verseCode,
   config,
   entitlements,
-  offerDisplayGroups,
+  storefrontMembership,
   onSaveToDisk,
   isSaving,
   hasErrors,
@@ -153,7 +153,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
             Setup
           </summary>
           <div className="space-y-3 border-t border-slate-800 px-4 py-3">
-            <SetupPanel config={config} entitlements={entitlements} offerDisplayGroups={offerDisplayGroups} />
+            <SetupPanel config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
           </div>
         </details>
       )}
