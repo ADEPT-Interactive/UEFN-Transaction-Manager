@@ -124,9 +124,9 @@ test('generated runtime diagnostics use private debug-gated logger helpers', () 
   const source = generateVerseCode(items, bundles, config);
   assert.match(source, /UEMLogChannel := class\(log_channel\)\{\}/);
   assert.match(source, /UEMLogger:log = log\{Channel := UEMLogChannel\}/);
-  assert.match(source, /LogDebug\(Message:diagnostic\):void =\n        if \(EnableDebugLogging\?\):\n            UEMLogger\.Print\("\[UEM\]\[Debug\] " \+ Message, log_level\.Debug\)/);
-  assert.match(source, /LogWarning\(Message:diagnostic\):void =\n        UEMLogger\.Print\("\[UEM\]\[Warning\] " \+ Message, log_level\.Warning\)/);
-  assert.match(source, /LogError\(Message:diagnostic\):void =\n        UEMLogger\.Print\("\[UEM\]\[Error\] " \+ Message, log_level\.Error\)/);
+  assert.match(source, /LogDebug\(Message:string\):void =\n        if \(EnableDebugLogging\?\):\n            UEMLogger\.Print\("\[UEM\]\[Debug\] " \+ Message, \?Level := log_level\.Debug\)/);
+  assert.match(source, /LogWarning\(Message:string\):void =\n        UEMLogger\.Print\("\[UEM\]\[Warning\] " \+ Message, \?Level := log_level\.Warning\)/);
+  assert.match(source, /LogError\(Message:string\):void =\n        UEMLogger\.Print\("\[UEM\]\[Error\] " \+ Message, \?Level := log_level\.Error\)/);
   assert.equal((source.match(/UEMLogger\.Print\(/g) ?? []).length, 3);
   assert.equal((source.match(/Print\(/g) ?? []).length, 3, 'all generated Print calls must be inside the logging helpers');
   assert.equal(source.split(/\r?\n/).filter(line => /(?:EnableDebugLogging|UEMLogger|LogDebug|LogWarning|LogError)/.test(line) && line.includes('<public>')).length, 0);
@@ -188,7 +188,7 @@ test('Marketplace UI execution is unified and acquired before spawning', () => {
     'OpenVipPassPurchase', 'OpenMysteryCratePurchase', 'OpenStarterBundlePurchase', 'OpenAllOffersStore', 'OpenCoinStore',
   ]) {
     const block = source.slice(source.indexOf(`    ${helper}<public>`), source.indexOf('\n\n', source.indexOf(`    ${helper}<public>`)));
-    assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):\\n            spawn\\{`));
+    assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):\\n            spawn\\{`));
   }
 
   assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        LogDebug\("Opening purchase for \{OfferLabel\}\."\)\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(not WasPurchased\?\):\n            LogDebug\("Purchase was not completed for \{OfferLabel\}\."\)\n        ReleaseMarketplaceUI\(Player\)/);
@@ -232,8 +232,8 @@ test('voluntary purchase flows are not guarded by creator-messaging restrictions
   for (const source of [regularSource, mixedSource]) {
     assert.equal(source.includes(directPromptRestrictionName), false);
   }
-  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):/);
-  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):/);
+  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =\n        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
+  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
   assert.equal(mixedSource.includes(paidRandomRestrictionName), false);
   assert.match(regularSource, /spawn\{ExecutePurchase\(Player, ManagedOffers\.vip_pass_offer\{\}, "VIP \\"Pass\\""\)\}/);
   assert.match(mixedSource, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
@@ -273,7 +273,7 @@ test('paid-random metadata, not a manual guard, covers every generated Marketpla
   assert.match(source, /vip_pass_entitlement<public> := class<concrete>/);
   assert.match(source, /PaidRandomItem<override>:logic = true/);
   for (const helper of ['OpenMysteryCratePurchase', 'OpenMysteryCrateMobilePurchase', 'OpenVipOnlyBundlePurchase', 'OpenRandomMultiBundlePurchase', 'OpenDynamicRandomBundlePurchase']) {
-    assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        if \\(Acquired := TryAcquireMarketplaceUI\\(Player\\), Acquired\\?\\):`));
+    assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):`));
   }
   assert.match(source, /ExecutePurchase\(Player, DynamicOffer, "Dynamic Random Bundle"\)/);
   assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
@@ -609,7 +609,7 @@ test('dynamic bundle metadata, price, restrictions, disclosure, and alternate co
   assert.match(metadataDescription(source, 'dynamic_source'), /An unusual configured source description\.\\nDuration: Lasts 11 days after purchase\\nOdds: Mystery Crate: Common: 75%, Rare: 25%/);
 
   const dynamicPurchase = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseDynamicSource');
-  assert.match(dynamicPurchase, /DynamicOffer\.Offers = array\{\(ManagedOffers\.crate_source_alt_offer\{\}, RemainingCount\)\}/);
+  assert.match(dynamicPurchase, /DynamicOffer := ManagedOffers\.dynamic_source_dynamic_offer\{Offers := array\{\(ManagedOffers\.crate_source_alt_offer\{\}, RemainingCount\)\}\}/);
   assert.doesNotMatch(source, /RestrictPaidRandomItems|RestrictDirectPromptsToPurchase/);
 
   const noOddsItem = structuredClone(sourceItem);
@@ -847,9 +847,9 @@ test('dynamic remaining bundles preserve multi-item static contents while reject
   assert.match(staticBlock, /\(crate_content_alt_offer\{\}, 2\)/);
 
   const dynamicPurchase = generatedFunctionBlock(source, 'ExecuteDynamicPurchaseSupportedDynamicContent');
-  assert.match(dynamicPurchase, /DynamicOffer\.Offers = array\{\(ManagedOffers\.crate_content_alt_offer\{\}, RemainingCount\)\}/);
+  assert.match(dynamicPurchase, /DynamicOffer := ManagedOffers\.supported_dynamic_content_dynamic_offer\{Offers := array\{\(ManagedOffers\.crate_content_alt_offer\{\}, RemainingCount\)\}\}/);
   assert.doesNotMatch(source, /unsupported_dynamic_content_dynamic_offer<public>/);
-  assert.match(source, /OpenUnsupportedDynamicContentPurchase<public>\(Player:player\):void =\n        if \(Acquired := TryAcquireMarketplaceUI\(Player\), Acquired\?\):\n            LogError\("Starter Bundle has an invalid dynamic remaining configuration\."\)\n            ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /OpenUnsupportedDynamicContentPurchase<public>\(Player:player\):void =\n        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):\n            LogError\("Starter Bundle has an invalid dynamic remaining configuration\."\)\n            ReleaseMarketplaceUI\(Player\)/);
 
   const errors = validateEntireProject([items[0], sourceItem], [unsupportedDynamic], config).filter(issue => issue.severity === 'error');
   assert.ok(errors.some(issue => issue.ruleName === 'dynamic_bundle_shape'));

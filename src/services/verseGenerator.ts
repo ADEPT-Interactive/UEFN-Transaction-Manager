@@ -514,15 +514,15 @@ export function generateVerseCode(
     '',
   );
   push(
-    '    LogDebug(Message:diagnostic):void =',
+    '    LogDebug(Message:string):void =',
     '        if (EnableDebugLogging?):',
-    '            UEMLogger.Print("[UEM][Debug] " + Message, log_level.Debug)',
+    '            UEMLogger.Print("[UEM][Debug] " + Message, ?Level := log_level.Debug)',
     '',
-    '    LogWarning(Message:diagnostic):void =',
-    '        UEMLogger.Print("[UEM][Warning] " + Message, log_level.Warning)',
+    '    LogWarning(Message:string):void =',
+    '        UEMLogger.Print("[UEM][Warning] " + Message, ?Level := log_level.Warning)',
     '',
-    '    LogError(Message:diagnostic):void =',
-    '        UEMLogger.Print("[UEM][Error] " + Message, log_level.Error)',
+    '    LogError(Message:string):void =',
+    '        UEMLogger.Print("[UEM][Error] " + Message, ?Level := log_level.Error)',
     '',
   );
   for (const item of entitlements) {
@@ -747,7 +747,8 @@ export function generateVerseCode(
     }
     push(
       `    ${purchaseEntryName}<public>(Player:player):void =`,
-      '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+      '        Acquired := TryAcquireMarketplaceUI(Player)',
+      '        if (Acquired?):',
       `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,
       '',
     );
@@ -755,7 +756,8 @@ export function generateVerseCode(
       const altPascal = toVerseApiStem(alternate.verseKey);
       push(
         `    Open${altPascal}Purchase<public>(Player:player):void =`,
-        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
         `            spawn{ExecutePurchase(Player, ${offersModule}.${alternate.verseKey}_offer{}, "${escapeVerseString(alternate.name)}")}`,
         '',
       );
@@ -773,7 +775,8 @@ export function generateVerseCode(
       const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles)}`;
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
-        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
         `            spawn{ExecuteDynamicPurchase${pascal}(Player)}`,
         '',
         `    ExecuteDynamicPurchase${pascal}(Player:player)<suspends>:void =`,
@@ -786,8 +789,7 @@ export function generateVerseCode(
         '        if (RemainingCount < 0):',
         '            set RemainingCount = 0',
         '        if (RemainingCount > 0):',
-        `            DynamicOffer := ${offersModule}.${bundle.verseKey}_dynamic_offer{}`,
-        `            set DynamicOffer.Offers = array{(${offerReference}, RemainingCount)}`,
+        `            DynamicOffer := ${offersModule}.${bundle.verseKey}_dynamic_offer{Offers := array{(${offerReference}, RemainingCount)}}`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
         `            LogDebug("${printableName} has no remaining quantity.")`,
@@ -797,7 +799,8 @@ export function generateVerseCode(
     } else if (bundle.dynamicRemaining) {
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
-        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
         `            LogError("${escapeVerseString(bundle.name)} has an invalid dynamic remaining configuration.")`,
         '            ReleaseMarketplaceUI(Player)',
         '',
@@ -805,7 +808,8 @@ export function generateVerseCode(
     } else {
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
-        '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
         `            spawn{ExecutePurchase(Player, ${offersModule}.${bundle.verseKey}_offer{}, "${printableName}")}`,
         '',
       );
@@ -820,7 +824,8 @@ export function generateVerseCode(
   push(
     '',
     '    OpenAllOffersStore<public>(Player:player):void =',
-    '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+    '        Acquired := TryAcquireMarketplaceUI(Player)',
+    '        if (Acquired?):',
     '            spawn{ShowAllOffers(Player)}',
     '',
   );
@@ -846,7 +851,8 @@ export function generateVerseCode(
         : [`        LogWarning("No eligible offers are configured for the ${escapeVerseString(group.name)} storefront.")`, '        ReleaseMarketplaceUI(Player)']),
       '',
       `    Open${pascal}<public>(Player:player):void =`,
-      '        if (Acquired := TryAcquireMarketplaceUI(Player), Acquired?):',
+      '        Acquired := TryAcquireMarketplaceUI(Player)',
+      '        if (Acquired?):',
       `            spawn{Show${pascal}Offers(Player)}`,
       '',
     );

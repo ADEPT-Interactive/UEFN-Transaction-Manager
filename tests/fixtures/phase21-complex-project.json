@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 4,
+  "retiredVerseKeys": ["retired_entitlement"],
+  "entitlements": [
+    {
+      "id": "entitlement-core",
+      "verseKey": "core_entitlement",
+      "name": "Core Entitlement",
+      "shortDescription": "A durable entitlement for the test project.",
+      "description": "A durable entitlement used to verify primary offers and stable generated identifiers.",
+      "priceVBucks": 1200,
+      "itemType": "durable",
+      "maxCount": 1,
+      "autoConsume": false,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": false, "paidRandomItemOdds": "", "paidArea": false, "consequentialToGameplay": true },
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": true }
+    },
+    {
+      "id": "entitlement-consumable",
+      "verseKey": "consumable_entitlement",
+      "name": "Consumable Entitlement",
+      "shortDescription": "A repeatable entitlement for the test project.",
+      "description": "A consumable entitlement used to verify count helpers, purchase triggers, and focused storefronts.",
+      "priceVBucks": 450,
+      "itemType": "consumable",
+      "maxCount": 8,
+      "autoConsume": false,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": false, "paidRandomItemOdds": "", "paidArea": false, "consequentialToGameplay": true },
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": false }
+    },
+    {
+      "id": "entitlement-auto-consume",
+      "verseKey": "auto_consume_entitlement",
+      "name": "Auto Consume Entitlement",
+      "shortDescription": "A consumable entitlement with automatic consumption.",
+      "description": "A consumable entitlement used to verify automatic consumption and canonical removal events.",
+      "priceVBucks": 600,
+      "itemType": "consumable",
+      "maxCount": 3,
+      "autoConsume": true,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": false, "paidRandomItemOdds": "", "paidArea": false, "consequentialToGameplay": true },
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": false }
+    },
+    {
+      "id": "entitlement-random-odds",
+      "verseKey": "paid_random_with_odds",
+      "name": "Paid Random With Odds",
+      "shortDescription": "A paid random item with supplied odds.",
+      "description": "A paid random item whose UEM odds field is included in the generated disclosure.",
+      "priceVBucks": 900,
+      "itemType": "consumable",
+      "maxCount": 1,
+      "autoConsume": false,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": true, "paidRandomItemOdds": "1 in 20", "paidArea": false, "consequentialToGameplay": false },
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": true }
+    },
+    {
+      "id": "entitlement-random-external",
+      "verseKey": "paid_random_external_disclosure",
+      "name": "Paid Random External Disclosure",
+      "shortDescription": "A paid random item with external disclosure guidance.",
+      "description": "A paid random item whose final disclosure is maintained by the island author.",
+      "priceVBucks": 950,
+      "itemType": "consumable",
+      "maxCount": 1,
+      "autoConsume": false,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": true, "paidRandomItemOdds": "", "paidArea": false, "consequentialToGameplay": false },
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": false }
+    },
+    {
+      "id": "entitlement-restricted",
+      "verseKey": "restricted_entitlement",
+      "name": "Restricted Entitlement",
+      "shortDescription": "An entitlement with country, platform, and age restrictions.",
+      "description": "A restricted entitlement used to verify GetMinPurchaseAge generation and failable restriction expressions.",
+      "priceVBucks": 1500,
+      "itemType": "durable",
+      "maxCount": 1,
+      "autoConsume": false,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "flags": { "paidRandomItem": false, "paidRandomItemOdds": "", "paidArea": false, "consequentialToGameplay": true },
+      "offerRestrictions": { "minimumPurchaseAge": 18, "blockedCountryCodes": ["CA", "US"], "blockedPlatformFamilies": ["iOS", "Android"] },
+      "alternateOffers": [
+        {
+          "id": "restricted-entitlement-alternate",
+          "verseKey": "restricted_entitlement_alternate_1",
+          "name": "Restricted Entitlement Alternate",
+          "shortDescription": "An alternate restricted entitlement offer.",
+          "description": "An alternate price and restriction configuration for the same entitlement.",
+          "priceVBucks": 1800,
+          "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+          "restrictions": { "minimumPurchaseAge": 21, "blockedCountryCodes": ["GB"], "blockedPlatformFamilies": ["PlayStation"] }
+        }
+      ],
+      "triggers": { "generateTriggerBinding": true, "generateButtonBinding": true }
+    }
+  ],
+  "bundles": [
+    {
+      "id": "bundle-static",
+      "verseKey": "static_bundle",
+      "name": "Static Bundle",
+      "shortDescription": "A static bundle with restrictions.",
+      "description": "A static bundle used to verify nested composition, metadata parity, and storefront membership.",
+      "priceVBucks": 2100,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "restrictions": { "minimumPurchaseAge": 16, "blockedCountryCodes": ["DE"], "blockedPlatformFamilies": ["Xbox"] },
+      "items": [
+        { "entitlementId": "entitlement-core", "quantity": 1 },
+        { "entitlementId": "entitlement-consumable", "quantity": 2 },
+        { "bundleId": "bundle-nested", "quantity": 1 }
+      ]
+    },
+    {
+      "id": "bundle-nested",
+      "verseKey": "nested_bundle",
+      "name": "Nested Bundle",
+      "shortDescription": "A nested static bundle.",
+      "description": "A nested bundle used to verify supported bundle depth.",
+      "priceVBucks": 700,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "items": [
+        { "entitlementId": "entitlement-auto-consume", "quantity": 1 },
+        { "offerVerseKey": "restricted_entitlement_alternate_1", "entitlementId": "entitlement-restricted", "quantity": 1 }
+      ]
+    },
+    {
+      "id": "bundle-dynamic",
+      "verseKey": "dynamic_remaining_bundle",
+      "name": "Dynamic Remaining Bundle",
+      "shortDescription": "A direct-purchase-only remaining quantity bundle.",
+      "description": "A dynamic bundle used to verify authoritative MaxCount remaining quantity and runtime offer construction.",
+      "priceVBucks": 300,
+      "iconTexture": "EntitlementIcons.UEM_PlaceholderIcon",
+      "restrictions": { "minimumPurchaseAge": 13, "blockedCountryCodes": ["AU"], "blockedPlatformFamilies": ["Nintendo"] },
+      "dynamicRemaining": true,
+      "items": [ { "entitlementId": "entitlement-consumable", "quantity": 1 } ]
+    }
+  ],
+  "storefrontMembership": {
+    "allOffers": [
+      { "entitlementId": "entitlement-core" },
+      { "entitlementId": "entitlement-consumable" },
+      { "entitlementId": "entitlement-auto-consume" },
+      { "entitlementId": "entitlement-random-odds" },
+      { "entitlementId": "entitlement-random-external" },
+      { "entitlementId": "entitlement-restricted" },
+      { "entitlementId": "entitlement-restricted", "offerVerseKey": "restricted_entitlement_alternate_1" },
+      { "bundleId": "bundle-static" },
+      { "bundleId": "bundle-nested" }
+    ],
+    "focused": [
+      {
+        "id": "storefront-featured",
+        "verseKey": "featured_store",
+        "name": "Featured Store",
+        "generateTriggerBinding": true,
+        "entries": [
+          { "entitlementId": "entitlement-core" },
+          { "entitlementId": "entitlement-restricted", "offerVerseKey": "restricted_entitlement_alternate_1" },
+          { "bundleId": "bundle-static" }
+        ]
+      },
+      {
+        "id": "storefront-consumables",
+        "verseKey": "consumables_store",
+        "name": "Consumables Store",
+        "generateTriggerBinding": true,
+        "entries": [
+          { "entitlementId": "entitlement-consumable" },
+          { "entitlementId": "entitlement-auto-consume" },
+          { "entitlementId": "entitlement-random-odds" },
+          { "entitlementId": "entitlement-random-external" },
+          { "bundleId": "bundle-nested" }
+        ]
+      }
+    ]
+  }
+}
