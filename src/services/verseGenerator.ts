@@ -120,16 +120,6 @@ function resolveOfferDisplayEntry(entry: OfferDisplayEntry, entitlements: Entitl
   return `${offersModule}.${entry.offerVerseKey ?? item?.verseKey ?? 'invalid'}_offer{}`;
 }
 
-function bundleHasPaidRandomItems(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[], visited = new Set<string>()): boolean {
-  if (visited.has(bundle.id)) return false;
-  const next = new Set(visited).add(bundle.id);
-  return bundle.items.some(entry => {
-    if (entry.entitlementId) return Boolean(entitlements.find(item => item.id === entry.entitlementId)?.flags.paidRandomItem);
-    const nested = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
-    return Boolean(nested && bundleHasPaidRandomItems(nested, entitlements, bundles, next));
-  });
-}
-
 function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[], visited = new Set<string>()): string[] {
   if (visited.has(bundle.id)) return [];
   const next = new Set(visited).add(bundle.id);
@@ -143,14 +133,14 @@ function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: Entit
   return [...new Set(disclosures)];
 }
 
-function purchaseEntryGuardLines(restrictPaidRandomItems: boolean): string[] {
-  const inFlightCheck = '        if (Active := PurchaseInFlight[Player], Active?):';
-  if (!restrictPaidRandomItems) return [inFlightCheck];
-  return [
-    '        if (RestrictPaidRandomItems[Player]):',
-    '            Print("Paid random items are restricted for this player")',
-    inFlightCheck.replace('        if ', '        else if '),
-  ];
+/**
+ * Direct Marketplace offers carry paid-random classification on their
+ * entitlement metadata, and Epic applies the relevant Purchase API rules.
+ * UEM does not generate creator-authored random redemption/use logic, so a
+ * paid-random check belongs at that future redemption boundary, not here.
+ */
+function purchaseEntryGuardLines(): string[] {
+  return ['        if (Active := PurchaseInFlight[Player], Active?):'];
 }
 
 export function generateVerseCode(entitlements: EntitlementItem[], bundles: BundleOffer[] = [], config: ProjectConfig, offerDisplayGroups: OfferDisplayGroup[] = []): string {
@@ -412,7 +402,7 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
   for (const item of entitlements) {
     const pascal = toPascalCase(item.verseKey);
     const printableName = escapeVerseString(item.name);
-    const purchaseGuard = purchaseEntryGuardLines(item.flags.paidRandomItem);
+    const purchaseGuard = purchaseEntryGuardLines();
     if (item.triggers.generateTriggerBinding) {
       push(
         `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
@@ -479,7 +469,7 @@ export function generateVerseCode(entitlements: EntitlementItem[], bundles: Bund
     const pascal = toPascalCase(bundle.verseKey);
     const printableName = escapeVerseString(bundle.name);
     const dynamic = Boolean(bundle.dynamicRemaining && bundle.items[0] && bundle.items[0].entitlementId);
-    const bundlePurchaseGuard = purchaseEntryGuardLines(bundleHasPaidRandomItems(bundle, entitlements, bundles));
+    const bundlePurchaseGuard = purchaseEntryGuardLines();
     push(
       `    PromptBuy${pascal}<public>(Player:player):void =`,
       ...bundlePurchaseGuard,

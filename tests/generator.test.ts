@@ -43,6 +43,8 @@ const bundles: BundleOffer[] = [{
   items: [{ entitlementId: 'vip', quantity: 1 }, { entitlementId: 'crate', quantity: 1 }],
 }];
 
+const paidRandomRestrictionName = ['Restrict', 'PaidRandom', 'Items'].join('');
+
 function offerClassBlock(source: string, generatedOfferKey: string): string {
   const marker = `    ${generatedOfferKey}<public> := class`;
   const start = source.indexOf(marker);
@@ -92,7 +94,8 @@ test('generated device uses authoritative deltas, lifecycle cleanup, and transac
   assert.match(source, /VipPassOfferTriggers : \[\]trigger_device/);
   assert.match(source, /TriggeredEvent\.Subscribe\(OnVipPassTriggerActivated\)/);
   assert.match(source, /OnVipPassTriggerActivated\(MaybeAgent:\?agent\):void/);
-  assert.match(source, /RestrictPaidRandomItems\[Player\]/);
+  assert.match(source, /PaidRandomItem<override>:logic = true/);
+  assert.equal(source.includes(paidRandomRestrictionName), false);
   assert.match(source, /Odds: Common: 75%, Rare: 25%/);
   assert.match(source, /else if \(set PurchaseInFlight\[Player\] = true\):/);
   assert.match(source, /ClearPurchaseInFlight\(Player\)/);
@@ -108,9 +111,63 @@ test('voluntary purchase flows are not guarded by creator-messaging restrictions
     assert.equal(source.includes(directPromptRestrictionName), false);
   }
   assert.match(regularSource, /PromptBuyVipPass<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
-  assert.match(mixedSource, /PromptBuyMysteryCrate<public>\(Player:player\):void =\n        if \(RestrictPaidRandomItems\[Player\]\):[\s\S]*?else if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(mixedSource, /PromptBuyMysteryCrate<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.equal(mixedSource.includes(paidRandomRestrictionName), false);
   assert.match(regularSource, /WasPurchased := BuyOffer\(Player, ManagedOffers\.vip_pass_offer\{\}\)/);
   assert.match(mixedSource, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
+});
+
+test('paid-random metadata, not a manual guard, covers every generated Marketplace purchase path', () => {
+  const random = structuredClone(items[1]);
+  random.alternateOffers = [{
+    id: 'crate-mobile', verseKey: 'mystery_crate_mobile', name: 'Mystery Crate Mobile',
+    shortDescription: 'One disclosed random reward on mobile.', description: 'Contains one reward.',
+    priceVBucks: 100, iconTexture: 'EntitlementIcons.MysteryCrate',
+    restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+  }];
+  const nonRandomBundle: BundleOffer = {
+    ...bundles[0], id: 'vip-only', verseKey: 'vip_only_bundle', name: 'VIP Only Bundle',
+    items: [{ entitlementId: 'vip', quantity: 1 }],
+  };
+  const multiRandomBundle: BundleOffer = {
+    ...bundles[0], id: 'random-multi', verseKey: 'random_multi_bundle', name: 'Random Multi Bundle',
+    items: [{ entitlementId: 'vip', quantity: 1 }, { entitlementId: 'crate', quantity: 1 }],
+  };
+  const dynamicRandomBundle: BundleOffer = {
+    ...bundles[0], id: 'dynamic-random', verseKey: 'dynamic_random_bundle', name: 'Dynamic Random Bundle',
+    dynamicRemaining: true, items: [{ entitlementId: 'crate', quantity: 1 }],
+  };
+  const source = generateVerseCode(
+    [items[0], random],
+    [nonRandomBundle, multiRandomBundle, dynamicRandomBundle],
+    config,
+    [{
+      id: 'random-store', verseKey: 'random_store', name: 'Random Store', generateTriggerBinding: false,
+      entries: [{ entitlementId: 'crate' }, { bundleId: 'random-multi' }],
+    }],
+  );
+
+  assert.equal(source.includes(paidRandomRestrictionName), false);
+  assert.match(source, /vip_pass_entitlement<public> := class<concrete>/);
+  assert.match(source, /PaidRandomItem<override>:logic = true/);
+  assert.match(source, /PromptBuyMysteryCrate<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(source, /PromptBuyMysteryCrateMobile<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(source, /PromptBuyVipOnlyBundle<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(source, /PromptBuyRandomMultiBundle<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(source, /PromptBuyDynamicRandomBundle<public>\(Player:player\):void =\n        if \(Active := PurchaseInFlight\[Player\], Active\?\):/);
+  assert.match(source, /WasPurchased := BuyOffer\(Player, DynamicOffer\)/);
+  assert.match(source, /ShowOffersDialog\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}, ManagedOffers\.dynamic_random_bundle_offer\{\}\}, \?Title := AllOffersStoreTitle\)/);
+  assert.match(source, /ShowRandomStore<public>\(Player:player\)<suspends>:void =\n        ShowOffersDialog\(Player, array\{ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, \?Title := RandomStoreTitle\)/);
+  assert.match(source, /ConsumeMysteryCrate<public>/);
+});
+
+test('empty paid-random odds remain optional for direct offer descriptions', () => {
+  const random = structuredClone(items[1]);
+  random.flags.paidRandomItemOdds = '';
+  const source = generateVerseCode([random], [], config);
+
+  assert.doesNotMatch(source, /Odds:/);
+  assert.deepEqual(validateEntireProject([random], [], config).filter(issue => issue.severity === 'error'), []);
 });
 
 test('missing trigger settings migrate to the default offer trigger binding', () => {
