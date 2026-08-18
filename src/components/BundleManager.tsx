@@ -8,6 +8,9 @@ import { PLACEHOLDER_ICON_ASSET_NAME } from '../constants/placeholderIcon';
 import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { ConfirmDialog } from './ConfirmDialog';
 import { VBucksIcon } from './VBucksIcon';
+import { DraftConfirmDialog } from './DraftConfirmDialog';
+import { useModalFocus } from '../hooks/useModalFocus';
+import { bundleDraftSnapshot } from '../services/draftSnapshots';
 
 interface BundleManagerProps {
   bundles: BundleOffer[];
@@ -94,33 +97,26 @@ const BundleEditorModal: React.FC<{
 }> = ({ bundle, bundles, entitlements, onClose, onSave }) => {
   const [form, setForm] = useState<BundleOffer | null>(bundle);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => setForm(bundle), [bundle]);
+  const initialFormRef = useRef<BundleOffer | null>(bundle);
+  const [dirtyConfirmationOpen, setDirtyConfirmationOpen] = useState(false);
   useEffect(() => {
-    if (!bundle) return;
-    const previous = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key === 'Tab' && dialogRef.current) {
-        const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex]:not([tabindex="-1"])')).filter(element => !element.hasAttribute('disabled'));
-        if (!focusable.length) return;
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [bundle, onClose]);
+    setForm(bundle);
+    initialFormRef.current = bundle;
+    setDirtyConfirmationOpen(false);
+  }, [bundle]);
+  const isDirty = Boolean(form && initialFormRef.current && bundleDraftSnapshot(form) !== bundleDraftSnapshot(initialFormRef.current));
+  const requestClose = () => { if (isDirty) setDirtyConfirmationOpen(true); else onClose(); };
+  useModalFocus({ open: Boolean(bundle), dialogRef, onEscape: requestClose, paused: dirtyConfirmationOpen });
   if (!form) return null;
   const errors = validateBundleOffer(form, entitlements, bundles).filter(item => item.severity === 'error');
   const isExisting = bundles.some(candidate => candidate.id === form.id);
+  const commitForm = () => { if (!errors.length) onSave(form); };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="bundle-dialog-title" tabIndex={-1} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-700 bg-[#0d1326] p-6 shadow-2xl outline-none">
-        <div className="flex items-center justify-between mb-5"><h2 id="bundle-dialog-title" className="font-bold text-white">{isExisting ? 'Edit bundle offer' : 'Create bundle offer'}</h2><button type="button" aria-label="Close bundle editor" onClick={onClose} className="p-2 text-slate-400 hover:text-white"><X className="w-5 h-5" /></button></div>
-        <form onSubmit={event => { event.preventDefault(); if (!errors.length) onSave(form); }} className="space-y-4">
+        <div className="flex items-center justify-between mb-5"><h2 id="bundle-dialog-title" className="font-bold text-white">{isExisting ? 'Edit bundle offer' : 'Create bundle offer'}</h2><button type="button" aria-label="Close bundle editor" onClick={requestClose} className="p-2 text-slate-400 hover:text-white"><X className="w-5 h-5" /></button></div>
+        <form onSubmit={event => { event.preventDefault(); commitForm(); }} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-xs text-slate-300">Display name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value, verseKey: draftVerseKeyForName(form.verseKey, form.name, e.target.value, isExisting) })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" /></label>
             <label className="text-xs text-slate-300">Verse key<input value={form.verseKey} onChange={e => setForm({ ...form, verseKey: sanitizeVerseIdentifier(e.target.value) })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 font-mono" /></label>
@@ -141,9 +137,10 @@ const BundleEditorModal: React.FC<{
             return <div key={candidate.id} className="flex items-center justify-between rounded-xl bg-slate-900 p-3"><label className="text-xs text-white"><input type="checkbox" checked={Boolean(entry)} onChange={e => setForm({ ...form, items: e.target.checked ? [...form.items.filter(item => item.bundleId !== candidate.id), { bundleId: candidate.id, quantity: 1 }] : form.items.filter(item => item.bundleId !== candidate.id) })} className="mr-2" />{candidate.name}</label>{entry && <input aria-label={`${candidate.name} quantity`} type="number" min={1} value={entry.quantity} onChange={e => setForm({ ...form, items: form.items.map(item => item.bundleId === candidate.id ? { ...item, quantity: Number(e.target.value) } : item) })} className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs" />}</div>;
           })}</fieldset>
           {errors.length > 0 && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{errors.map(error => <p key={error.id}>{error.message}</p>)}</div>}
-          <div className="flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 text-xs">Cancel</button><button type="submit" disabled={errors.length > 0} className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-500 text-slate-950 disabled:opacity-50">Save bundle</button></div>
+           <div className="flex justify-end gap-2"><button type="button" onClick={requestClose} className="px-4 py-2 text-xs">Cancel</button><button type="submit" disabled={errors.length > 0} className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-500 text-slate-950 disabled:opacity-50">Save bundle</button></div>
         </form>
       </div>
+      <DraftConfirmDialog open={dirtyConfirmationOpen} isNew={!isExisting} subject="bundle offer" onSave={() => { setDirtyConfirmationOpen(false); commitForm(); }} onDiscard={() => { setDirtyConfirmationOpen(false); onClose(); }} onContinue={() => setDirtyConfirmationOpen(false)} />
     </div>
   );
 };

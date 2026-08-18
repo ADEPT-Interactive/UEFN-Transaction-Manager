@@ -9,6 +9,7 @@ interface ImageUploadZoneProps {
   assetName: string;
   currentTextureRef: string;
   currentImageData?: string;
+  nativeTextureImportAvailable: boolean;
   onTextureRefChange: (ref: string) => void;
   onImageDataChange: (base64: string, fileName?: string) => void;
   onPendingStateChange: (pending: boolean) => void;
@@ -72,6 +73,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   assetName,
   currentTextureRef,
   currentImageData,
+  nativeTextureImportAvailable,
   onTextureRefChange,
   onImageDataChange,
   onPendingStateChange,
@@ -90,6 +92,10 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   const displayImage = pendingPreview || currentImageData;
 
   const handleFile = async (file: File) => {
+    if (!nativeTextureImportAvailable) {
+      setUploadStatus({ success: false, message: 'Icon importing needs a full Python connection to UEFN.' });
+      return;
+    }
     if (file.type !== 'image/png' || !file.name.toLowerCase().endsWith('.png')) {
       setUploadStatus({ success: false, message: 'Only PNG files can be imported as UEFN textures.' });
       return;
@@ -116,6 +122,10 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   const confirmImport = async (): Promise<ConfirmedTextureImport | null> => {
     if (activeImportRef.current) return activeImportRef.current;
     if (!pendingFile || !pendingPreview) return null;
+    if (!nativeTextureImportAvailable) {
+      setUploadStatus({ success: false, message: 'Icon importing needs a full Python connection to UEFN.' });
+      return null;
+    }
     if (!contentFolderPath) {
       setUploadStatus({ success: false, message: 'The linked project is unavailable. Use Switch active project and select the project again.' });
       return null;
@@ -209,13 +219,16 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
         role="button"
         tabIndex={0}
         aria-label="Choose a PNG entitlement icon"
-        onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }}
+        aria-disabled={!nativeTextureImportAvailable}
+        aria-describedby={!nativeTextureImportAvailable ? 'icon-import-unavailable' : undefined}
+        title={!nativeTextureImportAvailable ? 'Full Python connection to UEFN is required for icon importing.' : undefined}
+        onDragOver={(event) => { if (!nativeTextureImportAvailable) return; event.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }}
+        onClick={() => { if (nativeTextureImportAvailable) fileInputRef.current?.click(); }}
+        onKeyDown={event => { if (!nativeTextureImportAvailable) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }}
         className={`relative border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-          isDragging ? 'border-cyan-400 bg-cyan-500/10' : displayImage ? 'border-cyan-500/40 bg-slate-900/60 hover:border-cyan-400/70' : 'border-slate-700 hover:border-slate-600 bg-slate-900/30'
+          !nativeTextureImportAvailable ? 'cursor-not-allowed border-amber-500/30 bg-amber-500/5 opacity-80' : isDragging ? 'border-cyan-400 bg-cyan-500/10' : displayImage ? 'border-cyan-500/40 bg-slate-900/60 hover:border-cyan-400/70' : 'border-slate-700 hover:border-slate-600 bg-slate-900/30'
         }`}
       >
         <input
@@ -223,6 +236,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
           ref={fileInputRef}
           onChange={(event) => { if (event.target.files?.[0]) void handleFile(event.target.files[0]); event.target.value = ''; }}
           accept="image/png,.png"
+          disabled={!nativeTextureImportAvailable}
           className="hidden"
         />
 
@@ -249,7 +263,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
                 <button type="button" onClick={cancelPending} disabled={isUploading} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-40">
                   <X className="w-3.5 h-3.5" /> Cancel
                 </button>
-                <button type="button" onClick={() => void confirmImport()} disabled={isUploading} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-400 text-slate-950 text-xs font-extrabold hover:bg-cyan-300 disabled:opacity-40">
+                <button type="button" onClick={() => void confirmImport()} disabled={isUploading || !nativeTextureImportAvailable} title={!nativeTextureImportAvailable ? 'Full Python connection to UEFN is required for icon importing.' : undefined} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-400 text-slate-950 text-xs font-extrabold hover:bg-cyan-300 disabled:opacity-40">
                   {isUploading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   {isUploading ? 'Importing...' : 'Confirm & import into UEFN'}
                 </button>

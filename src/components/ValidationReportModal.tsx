@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { X, ShieldCheck, AlertTriangle, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { ValidationIssue, EntitlementItem } from '../types/entitlement';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface ValidationReportModalProps {
   isOpen: boolean;
@@ -22,24 +23,9 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
   onOpenSettings,
   onSelectEntitlement,
   onClose,
-}) => {
+  }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button,[tabindex]:not([tabindex="-1"])')).filter(element => !element.hasAttribute('disabled'));
-      if (!focusable.length) return;
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    dialogRef.current?.focus();
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [isOpen, onClose]);
+  useModalFocus({ open: isOpen, dialogRef, onEscape: onClose });
   if (!isOpen) return null;
 
   const errors = issues.filter(i => i.severity === 'error');

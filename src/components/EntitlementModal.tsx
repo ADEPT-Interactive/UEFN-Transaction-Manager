@@ -20,11 +20,15 @@ import { AlternateOffer, EntitlementItem, OfferRestrictions } from '../types/ent
 import { sanitizeVerseIdentifier, validateEntitlement } from '../services/validator';
 import { createVerseKeyAllocator, draftVerseKeyForName } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
+import { EditorStatus } from '../services/fileService';
+import { entitlementDraftSnapshot } from '../services/draftSnapshots';
 import { PAID_RANDOM_ITEM_GUIDANCE_URL } from '../constants/docs';
 import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { ConfirmedTextureImport, ImageUploadZone, ImageUploadZoneHandle } from './ImageUploadZone';
 import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
 import { VBucksIcon } from './VBucksIcon';
+import { DraftConfirmDialog } from './DraftConfirmDialog';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface EntitlementModalProps {
   isOpen: boolean;
@@ -32,6 +36,7 @@ interface EntitlementModalProps {
   contentFolderPath: string;
   assetFolderName: string;
   allEntitlements: EntitlementItem[];
+  editorStatus: EditorStatus | null;
   onSave: (item: EntitlementItem) => void;
   onClose: () => void;
 }
@@ -51,6 +56,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   contentFolderPath,
   assetFolderName,
   allEntitlements,
+  editorStatus,
   onSave,
   onClose,
 }) => {
@@ -58,16 +64,19 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   const [activeTab, setActiveTab] = useState<'general' | 'icon' | 'behavior' | 'hooks'>('general');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const pendingIconDialogRef = useRef<HTMLDivElement>(null);
+  const pendingIconCancelRef = useRef<HTMLButtonElement>(null);
   const imageUploadRef = useRef<ImageUploadZoneHandle>(null);
+  const initialFormRef = useRef<EntitlementItem | null>(item);
   const [pendingIconUpload, setPendingIconUpload] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'save' | 'close' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'save' | null>(null);
+  const [dirtyConfirmationOpen, setDirtyConfirmationOpen] = useState(false);
+
+  const isDirty = Boolean(initialFormRef.current && entitlementDraftSnapshot(formData) !== entitlementDraftSnapshot(initialFormRef.current));
 
   const requestClose = () => {
-    if (pendingIconUpload) {
-      setPendingAction('close');
-      return;
-    }
-    onClose();
+    if (isDirty || pendingIconUpload) setDirtyConfirmationOpen(true);
+    else onClose();
   };
 
   const confirmPendingIcon = async () => {
@@ -83,40 +92,27 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
     };
     setFormData(nextItem);
     setPendingAction(null);
-    if (action === 'close') onClose();
-    else onSave(nextItem);
+    onSave(nextItem);
   };
 
   useEffect(() => {
     if (isOpen && item) {
-      setFormData({ ...item });
+      const nextItem = { ...item };
+      setFormData(nextItem);
+      initialFormRef.current = nextItem;
       setActiveTab('general');
       setShowAdvanced(false);
       setPendingIconUpload(false);
       setPendingAction(null);
+      setDirtyConfirmationOpen(false);
+    } else if (!isOpen) {
+      initialFormRef.current = null;
+      setDirtyConfirmationOpen(false);
     }
   }, [isOpen, item]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (pendingIconUpload) setPendingAction('close');
-        else onClose();
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex]:not([tabindex="-1"])')).filter(element => !element.hasAttribute('disabled'));
-      if (!focusable.length) return;
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => { document.removeEventListener('keydown', onKeyDown); previous?.focus(); };
-  }, [isOpen, onClose, pendingIconUpload]);
+  useModalFocus({ open: isOpen, dialogRef, onEscape: requestClose, paused: dirtyConfirmationOpen || Boolean(pendingAction) });
+  useModalFocus({ open: Boolean(pendingAction), dialogRef: pendingIconDialogRef, onEscape: () => setPendingAction(null), initialFocusRef: pendingIconCancelRef });
 
   if (!isOpen || !item) return null;
 
@@ -166,16 +162,18 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   const validationIssues = validateEntitlement(formData, allEntitlements);
   const errors = validationIssues.filter(i => i.severity === 'error');
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (errors.length > 0) {
-      return;
-    }
+  const commitForm = () => {
+    if (errors.length > 0) return;
     if (pendingIconUpload) {
       setPendingAction('save');
       return;
     }
     onSave(formData);
+  };
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    commitForm();
   };
 
   return (
@@ -440,14 +438,25 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           {/* TAB 2: Icon & Texture */}
           {activeTab === 'icon' && (
             <div className="space-y-4">
+                {!editorStatus?.nativeTextureImportAvailable && <div id="icon-import-unavailable" role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                  <p className="font-bold text-amber-200">Icon importing is unavailable until UEM has a full Python connection to UEFN.</p>
+                  <p className="mt-1 text-amber-100/80">{!editorStatus?.uefnRunning
+                    ? 'Open the linked project in UEFN, then return here. UEM will update this tab automatically.'
+                    : !editorStatus.pythonEnabled
+                      ? 'In UEFN, open the Project menu with the small palm tree icon, choose Project Settings, and enable Python Editor Scripting. No restart is needed.'
+                      : editorStatus.differentProjectOpen || !editorStatus.projectActive
+                        ? 'Open the project linked to this UEM window in UEFN. Icon importing is available only for that active project.'
+                        : 'Python is enabled, but the full connector is not attached yet. Use UEFN Tools → Execute Python Script to run Content/Python/init_unreal.py. No restart is needed, and future launches will use the installed helper automatically.'}</p>
+                </div>}
                 <ImageUploadZone
-                 key={item.id}
-                 ref={imageUploadRef}
+                  key={item.id}
+                  ref={imageUploadRef}
                   contentFolderPath={contentFolderPath}
                 assetFolderName={assetFolderName}
                 assetName={formData.verseKey || 'icon'}
                 currentTextureRef={formData.iconTexture}
                   currentImageData={formData.iconImageData}
+                  nativeTextureImportAvailable={editorStatus?.nativeTextureImportAvailable === true}
                   onTextureRefChange={(ref) => setFormData(prev => ({ ...prev, iconTexture: ref }))}
                   onImageDataChange={(base64, fileName) => setFormData(prev => ({ ...prev, iconImageData: base64, iconFileName: fileName }))}
                   onPendingStateChange={setPendingIconUpload}
@@ -734,18 +743,25 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </form>
         {pendingAction && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#080c14]/85 p-6 backdrop-blur-sm">
-            <div role="alertdialog" aria-modal="true" aria-labelledby="pending-icon-title" className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#0d1326] p-5 shadow-2xl">
+            <div ref={pendingIconDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="pending-icon-title" tabIndex={-1} className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#0d1326] p-5 shadow-2xl">
               <h3 id="pending-icon-title" className="text-sm font-extrabold text-white">Confirm this icon before continuing</h3>
               <p className="mt-2 text-xs leading-5 text-slate-300">The selected PNG is only a preview right now. It has not been imported and saved as a native Texture2D in the active UEFN project.</p>
               <p className="mt-2 text-xs leading-5 text-amber-300">Keep UEFN open while the manager confirms the import. {pendingAction === 'save' ? 'The offer will save after the import succeeds.' : 'The editor will close after the import succeeds.'}</p>
               <div className="mt-5 flex justify-end gap-2">
-                <button type="button" onClick={() => setPendingAction(null)} className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Continue editing</button>
+                <button ref={pendingIconCancelRef} type="button" onClick={() => setPendingAction(null)} className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Continue editing</button>
                 <button type="button" onClick={() => void confirmPendingIcon()} className="rounded-xl bg-cyan-400 px-3 py-2 text-xs font-extrabold text-slate-950 hover:bg-cyan-300">Confirm &amp; import{pendingAction === 'save' ? ', then save' : ', then close'}</button>
               </div>
             </div>
           </div>
         )}
       </div>
+      <DraftConfirmDialog
+        open={dirtyConfirmationOpen}
+        isNew={item.id.startsWith('new-')}
+        onSave={() => { setDirtyConfirmationOpen(false); commitForm(); }}
+        onDiscard={() => { setDirtyConfirmationOpen(false); onClose(); }}
+        onContinue={() => setDirtyConfirmationOpen(false)}
+      />
     </div>
   );
 };

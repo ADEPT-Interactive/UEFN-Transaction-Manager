@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Folder, FileCode, Layers, Save, Settings, X } from 'lucide-react';
 import { ProjectConfig } from '../types/entitlement';
 import { validateProjectConfig } from '../services/validator';
+import { projectConfigDraftSnapshot } from '../services/draftSnapshots';
+import { DraftConfirmDialog } from './DraftConfirmDialog';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface ProjectSettingsModalProps {
   isOpen: boolean;
@@ -19,35 +22,31 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
   const [formData, setFormData] = useState<ProjectConfig>({ ...config });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (isOpen) { setFormData({ ...config }); setShowAdvanced(false); } }, [isOpen, config]);
+  const initialFormRef = useRef<ProjectConfig>({ ...config });
+  const [dirtyConfirmationOpen, setDirtyConfirmationOpen] = useState(false);
   useEffect(() => {
     if (!isOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button,input,[tabindex]:not([tabindex="-1"])')).filter(element => !element.hasAttribute('disabled'));
-      if (!focusable.length) return;
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    dialogRef.current?.focus();
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [isOpen, onClose]);
+    const nextConfig = { ...config };
+    setFormData(nextConfig);
+    initialFormRef.current = nextConfig;
+    setShowAdvanced(false);
+    setDirtyConfirmationOpen(false);
+  }, [isOpen]);
+  const isDirty = projectConfigDraftSnapshot(formData) !== projectConfigDraftSnapshot(initialFormRef.current);
+  const requestClose = () => { if (isDirty) setDirtyConfirmationOpen(true); else onClose(); };
+  useModalFocus({ open: isOpen, dialogRef, onEscape: requestClose, paused: dirtyConfirmationOpen });
   if (!isOpen) return null;
   const errors = validateProjectConfig(formData).filter(issue => issue.severity === 'error');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const commitForm = () => {
     if (errors.length) return;
     onSaveConfig(formData);
     onClose();
   };
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); commitForm(); };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} className="relative w-full max-w-xl bg-[#0d1326] border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden animate-modal flex flex-col max-h-[85vh] outline-none">
         
         {/* Modal Header */}
@@ -66,7 +65,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           <button
             type="button"
             aria-label="Close project settings"
-            onClick={onClose}
+            onClick={requestClose}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -205,7 +204,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
             >
               Cancel
@@ -221,6 +220,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           </div>
         </form>
       </div>
+      <DraftConfirmDialog open={dirtyConfirmationOpen} isNew={false} subject="project settings" onSave={() => { setDirtyConfirmationOpen(false); commitForm(); }} onDiscard={() => { setDirtyConfirmationOpen(false); onClose(); }} onContinue={() => setDirtyConfirmationOpen(false)} />
     </div>
   );
 };

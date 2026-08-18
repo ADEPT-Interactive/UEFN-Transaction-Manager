@@ -1,5 +1,6 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useId, useRef } from 'react';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -7,9 +8,11 @@ interface ConfirmDialogProps {
   description: React.ReactNode;
   confirmLabel: string;
   cancelLabel?: string;
+  secondaryLabel?: string;
   tone?: 'danger' | 'warning';
   onCancel: () => void;
   onConfirm: () => void;
+  onSecondary?: () => void;
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -18,39 +21,18 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   description,
   confirmLabel,
   cancelLabel = 'Cancel',
+  secondaryLabel,
   tone = 'danger',
   onCancel,
   onConfirm,
+  onSecondary,
 }) => {
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    cancelRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onCancel();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      previous?.focus();
-    };
-  }, [open, onCancel]);
+  useModalFocus({ open, dialogRef, onEscape: onCancel, initialFocusRef: cancelRef });
 
   if (!open) return null;
   const Icon = tone === 'danger' ? Trash2 : AlertTriangle;
@@ -70,6 +52,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <div className="mt-6 flex justify-end gap-2 border-t border-slate-800 pt-4">
           <button ref={cancelRef} type="button" onClick={onCancel} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800">{cancelLabel}</button>
           <button type="button" onClick={onConfirm} className={`rounded-xl px-4 py-2 text-xs font-extrabold text-slate-950 transition ${confirmStyle}`}>{confirmLabel}</button>
+          {secondaryLabel && onSecondary && <button type="button" onClick={onSecondary} className="rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-xs font-extrabold text-cyan-200 transition hover:bg-cyan-500/25">{secondaryLabel}</button>}
         </div>
       </div>
     </div>

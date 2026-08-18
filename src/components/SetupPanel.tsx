@@ -1,10 +1,11 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useId, useRef } from 'react';
 import { BookOpenCheck, ExternalLink, X } from 'lucide-react';
 import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
 import { toPascalCase } from '../services/validator';
 import { entitlementEditableNames, storefrontEditableName } from '../services/editableBindings';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface SetupPanelProps {
   config: ProjectConfig;
@@ -61,22 +62,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, st
 export const SetupModal: React.FC<SetupPanelProps & { open: boolean; onClose: () => void }> = ({ open, onClose, ...panelProps }) => {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => { document.removeEventListener('keydown', onKeyDown); previous?.focus(); };
-  }, [open, onClose]);
+  useModalFocus({ open, dialogRef, onEscape: onClose });
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>

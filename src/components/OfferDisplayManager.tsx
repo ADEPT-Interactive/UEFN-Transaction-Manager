@@ -7,6 +7,9 @@ import { storefrontEditableName } from '../services/editableBindings';
 import { offerDisplayEntryKey, storefrontOfferOptions } from '../services/storefrontMembership';
 import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DraftConfirmDialog } from './DraftConfirmDialog';
+import { useModalFocus } from '../hooks/useModalFocus';
+import { storefrontDraftSnapshot } from '../services/draftSnapshots';
 
 const ALL_OFFERS_EDITOR_ID = '__all_offers__';
 
@@ -61,23 +64,16 @@ const OfferDisplayEditor: React.FC<{
 }> = ({ group, groups, entitlements, bundles, onClose, onSave }) => {
   const [form, setForm] = useState<OfferDisplayGroup | null>(group);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => setForm(group), [group]);
+  const initialFormRef = useRef<OfferDisplayGroup | null>(group);
+  const [dirtyConfirmationOpen, setDirtyConfirmationOpen] = useState(false);
   useEffect(() => {
-    if (!group) return;
-    const previous = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key !== 'Tab') return;
-      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
-      if (!focusable.length) return;
-      const first = focusable[0]; const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [group, onClose]);
+    setForm(group);
+    initialFormRef.current = group;
+    setDirtyConfirmationOpen(false);
+  }, [group]);
+  const isDirty = Boolean(form && initialFormRef.current && storefrontDraftSnapshot(form) !== storefrontDraftSnapshot(initialFormRef.current));
+  const requestClose = () => { if (isDirty) setDirtyConfirmationOpen(true); else onClose(); };
+  useModalFocus({ open: Boolean(group), dialogRef, onEscape: requestClose, paused: dirtyConfirmationOpen });
   if (!form) return null;
   const isAllOffers = form.id === ALL_OFFERS_EDITOR_ID;
   const errors = isAllOffers ? [] : validateOfferDisplayGroup(form, entitlements, bundles, groups).filter(issue => issue.severity === 'error');
@@ -89,15 +85,16 @@ const OfferDisplayEditor: React.FC<{
     const nextKey = draftVerseKeyForName(previous.verseKey, previous.name, name, groups.some(candidate => candidate.id === previous.id));
     return { ...previous, name, verseKey: nextKey };
   });
+  const commitForm = () => { if (!errors.length) onSave(form); };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}><div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="offer-display-dialog-title" tabIndex={-1} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#0d1326] p-6 shadow-2xl outline-none">
-    <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-300">{isAllOffers ? 'Global storefront' : 'Focused storefront'}</p><h2 id="offer-display-dialog-title" className="mt-1 font-bold text-white">{isAllOffers ? 'Edit All Offers membership' : groups.some(candidate => candidate.id === form.id) ? 'Edit focused storefront' : 'Create focused storefront'}</h2></div><button type="button" aria-label="Close storefront editor" onClick={onClose} className="p-2 text-slate-400 hover:text-white"><X className="h-5 w-5" /></button></div>
-    <form onSubmit={event => { event.preventDefault(); if (!errors.length) onSave(form); }} className="space-y-4">
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}><div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="offer-display-dialog-title" tabIndex={-1} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#0d1326] p-6 shadow-2xl outline-none">
+    <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-300">{isAllOffers ? 'Global storefront' : 'Focused storefront'}</p><h2 id="offer-display-dialog-title" className="mt-1 font-bold text-white">{isAllOffers ? 'Edit All Offers membership' : groups.some(candidate => candidate.id === form.id) ? 'Edit focused storefront' : 'Create focused storefront'}</h2></div><button type="button" aria-label="Close storefront editor" onClick={requestClose} className="p-2 text-slate-400 hover:text-white"><X className="h-5 w-5" /></button></div>
+    <form onSubmit={event => { event.preventDefault(); commitForm(); }} className="space-y-4">
       {!isAllOffers && <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-300">Storefront title (up to {MARKETPLACE_CONSTRAINTS.nameMaxCharacters} characters)<input value={form.name} onChange={event => updateKeyFromName(event.target.value)} placeholder="Coin Store" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" /></label><label className="text-xs text-slate-300">Verse key<input value={form.verseKey} onChange={event => setForm({ ...form, verseKey: sanitizeVerseIdentifier(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-cyan-300" /></label></div>}
       <fieldset className="space-y-2"><legend className="flex items-center gap-2 text-xs font-bold text-slate-200"><LayoutGrid className="h-4 w-4 text-cyan-300" /> {isAllOffers ? 'Offers included in All Offers' : 'Offers included in this storefront'}</legend><p className="text-[11px] text-slate-500">Select concrete Marketplace offers. Primary offers, alternate offers, and static bundles have independent membership. Dynamic remaining-quantity bundles are purchased directly and cannot be added to storefronts.</p><div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/40 p-2">{options.map(option => <label key={option.key} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-900"><input type="checkbox" checked={selected.has(option.key)} onChange={() => toggleEntry(option.entry)} className="accent-cyan-500" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-white">{option.label}</span><span className="block truncate font-mono text-[10px] text-slate-500">{option.detail}</span></span></label>)}</div></fieldset>
       {!isAllOffers && <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><label className="flex items-center justify-between gap-3 text-xs text-slate-300"><span><strong className="block text-white">Generate Open Trigger device array</strong><span className="text-[11px] text-slate-500">Assign one or more Trigger devices to open this storefront without writing Verse.</span></span><input type="checkbox" checked={form.generateTriggerBinding} onChange={event => setForm({ ...form, generateTriggerBinding: event.target.checked })} className="accent-cyan-500" /></label>{form.generateTriggerBinding && <p className="mt-2 text-[11px] text-slate-500">Generated editable: <code className="text-cyan-300">{storefrontEditableName(form.verseKey)}</code></p>}</div>}
       {errors.length > 0 && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{errors.map(error => <p key={error.id}>{error.message}</p>)}</div>}
-      <div className="flex justify-end gap-2 border-t border-slate-800 pt-4"><button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Cancel</button><button type="submit" disabled={errors.length > 0} className="rounded-xl bg-cyan-400 px-4 py-2 text-xs font-extrabold text-slate-950 disabled:opacity-40">Save membership</button></div>
+      <div className="flex justify-end gap-2 border-t border-slate-800 pt-4"><button type="button" onClick={requestClose} className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Cancel</button><button type="submit" disabled={errors.length > 0} className="rounded-xl bg-cyan-400 px-4 py-2 text-xs font-extrabold text-slate-950 disabled:opacity-40">Save membership</button></div>
     </form>
-  </div></div>;
+  </div><DraftConfirmDialog open={dirtyConfirmationOpen} isNew={!groups.some(candidate => candidate.id === form.id) && form.id !== ALL_OFFERS_EDITOR_ID} subject="storefront" onSave={() => { setDirtyConfirmationOpen(false); commitForm(); }} onDiscard={() => { setDirtyConfirmationOpen(false); onClose(); }} onContinue={() => setDirtyConfirmationOpen(false)} /></div>;
 };
