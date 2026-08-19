@@ -70,6 +70,7 @@ test('discovery cache round trips paths, roots, and manual selections atomically
 test('valid cached projects appear immediately while stale cached paths are discarded', () => withTestLocalAppData(fs.mkdtempSync(path.join(os.tmpdir(), 'uem-discovery-immediate-')), localAppData => {
   try {
     const projectFile = makeProject(localAppData, 'CachedProject', 'Cached project');
+    const canonicalProjectFile = fs.realpathSync.native(projectFile);
     const cachePath = path.join(localAppData, 'project-discovery.json');
     writeDiscoveryCache({
       version: 1,
@@ -83,7 +84,7 @@ test('valid cached projects appear immediately while stale cached paths are disc
     assert.equal(result.cacheProjectsValidated, 1);
     assert.equal(result.cacheProjectsDiscarded, 1);
     discovery.flushCache();
-    assert.deepEqual(readDiscoveryCache(cachePath).projectPaths, [projectFile]);
+    assert.deepEqual(readDiscoveryCache(cachePath).projectPaths, [canonicalProjectFile]);
   } finally {
     fs.rmSync(localAppData, { recursive: true, force: true });
   }
@@ -110,6 +111,7 @@ test('targeted and broad discovery deliver new projects incrementally and dedupl
   try {
     const driveRoot = path.join(localAppData, 'D-drive');
     const projectFile = makeProject(path.join(driveRoot, 'Projects', 'Nested'), 'ProgressiveProject', 'Progressive project');
+    const canonicalProjectFile = fs.realpathSync.native(projectFile);
     const cachePath = path.join(localAppData, 'project-discovery.json');
     const discovery = new ProjectDiscovery({
       cachePath,
@@ -127,7 +129,7 @@ test('targeted and broad discovery deliver new projects incrementally and dedupl
       onComplete: () => events.push('complete'),
     });
     assert.equal(stats.cancelled, false);
-    assert.equal(batches.flat().filter(candidate => candidate.toLowerCase() === projectFile.toLowerCase()).length, 1);
+    assert.equal(batches.flat().filter(candidate => candidate.toLowerCase() === canonicalProjectFile.toLowerCase()).length, 1);
     assert.ok(events.indexOf('projects') >= 0 && events.indexOf('projects') < events.indexOf('complete'));
   } finally {
     fs.rmSync(localAppData, { recursive: true, force: true });
@@ -139,6 +141,7 @@ test('a disappearing drive is isolated from a healthy fixed drive', async () => 
     const goneDrive = path.join(localAppData, 'Gone-drive');
     const healthyDrive = path.join(localAppData, 'Healthy-drive');
     const projectFile = makeProject(healthyDrive, 'HealthyProject');
+    const canonicalProjectFile = fs.realpathSync.native(projectFile);
     const cachePath = path.join(localAppData, 'project-discovery.json');
     const discovery = new ProjectDiscovery({
       cachePath,
@@ -150,7 +153,7 @@ test('a disappearing drive is isolated from a healthy fixed drive', async () => 
     const stats = await discovery.start({ onProjects: projects => found.push(...projects.map(project => project.projectFile)) });
     assert.equal(stats.cancelled, false);
     assert.ok(stats.inaccessibleDirectories >= 1);
-    assert.equal(found.filter(candidate => candidate.toLowerCase() === projectFile.toLowerCase()).length, 1);
+    assert.equal(found.filter(candidate => candidate.toLowerCase() === canonicalProjectFile.toLowerCase()).length, 1);
   } finally {
     fs.rmSync(localAppData, { recursive: true, force: true });
   }
