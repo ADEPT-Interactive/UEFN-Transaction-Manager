@@ -208,6 +208,7 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     }
     function Send-TextureImport {
         param([string]$Path, [string]$AssetName)
+        Invoke-RestMethod -Uri "$baseUri/api/editor/session" -Method Post -Headers $editorHeaders -ContentType "application/json" -Body $editorSessionBody -TimeoutSec 3 | Out-Null
         $client = [Net.Http.HttpClient]::new()
         $multipart = [Net.Http.MultipartFormDataContent]::new()
         try {
