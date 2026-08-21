@@ -72,9 +72,9 @@ jobs:
 
           ## SHA-256
 
-          Installer: `$((Get-FileHash release/UEFN-Transaction-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())`
+          Installer: $((Get-FileHash release/UEFN-Transaction-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())
 
-          Portable: `$((Get-FileHash release/UEFN-Transaction-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())`
+          Portable: $((Get-FileHash release/UEFN-Transaction-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())
           "@
           Set-Content -LiteralPath release-notes.md -Value $notes -Encoding UTF8
           $existingJson = gh release view $env:GITHUB_REF_NAME --json isDraft 2>$null
