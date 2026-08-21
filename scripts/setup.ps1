@@ -45,4 +45,4 @@ if (-not (Test-Path -LiteralPath $electron) -or -not (Test-Path -LiteralPath (Jo
 }
 
 Write-Host "`nSetup complete. Run npm run dev:desktop to open the Electron manager from source." -ForegroundColor Green
-Write-Host "Published installer releases register UEM with Windows Start/Search and Add or Remove Programs; they do not need Node.js, npm, Python, .NET, WebView2, or administrator access." -ForegroundColor DarkGray
+Write-Host "Published installer releases register Transaction Manager with Windows Start/Search and Add or Remove Programs; they do not need Node.js, npm, Python, .NET, WebView2, or administrator access." -ForegroundColor DarkGray

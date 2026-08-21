@@ -124,7 +124,7 @@ function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
   const messages = new Map<string, string>();
   const add = (symbol: string, value: string) => { if (!messages.has(symbol)) messages.set(symbol, value); };
   add(EDITABLE_METADATA_SYMBOLS.debugCategory, EDITABLE_CATEGORY_LABELS.debug);
-  add(editableMetadataSymbol(DEBUG_EDITABLE_KEY, 'ToolTip'), 'Enable additional UEM runtime diagnostics in the Verse log.');
+  add(editableMetadataSymbol(DEBUG_EDITABLE_KEY, 'ToolTip'), 'Enable additional Transaction Manager runtime diagnostics in the Verse log.');
   const roleSymbols: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
@@ -391,7 +391,7 @@ function paidRandomDisclosuresForBundle(bundle: BundleOffer, entitlements: Entit
 /**
  * Direct Marketplace offers carry paid-random classification on their
  * entitlement metadata, and Epic applies the relevant Purchase API rules.
- * UEM does not generate creator-authored random redemption/use logic, so a
+ * Transaction Manager does not generate creator-authored random redemption/use logic, so a
  * paid-random check belongs at that future redemption boundary, not here.
  */
 export function generateVerseCode(
@@ -420,8 +420,8 @@ export function generateVerseCode(
 
   push(
     `# ${config.targetVerseFileName}`,
-    '# Generated and managed by ADEPT Interactive UEFN Entitlement Manager. Do not edit manually.',
-    '# Configure through UEM and integrate from your own Verse using the generated public API; regeneration may replace this file.',
+    '# Generated and managed by ADEPT Interactive UEFN Transaction Manager. Do not edit manually.',
+    '# Configure through Transaction Manager and integrate from your own Verse using the generated public API; regeneration may replace this file.',
     '',
     manifestLines(entitlements, bundles, storefrontMembership, retiredVerseKeys),
     'using { /Fortnite.com/Devices }',
@@ -875,7 +875,7 @@ export function generateVerseCode(
   }
 
   push(
-    '    # Batch reconciliation uses the UEM-owned derived base so one Marketplace query covers every managed type.',
+    '    # Batch reconciliation uses the Transaction Manager-owned derived base so one Marketplace query covers every managed type.',
     '    # Each concrete subtype is classified locally; missing types remain at zero and still signal their event.',
     '    ReconcilePlayerEntitlements(Player:player)<suspends>:void =',
     '        LogDebug("Reconciliation started for player.")',

@@ -42,7 +42,7 @@ function installAutomaticConnector(appRoot: string, project: ProjectCandidate): 
       '    _uem_auto_connector.install()',
       'except Exception as _uem_auto_connector_error:',
       '    import unreal as _uem_unreal',
-      '    _uem_unreal.log_warning(f"[EntitlementManager] Automatic connector startup failed: {_uem_auto_connector_error}")',
+      '    _uem_unreal.log_warning(f"[TransactionManager] Automatic connector startup failed: {_uem_auto_connector_error}")',
       endMarker,
       '',
     ].join(os.EOL);
@@ -113,6 +113,7 @@ async function waitForExit(child: ChildProcess, milliseconds: number): Promise<b
 }
 
 function writeActiveSession(port: number, editorToken: string, project: ProjectCandidate, connectorScript: string): string {
+  // Compatibility: this state directory is shared with existing 4.0.1 installs.
   const stateRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager');
   fs.mkdirSync(stateRoot, { recursive: true });
   const statePath = path.join(stateRoot, 'active-session.json');
@@ -165,6 +166,7 @@ export class BridgeSession {
     const port = await reserveLoopbackPort();
     const sessionToken = crypto.randomBytes(48).toString('base64url');
     const editorToken = crypto.randomBytes(48).toString('base64url');
+    // Compatibility: keep the established per-user log namespace across the rename.
     const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager', 'logs');
     fs.mkdirSync(logRoot, { recursive: true });
     const logPath = path.join(logRoot, `bridge-startup-${port}.log`);

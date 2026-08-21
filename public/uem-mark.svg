@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="UEM">
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="UTM">
   <defs>
-    <linearGradient id="uem-border" x1="24" y1="20" x2="232" y2="236" gradientUnits="userSpaceOnUse">
+    <linearGradient id="utm-border" x1="24" y1="20" x2="232" y2="236" gradientUnits="userSpaceOnUse">
       <stop stop-color="#55E6F0"/>
       <stop offset="0.55" stop-color="#3188FF"/>
       <stop offset="1" stop-color="#8B5CF6"/>
     </linearGradient>
   </defs>
-  <rect x="7" y="7" width="242" height="242" rx="52" fill="#0B1220" stroke="url(#uem-border)" stroke-width="14"/>
+  <rect x="7" y="7" width="242" height="242" rx="52" fill="#0B1220" stroke="url(#utm-border)" stroke-width="14"/>
   <path d="M35 58v140" stroke="#42DDE8" stroke-width="9" stroke-linecap="round"/>
   <path d="M58 218h140" stroke="#7658F4" stroke-width="9" stroke-linecap="round"/>
-  <text x="133" y="151" fill="#F8FAFC" font-family="Segoe UI,Arial,sans-serif" font-size="67" font-weight="800" text-anchor="middle" letter-spacing="-5">UEM</text>
+  <text x="133" y="151" fill="#F8FAFC" font-family="Segoe UI,Arial,sans-serif" font-size="67" font-weight="800" text-anchor="middle" letter-spacing="-5">UTM</text>
   <circle cx="218" cy="39" r="10" fill="#55E6F0"/>
 </svg>

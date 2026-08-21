@@ -265,7 +265,7 @@ function legacyEditableNameDiagnostics(value: unknown): string[] {
   let hasObsoleteZoneBinding = false;
   const add = (objectLabel: string, oldName: unknown, canonicalName: string) => {
     if (typeof oldName !== 'string' || !oldName.trim() || oldName === canonicalName) return;
-    diagnostics.push(`Legacy editable name "${oldName}" for ${objectLabel} is ignored. UEM now generates "${canonicalName}" from the stable Verse key; existing UEFN assignments may need to be reassigned after regeneration.`);
+    diagnostics.push(`Legacy editable name "${oldName}" for ${objectLabel} is ignored. Transaction Manager now generates "${canonicalName}" from the stable Verse key; existing UEFN assignments may need to be reassigned after regeneration.`);
   };
 
   if (Array.isArray(value.entitlements)) {

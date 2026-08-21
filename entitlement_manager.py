@@ -1,4 +1,4 @@
-"""Attach optional UEFN editor automation to an active Electron UEM session."""
+"""Attach optional UEFN editor automation to an active Transaction Manager session."""
 
 import json
 import os
@@ -30,7 +30,7 @@ def get_uefn_content_dir():
         root_asset_path = get_root_asset_directory() if get_root_asset_directory else ""
         root_asset_path = str(root_asset_path or "").strip().replace("\\", "/")
         root_parts = [part for part in root_asset_path.split("/") if part]
-        print(f"[EntitlementManager] UEFN root asset directory: {root_asset_path or '<empty>'}")
+        print(f"[TransactionManager] UEFN root asset directory: {root_asset_path or '<empty>'}")
 
         if root_parts and root_parts[0].lower() != "game":
             project_name = root_parts[0]
@@ -38,11 +38,11 @@ def get_uefn_content_dir():
             get_plugin_content_dir = getattr(plugin_library, "get_plugin_content_dir", None)
             if get_plugin_content_dir:
                 plugin_content_dir = get_plugin_content_dir(project_name)
-                print(f"[EntitlementManager] UEFN project plugin {project_name} Content API returned: {plugin_content_dir or '<empty>'}")
+                print(f"[TransactionManager] UEFN project plugin {project_name} Content API returned: {plugin_content_dir or '<empty>'}")
                 normalized = _normalize_existing_dir(unreal, plugin_content_dir)
-                print(f"[EntitlementManager] UEFN project plugin Content normalized to: {normalized or '<missing>'}")
+                print(f"[TransactionManager] UEFN project plugin Content normalized to: {normalized or '<missing>'}")
                 if normalized:
-                    print(f"[EntitlementManager] Active UEFN Content directory: {normalized}")
+                    print(f"[TransactionManager] Active UEFN Content directory: {normalized}")
                     return normalized
 
             raise RuntimeError(
@@ -56,7 +56,7 @@ def get_uefn_content_dir():
         if project_plugin:
             normalized = _normalize_existing_dir(unreal, project_plugin[1])
             if normalized:
-                print(f"[EntitlementManager] Active UEFN project plugin Content directory: {normalized}")
+                print(f"[TransactionManager] Active UEFN project plugin Content directory: {normalized}")
                 return normalized
 
         # Ordinary Unreal projects use the host project's Content directory.
@@ -67,10 +67,10 @@ def get_uefn_content_dir():
         for candidate in candidates:
             normalized = _normalize_existing_dir(unreal, candidate)
             if normalized:
-                print(f"[EntitlementManager] Active Content directory: {normalized}")
+                print(f"[TransactionManager] Active Content directory: {normalized}")
                 return normalized
     except Exception as error:
-        print(f"[EntitlementManager] Unreal project detection unavailable: {error}")
+        print(f"[TransactionManager] Unreal project detection unavailable: {error}")
         if unreal_loaded:
             raise RuntimeError("The active UEFN project was detected, but its Content directory could not be resolved.") from error
 
@@ -152,7 +152,7 @@ def get_uefn_asset_mount():
                 return "/Game"
             raise RuntimeError("UEFN reported /Game instead of its project mount and no active project plugin could be resolved.")
     except Exception as error:
-        print(f"[EntitlementManager] Unreal asset mount detection unavailable: {error}")
+        print(f"[TransactionManager] Unreal asset mount detection unavailable: {error}")
         if os.environ.get("UEM_CONTENT_ROOT", "").strip():
             return "/Game"
         raise RuntimeError("The active UEFN asset mount could not be resolved safely.") from error
@@ -195,7 +195,7 @@ def import_texture_job(job):
     make_directory = getattr(editor_asset_library, "make_directory", None)
     if make_directory:
         make_directory(destination_path)
-    unreal.log(f"[EntitlementManager] Importing confirmed texture into {destination_path}: {asset_name}")
+    unreal.log(f"[TransactionManager] Importing confirmed texture into {destination_path}: {asset_name}")
 
     task = unreal.AssetImportTask()
     task.filename = source_path
@@ -234,7 +234,7 @@ def import_texture_job(job):
             save_result = editor_asset_library.save_asset(asset_path)
             if save_result is False and (not does_asset_exist or not does_asset_exist(asset_path)):
                 raise RuntimeError(f"UEFN could not save imported asset {asset_path}.")
-        unreal.log(f"[EntitlementManager] Imported and verified Content Browser asset: {asset_path}")
+        unreal.log(f"[TransactionManager] Imported and verified Content Browser asset: {asset_path}")
     if editor_asset_library and hasattr(editor_asset_library, "sync_browser_to_objects"):
         editor_asset_library.sync_browser_to_objects(imported_paths)
 
@@ -256,7 +256,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
     try:
         import unreal
     except ImportError:
-        print("[EntitlementManager] Unreal Python API is unavailable; running without the UEFN editor texture-import callback.")
+        print("[TransactionManager] Unreal Python API is unavailable; running without the UEFN editor texture-import callback.")
         return None
     import queue
     import threading
@@ -340,7 +340,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
                 setattr(unreal, "_uem_texture_import_worker", None)
             if state["last_error"]:
                 try:
-                    unreal.log_warning(f"[EntitlementManager] Texture import bridge stopped: {state['last_error']}")
+                    unreal.log_warning(f"[TransactionManager] Texture import bridge stopped: {state['last_error']}")
                 except Exception:
                     pass
             return
@@ -365,7 +365,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
     worker = threading.Thread(target=bridge_worker, name="UEM-TextureBridge", daemon=True)
     setattr(unreal, "_uem_texture_import_worker", worker)
     worker.start()
-    unreal.log("[EntitlementManager] Texture import editor bridge registered.")
+    unreal.log("[TransactionManager] Texture import editor bridge registered.")
     return callback_handle
 
 
@@ -379,7 +379,7 @@ def verify_health(port):
 
 
 def attach_to_standalone_session(content_dir, asset_mount):
-    """Attach editor-only imports to an already linked standalone UEM session."""
+    """Attach editor-only imports to an already linked standalone Transaction Manager session."""
     state_root = os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
     session_path = os.path.join(state_root, "UEFN Entitlement Manager", "active-session.json")
     if not os.path.isfile(session_path):
@@ -401,20 +401,20 @@ def attach_to_standalone_session(content_dir, asset_mount):
         normalized_linked = os.path.normcase(os.path.realpath(linked_root))
         if normalized_active != normalized_linked or asset_mount != linked_mount:
             raise RuntimeError(
-                "The open UEFN project does not match the project linked in UEM. "
-                "Restart UEM and choose this project from its boot menu before attaching editor imports."
+                "The open UEFN project does not match the project linked in Transaction Manager. "
+                "Restart Transaction Manager and choose this project from its boot menu before attaching editor imports."
             )
 
         install_texture_import_bridge(port, editor_token, content_dir, asset_mount)
-        print("[EntitlementManager] Optional editor connector attached to the existing standalone UEM window.")
+        print("[TransactionManager] Optional editor connector attached to the existing standalone Transaction Manager window.")
         return True
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-        print(f"[EntitlementManager] Standalone session could not be attached: {error}")
+        print(f"[TransactionManager] Standalone session could not be attached: {error}")
         return False
 
 
 def main():
-    print("UEFN Entitlement Manager | ADEPT Interactive")
+    print("UEFN Transaction Manager | ADEPT Interactive")
     try:
         content_dir = get_uefn_content_dir()
         asset_mount = get_uefn_asset_mount()
@@ -422,11 +422,11 @@ def main():
             return
         raise RuntimeError(
             "No active Electron manager session is linked to this project. "
-            "Open UEFNEntitlementManager, confirm this .uefnproject in its project picker, "
+            "Open UEFN Transaction Manager, confirm this .uefnproject in its project picker, "
             "and leave the manager open while using native texture imports."
         )
     except Exception as error:
-        print(f"[EntitlementManager] Editor attachment failed: {error}")
+        print(f"[TransactionManager] Editor attachment failed: {error}")
         raise
 
 

@@ -46,7 +46,7 @@ test('editable metadata uses native categories, concise tooltips, and correct ar
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   assert.match(source, /@editable:\n        ToolTip := UEM_AccessPass_purchaseTriggersToolTip\n        Categories := array\{UEM_EntitlementsCategory, UEM_AccessPass_Category, UEM_PurchaseTriggersCategory\}\n    AccessPass_PurchaseTriggers : \[\]trigger_device/);
   assert.match(source, /UEM_DebugCategory<localizes>:message = "DEBUG"/);
-  assert.match(source, /UEM_EnableDebugLogging_ToolTip<localizes>:message = "Enable additional UEM runtime diagnostics in the Verse log\."/);
+  assert.match(source, /UEM_EnableDebugLogging_ToolTip<localizes>:message = "Enable additional Transaction Manager runtime diagnostics in the Verse log\."/);
   assert.match(source, /@editable:\n        ToolTip := UEM_EnableDebugLogging_ToolTip\n        Categories := array\{UEM_DebugCategory\}\n    EnableDebugLogging:logic = false/);
   assert.match(source, /Categories := array\{UEM_StorefrontsCategory, UEM_CoinStore_Category, UEM_OpenTriggersCategory\}[\s\S]+CoinStore_OpenTriggers : \[\]trigger_device/);
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);

@@ -11,8 +11,8 @@ $appVersion = if ($VersionOverride) { $VersionOverride.Trim() } else { $canonica
 if ($appVersion -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
     throw "Release version is not valid semantic version syntax: $appVersion"
 }
-$installerFileName = "UEFN-Entitlement-Manager-Setup-$appVersion.exe"
-$portableFileName = "UEFN-Entitlement-Manager-$appVersion-Portable.zip"
+$installerFileName = "UEFN-Transaction-Manager-Setup-$appVersion.exe"
+$portableFileName = "UEFN-Transaction-Manager-$appVersion-Portable.zip"
 $releaseRoot = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { [IO.Path]::GetFullPath($ReleaseDirectory) } else { Join-Path $toolRoot $ReleaseDirectory }
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-" + [guid]::NewGuid().ToString("N"))
 $stagingApp = Join-Path $stagingRoot "app"
@@ -89,7 +89,7 @@ try {
     $runtimePackage = [ordered]@{
         name = "uefn-entitlement-manager"
         version = $appVersion
-        description = "Project-scoped In-Island Transactions and Verse entitlement manager for UEFN creators"
+        description = "Project-scoped In-Island Transactions and Verse transaction manager for UEFN creators"
         author = "AD3PT Interactive Inc."
         private = $true
         main = "dist-electron/main.cjs"
@@ -155,7 +155,7 @@ try {
     $builtPortable = Join-Path $builderOutput $portableFileName
     $builtMetadata = Join-Path $builderOutput "latest.yml"
     $builtBlockmap = Join-Path $builderOutput "$installerFileName.blockmap"
-    $portableRoot = Join-Path $stagingRoot "portable\UEFN Entitlement Manager"
+    $portableRoot = Join-Path $stagingRoot "portable\UEFN Transaction Manager"
     New-Item -ItemType Directory -Path (Split-Path -Parent $portableRoot) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $builderOutput "win-unpacked") -Destination $portableRoot -Recurse -Force
     Compress-Archive -LiteralPath $portableRoot -DestinationPath $builtPortable -CompressionLevel Optimal
@@ -172,8 +172,8 @@ try {
     foreach ($artifact in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
         Copy-Item -LiteralPath $artifact -Destination (Join-Path $releaseRoot (Split-Path -Leaf $artifact)) -Force
     }
-    $humanInstaller = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Setup.exe"
-    $humanPortable = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Portable.zip"
+    $humanInstaller = Join-Path $releaseRoot "UEFN-Transaction-Manager-Setup.exe"
+    $humanPortable = Join-Path $releaseRoot "UEFN-Transaction-Manager-Portable.zip"
     Copy-Item -LiteralPath (Join-Path $releaseRoot $installerFileName) -Destination $humanInstaller -Force
     Copy-Item -LiteralPath (Join-Path $releaseRoot $portableFileName) -Destination $humanPortable -Force
     $versionedInstallerHash = (Get-FileHash -LiteralPath (Join-Path $releaseRoot $installerFileName) -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -184,14 +184,14 @@ try {
     if ($versionedPortableHash -ne $humanPortableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
     Write-Host "Verified byte-identical human aliases for installer and portable archive." -ForegroundColor Green
     $checksumLines = [System.Collections.Generic.List[string]]::new()
-    $releaseArtifacts = Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object { $_.Name -notin @("SHA256SUMS.txt", "UEFN Entitlement Manager.contents.tsv") } | Sort-Object Name
+    $releaseArtifacts = Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object { $_.Name -notin @("SHA256SUMS.txt", "UEFN Transaction Manager.contents.tsv") } | Sort-Object Name
     foreach ($artifact in $releaseArtifacts) { Add-ReleaseChecksum -Path $artifact.FullName -Lines $checksumLines }
     Set-Content -LiteralPath (Join-Path $releaseRoot "SHA256SUMS.txt") -Value $checksumLines -Encoding UTF8
     $inventory = @("SHA256`tBytes`tPath") + @($releaseArtifacts | ForEach-Object {
         $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "{0}`t{1}`t{2}" -f $hash, $_.Length, $_.Name
     })
-    Set-Content -LiteralPath (Join-Path $releaseRoot "UEFN Entitlement Manager.contents.tsv") -Value $inventory -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $releaseRoot "UEFN Transaction Manager.contents.tsv") -Value $inventory -Encoding UTF8
     Write-Host "`nNSIS installer created: $(Join-Path $releaseRoot $installerFileName)" -ForegroundColor Green
     Write-Host "Portable secondary artifact created: $(Join-Path $releaseRoot $portableFileName)"
     Write-Host "Update metadata: $(Join-Path $releaseRoot 'latest.yml')"

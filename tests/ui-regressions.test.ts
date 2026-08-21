@@ -54,7 +54,7 @@ test('creator guidance and template chooser stay streamlined', () => {
   assert.match(chooserSource, /Use this template/);
 });
 
-test('paid-random guidance separates the optional UEM field from the required island disclosure', () => {
+test('paid-random guidance separates the optional Transaction Manager field from the required island disclosure', () => {
   const modalSource = read(path.join('src', 'components', 'EntitlementModal.tsx'));
   const cardSource = read(path.join('src', 'components', 'EntitlementCard.tsx'));
   const presetSource = read(path.join('src', 'constants', 'presets.ts'));
@@ -63,10 +63,10 @@ test('paid-random guidance separates the optional UEM field from the required is
   assert.match(modalSource, /Accurate numerical odds are required before purchase/);
   assert.match(modalSource, /optional: enter them here/);
   assert.match(modalSource, /elsewhere in your island and clearly direct players there/);
-  assert.match(modalSource, /Leaving it empty is allowed in UEM/);
-  assert.match(cardSource, /No odds entered in UEM/);
-  assert.match(presetSource, /optional UEM odds disclosure field/);
-  assert.match(readmeSource, /UEM's odds field is optional/);
+  assert.match(modalSource, /Leaving it empty is allowed in Transaction Manager/);
+  assert.match(cardSource, /No odds entered in Transaction Manager/);
+  assert.match(presetSource, /optional Transaction Manager odds disclosure field/);
+  assert.match(readmeSource, /Transaction Manager's odds field is optional/);
 });
 
 test('standalone startup paints before discovery and automatically installs its UEFN connector', () => {
@@ -148,15 +148,15 @@ test('release shell uses stable application identity and versioned artifacts', (
   const builder = JSON.parse(read('electron-builder.json')) as { appId: string; productName: string; executableName: string; nsis: { artifactName: string; oneClick: boolean; perMachine: boolean; createDesktopShortcut: boolean }; win: { electronLanguages: string[] } };
   const releaseScript = read(path.join('scripts', 'build-release.ps1'));
   assert.equal(builder.appId, 'AD3PTInteractive.UEFNEntitlementManager');
-  assert.equal(builder.productName, 'UEFN Entitlement Manager');
-  assert.equal(builder.executableName, 'UEFN Entitlement Manager');
-  assert.equal(builder.nsis.artifactName, 'UEFN-Entitlement-Manager-Setup-${version}.${ext}');
+  assert.equal(builder.productName, 'UEFN Transaction Manager');
+  assert.equal(builder.executableName, 'UEFN Transaction Manager');
+  assert.equal(builder.nsis.artifactName, 'UEFN-Transaction-Manager-Setup-${version}.${ext}');
   assert.equal(builder.nsis.oneClick, true);
   assert.equal(builder.nsis.perMachine, false);
   assert.equal(builder.nsis.createDesktopShortcut, false);
   assert.deepEqual(builder.win.electronLanguages, ['en-US']);
-  assert.ok(releaseScript.includes('UEFN-Entitlement-Manager-Setup-$appVersion.exe'));
-  assert.ok(releaseScript.includes('UEFN-Entitlement-Manager-$appVersion-Portable.zip'));
+  assert.ok(releaseScript.includes('UEFN-Transaction-Manager-Setup-$appVersion.exe'));
+  assert.ok(releaseScript.includes('UEFN-Transaction-Manager-$appVersion-Portable.zip'));
   assert.equal(packageVersion, version);
   assert.match(version, /^\d+\.\d+\.\d+$/);
 });

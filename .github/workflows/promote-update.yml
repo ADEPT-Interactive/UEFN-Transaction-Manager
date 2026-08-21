@@ -1,4 +1,4 @@
-name: Promote published UEM update
+name: Promote published UEFN Transaction Manager update
 
 on:
   release:
@@ -31,4 +31,4 @@ jobs:
             --bucket adept-software-updates \
             --prefix uem/stable \
             --public-url https://updates.adeptinteractive.net/ \
-            --github-installer-url "https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Entitlement-Manager-Setup.exe"
+            --github-installer-url "https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe"

@@ -82,7 +82,7 @@ export class UpdateManager {
 
   public async check(manual: boolean): Promise<UpdateState> {
     if (!this.enabled) {
-      const state = { status: manual ? 'error' : 'idle', currentVersion: this.currentVersion, message: manual ? 'Updates are available from an installed UEM build.' : undefined } satisfies UpdateState;
+      const state = { status: manual ? 'error' : 'idle', currentVersion: this.currentVersion, message: manual ? 'Updates are available from an installed Transaction Manager build.' : undefined } satisfies UpdateState;
       if (manual) this.publish(state);
       return state;
     }
@@ -106,7 +106,7 @@ export class UpdateManager {
         this.publish({ status: 'idle', currentVersion: this.currentVersion });
         return this.getState();
       }
-      const state = { status: 'error', currentVersion: this.currentVersion, message: 'Could not check for updates. UEM will continue working normally.' } satisfies UpdateState;
+      const state = { status: 'error', currentVersion: this.currentVersion, message: 'Could not check for updates. Transaction Manager will continue working normally.' } satisfies UpdateState;
       this.publish(state);
       return state;
     }).finally(() => { this.checkPromise = null; });
@@ -132,7 +132,7 @@ export class UpdateManager {
   }
 
   public async install(discardChanges: boolean, hasUnsavedChanges: boolean, stopOwnedProcesses: () => Promise<void>): Promise<UpdateActionResult> {
-    if (this.state.status !== 'downloaded') return { success: false, error: 'Download the update before restarting UEM.' };
+    if (this.state.status !== 'downloaded') return { success: false, error: 'Download the update before restarting Transaction Manager.' };
     if (!discardChanges && hasUnsavedChanges) return { success: false, error: 'Save or discard unsaved changes before installing the update.' };
     try {
       await stopOwnedProcesses();
@@ -140,7 +140,7 @@ export class UpdateManager {
       return { success: true };
     } catch (error) {
       this.writeDiagnostic(`Update installation failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-      return { success: false, error: 'UEM could not restart into the downloaded update.' };
+      return { success: false, error: 'Transaction Manager could not restart into the downloaded update.' };
     }
   }
 

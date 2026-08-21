@@ -26,13 +26,13 @@ jobs:
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: uefn-entitlement-manager-windows-x64
+          name: uefn-transaction-manager-windows-x64
           path: |
-            release/UEFN-Entitlement-Manager-Setup-*.exe
-            release/UEFN-Entitlement-Manager-*-Portable.zip
-            release/UEFN-Entitlement-Manager-Setup.exe
-            release/UEFN-Entitlement-Manager-Portable.zip
+            release/UEFN-Transaction-Manager-Setup-*.exe
+            release/UEFN-Transaction-Manager-*-Portable.zip
+            release/UEFN-Transaction-Manager-Setup.exe
+            release/UEFN-Transaction-Manager-Portable.zip
             release/latest.yml
-            release/UEFN-Entitlement-Manager-Setup-4.0.0.exe.blockmap
+            release/UEFN-Transaction-Manager-Setup-*.exe.blockmap
             release/SHA256SUMS.txt
-            release/UEFN Entitlement Manager.contents.tsv
+            release/UEFN Transaction Manager.contents.tsv

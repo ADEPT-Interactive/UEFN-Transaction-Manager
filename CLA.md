@@ -74,7 +74,7 @@ and is not required to include it in any release. Rejected Contributions remain
 the contributor's property, subject to any rights already granted under another
 written agreement.
 
-This Agreement does not grant you ownership of the UEFN Entitlement Manager or
+This Agreement does not grant you ownership of the UEFN Transaction Manager or
 permission to release a fork, repackaged version, or derivative product.
 
 ## Governing law and forum

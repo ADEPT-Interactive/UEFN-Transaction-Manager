@@ -2,7 +2,7 @@
 
 The source is publicly visible so creators and developers can inspect it,
 report problems, propose improvements, and help ADEPT improve the official
-UEFN Entitlement Manager release. It is not an open-source project and the
+UEFN Transaction Manager release. It is not an open-source project and the
 repository's source-available license does not permit unauthorized publication
 of derivative releases, repackaging the tool, or using the codebase in another
 release.

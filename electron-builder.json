@@ -1,8 +1,8 @@
 {
   "appId": "AD3PTInteractive.UEFNEntitlementManager",
-  "productName": "UEFN Entitlement Manager",
-  "executableName": "UEFN Entitlement Manager",
-  "artifactName": "UEFN-Entitlement-Manager-${version}.${ext}",
+  "productName": "UEFN Transaction Manager",
+  "executableName": "UEFN Transaction Manager",
+  "artifactName": "UEFN-Transaction-Manager-${version}.${ext}",
   "asar": false,
   "compression": "normal",
   "npmRebuild": false,
@@ -19,10 +19,10 @@
     "perMachine": false,
     "createDesktopShortcut": false,
     "createStartMenuShortcut": true,
-    "shortcutName": "UEFN Entitlement Manager",
+    "shortcutName": "UEFN Transaction Manager",
     "runAfterFinish": true,
     "deleteAppDataOnUninstall": false,
-    "artifactName": "UEFN-Entitlement-Manager-Setup-${version}.${ext}"
+    "artifactName": "UEFN-Transaction-Manager-Setup-${version}.${ext}"
   },
   "publish": [
     {

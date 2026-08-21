@@ -16,11 +16,11 @@ ADEPT Interactive will acknowledge a complete report as soon as practical, inves
 
 ## Trust boundary
 
-UEFN Entitlement Manager is a local, project-scoped tool. Its bridge listens only on loopback, requires ephemeral session credentials, validates project paths and asset identifiers, and restricts uploads to verified PNG input. The packaged application does not require public inbound network access.
+UEFN Transaction Manager is a local, project-scoped tool. Its bridge listens only on loopback, requires ephemeral session credentials, validates project paths and asset identifiers, and restricts uploads to verified PNG input. The packaged application does not require public inbound network access.
 
 The Verse compiler client is also local-only. It discovers listeners owned by the active UEFN process, matches the selected project where possible, rejects ambiguous sessions, and does not accept LAN or arbitrary remote endpoint overrides. `UEM_VERSE_COMPILER_ENDPOINT` is a loopback-only development and test override.
 
-UEFN, the local Verse Workflow Server, project-specific Verse, imported assets, and Epic's publishing systems remain outside UEM's validation boundary. A successful local check or compile is not proof of gameplay correctness, moderation approval, or marketplace compliance.
+UEFN, the local Verse Workflow Server, project-specific Verse, imported assets, and Epic's publishing systems remain outside Transaction Manager's validation boundary. A successful local check or compile is not proof of gameplay correctness, moderation approval, or marketplace compliance.
 
 ## Supported versions
 

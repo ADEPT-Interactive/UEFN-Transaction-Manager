@@ -458,8 +458,8 @@ test('new marketplace safeguards and public helpers are generated', () => {
 test('generated managed-file guidance keeps gameplay integration in external Verse', () => {
   const source = generateVerseCode(items, bundles, config);
 
-  assert.match(source, /Generated and managed by ADEPT Interactive UEFN Entitlement Manager\. Do not edit manually\./);
-  assert.match(source, /Configure through UEM and integrate from your own Verse using the generated public API/);
+  assert.match(source, /Generated and managed by ADEPT Interactive UEFN Transaction Manager\. Do not edit manually\./);
+  assert.match(source, /Configure through Transaction Manager and integrate from your own Verse using the generated public API/);
   assert.match(source, /Await the generated entitlement delta notifications from your own Verse to apply gameplay effects/);
   assert.match(source, /Do not edit these handlers; regeneration may replace the managed implementation/);
   assert.doesNotMatch(source, /Apply gameplay benefits here/);

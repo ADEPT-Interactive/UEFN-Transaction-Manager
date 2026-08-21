@@ -14,7 +14,7 @@ export const MARKETPLACE_CONSTRAINTS = {
   priceMinVBucks: 50,
   priceMaxVBucks: 5000,
   priceStepVBucks: 50,
-  maxCountMin: 1, // Epic documents values below 1 as non-grantable; UEM requires a positive count.
+  maxCountMin: 1, // Epic documents values below 1 as non-grantable; Transaction Manager requires a positive count.
   maxCount: 10_000_000,
   maxNestedBundleDepth: 5,
   maxDistinctEntitlementIdentifiersPerOffer: 100,

@@ -1,4 +1,4 @@
-name: Build UEM release
+name: Build UEFN Transaction Manager release
 
 on:
   push:
@@ -42,25 +42,25 @@ jobs:
           $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match version.json v$version." }
           $assets = @(
-            "release/UEFN-Entitlement-Manager-Setup.exe",
-            "release/UEFN-Entitlement-Manager-Portable.zip"
+            "release/UEFN-Transaction-Manager-Setup.exe",
+            "release/UEFN-Transaction-Manager-Portable.zip"
           )
           $notes = @"
-          # UEFN Entitlement Manager $version
+          # UEFN Transaction Manager $version
 
           ## Download
 
           **Windows Installer, recommended**
 
-          `UEFN-Entitlement-Manager-Setup.exe`
+          `UEFN-Transaction-Manager-Setup.exe`
 
           **Portable version**
 
-          `UEFN-Entitlement-Manager-Portable.zip`
+          `UEFN-Transaction-Manager-Portable.zip`
 
           ## What's changed
 
-          - Moved UEM's automatic updater to ADEPT's dedicated update infrastructure.
+          - Moved Transaction Manager's automatic updater to ADEPT's dedicated update infrastructure.
           - Simplified GitHub Releases so manual downloads are clear.
           - Corrected generated transaction notifications to use Verse's supported Await semantics.
           - Corrected generated-device guidance to use the UEFN Content Browser.
@@ -72,9 +72,9 @@ jobs:
 
           ## SHA-256
 
-          Installer: `$((Get-FileHash release/UEFN-Entitlement-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())`
+          Installer: `$((Get-FileHash release/UEFN-Transaction-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())`
 
-          Portable: `$((Get-FileHash release/UEFN-Entitlement-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())`
+          Portable: `$((Get-FileHash release/UEFN-Transaction-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())`
           "@
           Set-Content -LiteralPath release-notes.md -Value $notes -Encoding UTF8
           $existingJson = gh release view $env:GITHUB_REF_NAME --json isDraft 2>$null
@@ -82,19 +82,19 @@ jobs:
           $existing = if ($viewExitCode -eq 0) { $existingJson | ConvertFrom-Json } else { $null }
           if ($viewExitCode -eq 0 -and -not $existing.isDraft) { throw "A public release already exists for $env:GITHUB_REF_NAME; refusing to mutate it." }
           if ($viewExitCode -eq 0) {
-            gh release edit $env:GITHUB_REF_NAME --title "UEFN Entitlement Manager $version" --notes-file release-notes.md
+            gh release edit $env:GITHUB_REF_NAME --title "UEFN Transaction Manager $version" --notes-file release-notes.md
             gh release upload $env:GITHUB_REF_NAME @assets --clobber
           }
           else {
-            gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --title "UEFN Entitlement Manager $version" --notes-file release-notes.md
+            gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --title "UEFN Transaction Manager $version" --notes-file release-notes.md
           }
       - uses: actions/upload-artifact@v4
         with:
-          name: uefn-entitlement-manager-${{ github.ref_name }}-internal-release-metadata
+          name: uefn-transaction-manager-${{ github.ref_name }}-internal-release-metadata
           path: |
             release/latest.yml
-            release/UEFN-Entitlement-Manager-Setup-*.exe.blockmap
+            release/UEFN-Transaction-Manager-Setup-*.exe.blockmap
             release/SHA256SUMS.txt
-            release/UEFN Entitlement Manager.contents.tsv
-            release/UEFN-Entitlement-Manager-Setup-*.exe
-            release/UEFN-Entitlement-Manager-*-Portable.zip
+            release/UEFN Transaction Manager.contents.tsv
+            release/UEFN-Transaction-Manager-Setup-*.exe
+            release/UEFN-Transaction-Manager-*-Portable.zip

@@ -107,7 +107,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
 
           {/* Paid Random Item Badge */}
           {item.flags.paidRandomItem && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-md" title={item.flags.paidRandomItemOdds.trim() || 'No odds entered in UEM. Accurate numerical odds are still required before purchase.'}>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-md" title={item.flags.paidRandomItemOdds.trim() || 'No odds entered in Transaction Manager. Accurate numerical odds are still required before purchase.'}>
               <Dice5 className="w-3 h-3" />
               <span>Paid Random Item</span>
             </span>

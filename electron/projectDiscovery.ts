@@ -305,6 +305,7 @@ function emptyCache(): DiscoveryCache {
 }
 
 export function defaultDiscoveryCachePath(baseDirectory = process.env.LOCALAPPDATA ?? os.tmpdir()): string {
+  // Compatibility: preserve the cache used by 4.0.1 so project history carries forward.
   return path.join(baseDirectory, 'UEFN Entitlement Manager', 'project-discovery.json');
 }
 

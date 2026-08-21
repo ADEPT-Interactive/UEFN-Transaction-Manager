@@ -8,15 +8,15 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
-if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Entitlement-Manager-$expectedVersion-Portable.zip" }
-if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Entitlement-Manager-Setup-$expectedVersion.exe" }
+if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Transaction-Manager-$expectedVersion-Portable.zip" }
+if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Transaction-Manager-Setup-$expectedVersion.exe" }
 $installer = (Resolve-Path -LiteralPath (Join-Path $toolRoot $InstallerPath)).Path
 $archive = (Resolve-Path -LiteralPath (Join-Path $toolRoot $ArchivePath)).Path
 $releaseRoot = Split-Path -Parent $installer
-$expectedInstallerName = "UEFN-Entitlement-Manager-Setup-$expectedVersion.exe"
-$expectedPortableName = "UEFN-Entitlement-Manager-$expectedVersion-Portable.zip"
-$humanInstallerPath = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Setup.exe"
-$humanPortablePath = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Portable.zip"
+$expectedInstallerName = "UEFN-Transaction-Manager-Setup-$expectedVersion.exe"
+$expectedPortableName = "UEFN-Transaction-Manager-$expectedVersion-Portable.zip"
+$humanInstallerPath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Setup.exe"
+$humanPortablePath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Portable.zip"
 $metadataPath = Join-Path $releaseRoot "latest.yml"
 $blockmapPath = Join-Path $releaseRoot "$expectedInstallerName.blockmap"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
@@ -60,7 +60,7 @@ Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, latest.yml, 
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 try {
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
-    $packageRoot = Join-Path $extractRoot "UEFN Entitlement Manager"
+    $packageRoot = Join-Path $extractRoot "UEFN Transaction Manager"
     $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json).version
     if ($appVersion -ne $expectedVersion) { throw "The portable package version $appVersion does not match $expectedVersion." }
     $updaterConfig = Join-Path $packageRoot "resources\app-update.yml"
@@ -70,7 +70,7 @@ try {
     if ($updaterText -notmatch '(?m)^url:\s*https://updates\.adeptinteractive\.net/uem/stable/\s*$') { throw "Packaged electron-updater URL is not the ADEPT stable endpoint." }
     if ($updaterText -match '(?i)github|owner:|repo:') { throw "Packaged electron-updater configuration still contains GitHub provider settings." }
     Write-Host "Verified packaged electron-updater configuration: generic ADEPT stable endpoint." -ForegroundColor Green
-    $desktopFileName = "UEFN Entitlement Manager.exe"
+    $desktopFileName = "UEFN Transaction Manager.exe"
     $desktop = Join-Path $packageRoot $desktopFileName
     $appRoot = Join-Path $packageRoot "resources\app"
     $server = Join-Path $appRoot "dist\server.cjs"

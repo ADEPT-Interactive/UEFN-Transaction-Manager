@@ -68,11 +68,11 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <div className="relative shrink-0">
-              <img src="/uem-mark.svg" alt="UEM" className="h-11 w-11 rounded-xl" />
+              <img src="/uem-mark.svg" alt="UEFN Transaction Manager" className="h-11 w-11 rounded-xl" />
               <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#080d19] ${serverOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} title={serverOnline ? 'Secure project bridge connected' : 'Project bridge unavailable'} />
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-lg font-extrabold text-white">UEFN Entitlement Manager</h1><span className="text-[10px] font-semibold text-slate-500">v{appVersion}</span>{isDirty && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">Unsaved</span>}</div>
+              <div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-lg font-extrabold text-white">UEFN Transaction Manager</h1><span className="text-[10px] font-semibold text-slate-500">v{appVersion}</span>{isDirty && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">Unsaved</span>}</div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <div className="relative inline-block">
                   <button type="button" aria-expanded={isProjectOpen} onClick={() => setIsProjectOpen(open => !open)} className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1 text-xs font-semibold text-slate-300 transition hover:border-cyan-500/50 hover:text-white"><FolderOpen className="h-3.5 w-3.5 text-cyan-300" /><span className="text-slate-400">Project</span><span>{projectName}</span><ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${isProjectOpen ? 'rotate-180' : ''}`} /></button>

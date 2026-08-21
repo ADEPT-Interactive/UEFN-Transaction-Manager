@@ -336,9 +336,9 @@ app.post('/api/texture/import', upload.single('image'), async (req, res) => {
         success: false,
         error: projectPythonEnabled
           ? autoConnectorInstalled
-            ? 'The automatic native-import connector is not attached. Keep this UEM window open and reopen the linked UEFN project so its project connector can start.'
-            : 'UEM could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
-          : 'Native texture import needs Python Editor Scripting. Enable it for this UEFN project; UEM detects it immediately and attaches automatically.',
+            ? 'The automatic native-import connector is not attached. Keep this Transaction Manager window open and reopen the linked UEFN project so its project connector can start.'
+            : 'Transaction Manager could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
+          : 'Native texture import needs Python Editor Scripting. Enable it for this UEFN project; Transaction Manager detects it immediately and attaches automatically.',
       });
     }
     if (!req.file) throw new Error('A PNG image is required.');
@@ -400,7 +400,7 @@ app.post('/api/verse/compile', async (req, res) => {
     const currentHash = sha256(fs.readFileSync(filePath));
     if (currentHash !== req.body.expectedHash) return res.status(409).json({ success: false, connected: false, error: 'The generated Verse file changed before compilation. Save it again.' });
     if (!editorSessionIsFresh() && !selectedProjectIsActiveInUefn()) {
-      return res.status(409).json({ success: false, connected: false, error: 'Open the linked project in UEFN before compiling. UEM could not verify that the active editor matches this project.' });
+      return res.status(409).json({ success: false, connected: false, error: 'Open the linked project in UEFN before compiling. Transaction Manager could not verify that the active editor matches this project.' });
     }
   } catch (error) {
     return res.status(400).json({ success: false, connected: false, error: error instanceof Error ? error.message : 'Compilation preflight failed.' });

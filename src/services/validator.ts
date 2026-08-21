@@ -105,20 +105,20 @@ function validateRestrictions(ownerId: string, restrictions: OfferRestrictions |
   const target = bundleId ? { bundleId } : { entitlementId };
   const age = restrictions?.minimumPurchaseAge;
   if (age !== undefined && (!Number.isSafeInteger(age) || age < 0)) {
-    issues.push(issue(`${ownerId}-minimum-age`, 'error', 'Minimum purchase age must be a non-negative integer. Epic does not publish a smaller UEM-specific upper bound.', 'minimum_purchase_age', `${field}.minimumPurchaseAge`, target.entitlementId, target.bundleId));
+    issues.push(issue(`${ownerId}-minimum-age`, 'error', 'Minimum purchase age must be a non-negative integer. Epic does not publish a smaller Transaction Manager-specific upper bound.', 'minimum_purchase_age', `${field}.minimumPurchaseAge`, target.entitlementId, target.bundleId));
   }
   const countryCodes = restrictions?.blockedCountryCodes ?? [];
   const seenCountries = new Set<string>();
   for (const code of countryCodes) {
     if (!VALID_COUNTRY_CODE_SET.has(code)) issues.push(issue(`${ownerId}-country-${code}`, 'error', `Blocked country code "${code}" must be an ISO-3166-1 alpha-2 code supported by the country picker.`, 'country_code', `${field}.blockedCountryCodes`, target.entitlementId, target.bundleId));
-    if (seenCountries.has(code)) issues.push(issue(`${ownerId}-country-duplicate-${code}`, 'warning', `${code} is listed more than once in the blocked-country restrictions. Remove the duplicate; UEM emits each restriction once.`, 'restriction_duplicate', `${field}.blockedCountryCodes`, target.entitlementId, target.bundleId));
+    if (seenCountries.has(code)) issues.push(issue(`${ownerId}-country-duplicate-${code}`, 'warning', `${code} is listed more than once in the blocked-country restrictions. Remove the duplicate; Transaction Manager emits each restriction once.`, 'restriction_duplicate', `${field}.blockedCountryCodes`, target.entitlementId, target.bundleId));
     seenCountries.add(code);
   }
   const platforms = restrictions?.blockedPlatformFamilies ?? [];
   const seenPlatforms = new Set<string>();
   for (const platform of platforms) {
     if (!VALID_PLATFORM_FAMILY_SET.has(platform)) issues.push(issue(`${ownerId}-platform-${platform}`, 'error', `Platform family "${platform}" is not an official Epic Marketplace platform ID.`, 'platform_family', `${field}.blockedPlatformFamilies`, target.entitlementId, target.bundleId));
-    if (seenPlatforms.has(platform)) issues.push(issue(`${ownerId}-platform-duplicate-${platform}`, 'warning', `${platform} is listed more than once in the blocked-platform restrictions. Remove the duplicate; UEM emits each restriction once.`, 'restriction_duplicate', `${field}.blockedPlatformFamilies`, target.entitlementId, target.bundleId));
+    if (seenPlatforms.has(platform)) issues.push(issue(`${ownerId}-platform-duplicate-${platform}`, 'warning', `${platform} is listed more than once in the blocked-platform restrictions. Remove the duplicate; Transaction Manager emits each restriction once.`, 'restriction_duplicate', `${field}.blockedPlatformFamilies`, target.entitlementId, target.bundleId));
     seenPlatforms.add(platform);
   }
   return issues;
@@ -243,7 +243,7 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
   }
   if (paidRandomItem) {
     const odds = paidRandomItemOdds.trim();
-    if (!odds) issues.push(issue(`${id}-odds-required-warning`, 'warning', `${label} is marked Paid Random Item, but no odds were entered in UEM. Before purchase, disclose accurate numerical odds in the offer or clearly direct players to where they are visible.`, 'paid_random_odds_required', 'flags.paidRandomItemOdds', id));
+    if (!odds) issues.push(issue(`${id}-odds-required-warning`, 'warning', `${label} is marked Paid Random Item, but no odds were entered in Transaction Manager. Before purchase, disclose accurate numerical odds in the offer or clearly direct players to where they are visible.`, 'paid_random_odds_required', 'flags.paidRandomItemOdds', id));
   }
 
   if (!paidRandomItem && paidRandomItemOdds.trim()) {
@@ -417,7 +417,7 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   for (const [entitlementId, quantity] of effectiveQuantities(normalizedBundle)) {
     const item = entitlementById.get(entitlementId);
     if (!Number.isSafeInteger(quantity)) {
-      issues.push(issue(`${id}-effective-quantity-overflow-${entitlementId}`, 'error', `${label} has an effective quantity too large for UEM to represent safely. Reduce a nested or direct bundle quantity.`, 'bundle_effective_quantity_overflow', 'items', undefined, id));
+      issues.push(issue(`${id}-effective-quantity-overflow-${entitlementId}`, 'error', `${label} has an effective quantity too large for Transaction Manager to represent safely. Reduce a nested or direct bundle quantity.`, 'bundle_effective_quantity_overflow', 'items', undefined, id));
     } else if (item && quantity > item.maxCount) {
       issues.push(issue(`${id}-effective-quantity-${entitlementId}`, 'error', `Nested bundle quantity for ${item.name} exceeds its MaxCount (${item.maxCount}).`, 'bundle_effective_quantity', 'items', undefined, id));
     }

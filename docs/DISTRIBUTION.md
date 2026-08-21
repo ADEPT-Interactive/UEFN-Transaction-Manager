@@ -1,16 +1,16 @@
-# UEM distribution and update infrastructure
+# UEFN Transaction Manager distribution and update infrastructure
 
-UEM 4.0.1 separates human downloads from machine updates.
+Transaction Manager 4.1.0 separates human downloads from machine updates.
 
 ## Human downloads
 
 GitHub Releases is the manual distribution surface. The stable aliases are:
 
-- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Entitlement-Manager-Setup.exe)
-- [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Entitlement-Manager-Portable.zip)
+- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe)
+- [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip)
 - [Latest release page](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest)
 
-Starting with 4.0.1, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
+Starting with 4.1.0, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
 
 ## Machine updates
 
@@ -22,13 +22,13 @@ The ADEPT-wide convention is:
 
 `https://updates.adeptinteractive.net/{product}/{channel}/`
 
-The reserved future beta path is `uem/beta/`; UEM 4.0.1 has no beta UI. The preferred R2 bucket is `adept-software-updates`, with these stable objects:
+The reserved future beta path is `uem/beta/`; Transaction Manager 4.1.0 has no beta UI. The preferred R2 bucket is `adept-software-updates`, with these stable objects:
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Entitlement-Manager-Setup-4.0.1.exe
-uem/stable/UEFN-Entitlement-Manager-Setup-4.0.1.exe.blockmap
-uem/stable/manifests/4.0.1.yml
+uem/stable/UEFN-Transaction-Manager-Setup-4.1.0.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.1.0.exe.blockmap
+uem/stable/manifests/4.1.0.yml
 ```
 
 Versioned artifacts and manifest history are immutable and retained. Only `latest.yml` is mutable.
@@ -59,7 +59,7 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Do not delete versioned release history during recovery.
 
-UEM 4.0.0 intentionally remains a historical GitHub-updater release. There is no GitHub/R2 fallback and no automatic migration branch for 4.0.0. Controlled 4.0.0 users can install 4.0.1 manually. New versions use the ADEPT endpoint.
+The 4.0.0 and 4.0.1 releases remain historical compatibility releases. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
 ## Release checklist
 
@@ -72,4 +72,15 @@ UEM 4.0.0 intentionally remains a historical GitHub-updater release. There is no
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The installer remains unsigned in 4.0.1. Signing, MCP integration, transaction migration, and other deferred product work are outside this release.
+The 4.1.0 installer remains unsigned. Signing, MCP integration, dynamic transaction support, and other deferred product work are outside this release.
+
+## Rename compatibility boundary
+
+The public product identity is **UEFN Transaction Manager**. The following old-name identifiers are intentionally retained because changing them would fragment existing installs, project state, or editor integrations:
+
+- `AD3PTInteractive.UEFNEntitlementManager` remains the Electron/Windows application ID and AppUserModelID.
+- `%LOCALAPPDATA%\UEFN Entitlement Manager` remains the user-data, discovery-cache, log, session, and temporary import namespace.
+- `https://updates.adeptinteractive.net/uem/stable/` and its `uem/test/` safety boundary remain the updater paths for existing 4.0.1 installations.
+- The `uem-launcher` protocol, `uemDesktop` preload surface, `UEM_*` environment variables and headers, and the `UEFN Entitlement Manager Bridge` health identity remain private technical compatibility surfaces.
+- Existing project markers such as `UEFN_ENTITLEMENT_MANAGER_DATA_*`, `# UEM_DATA`, `managed_transactions.verse`, `entitlement_manager.py`, and generated `UEM_*` Verse symbols remain stable so existing projects and editor assignments continue to load.
+- The private package name `uefn-entitlement-manager` and bundled `uem-icon.*` asset filenames remain implementation paths; their visible artwork and all customer-facing labels use the new identity.

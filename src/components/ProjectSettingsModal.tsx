@@ -89,7 +89,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-400 font-medium"
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Locked to the project selected in UEM's boot menu. Restart UEM to switch projects safely.
+              Locked to the project selected in Transaction Manager's boot menu. Restart Transaction Manager to switch projects safely.
             </p>
           </div>
 

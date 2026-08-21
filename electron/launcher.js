@@ -45,8 +45,8 @@ function render() {
   byId('browse').disabled = state.busy;
   byId('selected-name').textContent = selected ? (selected.isActive ? `${selected.name} — active in UEFN` : selected.name) : 'Select a project to continue';
   byId('selected-path').textContent = selected?.projectFile ?? 'Choose an active, recent, discovered, or browsed UEFN project.';
-  byId('python').textContent = selected ? (selected.pythonEnabled ? 'Python Editor Scripting is enabled. UEM will install and attach native texture importing automatically.' : 'Python Editor Scripting is disabled. UEM can still manage Verse; enable it for native texture importing.') : '';
-  byId('continue').textContent = state.busy ? 'Opening project…' : 'Open project in UEM';
+  byId('python').textContent = selected ? (selected.pythonEnabled ? 'Python Editor Scripting is enabled. Transaction Manager will install and attach native texture importing automatically.' : 'Python Editor Scripting is disabled. Transaction Manager can still manage Verse; enable it for native texture importing.') : '';
+  byId('continue').textContent = state.busy ? 'Opening project…' : 'Open project in Transaction Manager';
 }
 
 function applyState(next) {
@@ -65,11 +65,11 @@ function renderUpdate(next) {
   const action = byId('update-action');
   const later = byId('update-later');
   if (next.status === 'checking') { title.textContent = 'Checking for updates…'; detail.textContent = `Current version ${next.currentVersion}`; action.hidden = true; later.hidden = true; return; }
-  if (next.status === 'up-to-date') { title.textContent = 'UEM is up to date'; detail.textContent = next.message ?? `Current version ${next.currentVersion}`; action.hidden = true; later.hidden = false; return; }
-  if (next.status === 'error') { title.textContent = 'Update check unavailable'; detail.textContent = next.message ?? 'UEM is still ready to use.'; action.hidden = false; action.textContent = 'Try again'; later.hidden = true; return; }
-  if (next.status === 'downloading') { title.textContent = 'Downloading the UEM update'; detail.textContent = `${next.progress ?? 0}% complete`; action.hidden = true; later.hidden = true; return; }
-  if (next.status === 'downloaded') { title.textContent = `UEM ${next.availableVersion} is ready`; detail.textContent = 'Restart UEM to install the downloaded update.'; action.hidden = false; action.textContent = 'Restart and Install'; later.hidden = false; return; }
-  title.textContent = `UEM ${next.availableVersion} is available`;
+  if (next.status === 'up-to-date') { title.textContent = 'Transaction Manager is up to date'; detail.textContent = next.message ?? `Current version ${next.currentVersion}`; action.hidden = true; later.hidden = false; return; }
+  if (next.status === 'error') { title.textContent = 'Update check unavailable'; detail.textContent = next.message ?? 'Transaction Manager is still ready to use.'; action.hidden = false; action.textContent = 'Try again'; later.hidden = true; return; }
+  if (next.status === 'downloading') { title.textContent = 'Downloading the Transaction Manager update'; detail.textContent = `${next.progress ?? 0}% complete`; action.hidden = true; later.hidden = true; return; }
+  if (next.status === 'downloaded') { title.textContent = `Transaction Manager ${next.availableVersion} is ready`; detail.textContent = 'Restart Transaction Manager to install the downloaded update.'; action.hidden = false; action.textContent = 'Restart and Install'; later.hidden = false; return; }
+  title.textContent = `Transaction Manager ${next.availableVersion} is available`;
   detail.textContent = `${next.releaseName ?? next.availableVersion} · Current version ${next.currentVersion}`;
   action.hidden = false;
   action.textContent = 'Download Update';

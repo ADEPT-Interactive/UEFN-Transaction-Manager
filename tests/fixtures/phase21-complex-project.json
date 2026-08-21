@@ -49,7 +49,7 @@
       "verseKey": "paid_random_with_odds",
       "name": "Paid Random With Odds",
       "shortDescription": "A paid random item with supplied odds.",
-      "description": "A paid random item whose UEM odds field is included in the generated disclosure.",
+      "description": "A paid random item whose Transaction Manager odds field is included in the generated disclosure.",
       "priceVBucks": 900,
       "itemType": "consumable",
       "maxCount": 1,

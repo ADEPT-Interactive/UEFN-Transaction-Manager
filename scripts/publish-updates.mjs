@@ -49,7 +49,7 @@ function publicObjectUrl(publicUrl, key) { return new URL(key, publicUrl.endsWit
 
 async function releaseFiles(args) {
   const root = path.resolve(args.releaseDirectory);
-  const installerName = `UEFN-Entitlement-Manager-Setup-${args.version}.exe`;
+  const installerName = `UEFN-Transaction-Manager-Setup-${args.version}.exe`;
   const blockmapName = `${installerName}.blockmap`;
   const manifestName = `${args.version}.yml`;
   const entries = [
@@ -62,7 +62,7 @@ async function releaseFiles(args) {
 }
 
 async function remoteVersionedFiles(args) {
-  const installerName = `UEFN-Entitlement-Manager-Setup-${args.version}.exe`;
+  const installerName = `UEFN-Transaction-Manager-Setup-${args.version}.exe`;
   const names = [installerName, `${installerName}.blockmap`, `manifests/${args.version}.yml`];
   const entries = [];
   for (const name of names) {

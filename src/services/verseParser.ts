@@ -36,7 +36,7 @@ export function parseVerseCode(verseCode: string): VerseParseResult {
       retiredVerseKeys: [],
       projectDataDiagnostics: [],
       managed: false,
-      error: 'This Verse file has no Entitlement Manager manifest. It was left untouched because unmanaged Verse cannot be imported without losing data.',
+      error: 'This Verse file has no Transaction Manager manifest. It was left untouched because unmanaged Verse cannot be imported without losing data.',
     };
   }
 

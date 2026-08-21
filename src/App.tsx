@@ -248,26 +248,26 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null }> = ({ sta
     heading = 'This project is open and fully connected';
     summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
     detail = status.autoConnectorInstalled
-      ? 'Python is enabled and UEM’s authenticated editor connector is active.'
+      ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
       : 'The authenticated editor connector is active for this session.';
   } else if (active) {
     heading = 'This project is open, but the editor connector is not attached';
     summary = 'Saving is available, but native Texture2D importing is unavailable until Python connects.';
     detail = !status.pythonEnabled
-      ? 'Enable Python Editor Scripting for this project. UEM detects it immediately and attaches automatically.'
+      ? 'Enable Python Editor Scripting for this project. Transaction Manager detects it immediately and attaches automatically.'
       : !status.autoConnectorInstalled
-        ? 'UEM could not install its project connector. Confirm that Content/Python is writable, then relink the project.'
+        ? 'Transaction Manager could not install its project connector. Confirm that Content/Python is writable, then relink the project.'
         : status.bootstrapState === 'failed'
-          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep UEM open while it retries, or relink the project if the issue continues.'
-          : 'Python is enabled and the connector is installed. UEM is attaching it automatically.';
+          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep Transaction Manager open while it retries, or relink the project if the issue continues.'
+          : 'Python is enabled and the connector is installed. Transaction Manager is attaching it automatically.';
   } else if (status.differentProjectOpen) {
     heading = 'A different project is open in UEFN';
-    summary = 'This UEM window is linked to another project. Saving here still targets the linked project, but compilation and native texture importing are unavailable.';
-    detail = 'Close or switch the project in UEFN, then open the project linked to this UEM window.';
+    summary = 'This Transaction Manager window is linked to another project. Saving here still targets the linked project, but compilation and native texture importing are unavailable.';
+    detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
   } else if (status.uefnRunning) {
     heading = 'UEFN is running without a detected project';
-    summary = 'UEM has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
-    detail = 'Open the project linked to this UEM window. Connection will update automatically.';
+    summary = 'Transaction Manager has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
+    detail = 'Open the project linked to this Transaction Manager window. Connection will update automatically.';
   }
   return (
     <section className={`mx-auto mb-5 max-w-6xl rounded-2xl border p-4 ${tone === 'emerald' ? 'border-emerald-500/25 bg-emerald-500/5' : tone === 'cyan' ? 'border-cyan-500/25 bg-cyan-500/5' : 'border-amber-500/25 bg-amber-500/5'}`} aria-label="UEFN editor connection">
@@ -426,7 +426,7 @@ export const App: React.FC = () => {
 
   const checkForUpdates = () => {
     if (!window.uemDesktop) return;
-    void window.uemDesktop.update.check().then(setUpdateState).catch(() => setStatus({ message: 'Could not check for updates. UEM is still ready to use.', error: true }));
+    void window.uemDesktop.update.check().then(setUpdateState).catch(() => setStatus({ message: 'Could not check for updates. Transaction Manager is still ready to use.', error: true }));
   };
 
   const downloadUpdate = () => {

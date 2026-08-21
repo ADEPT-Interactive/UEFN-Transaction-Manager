@@ -1,4 +1,4 @@
-UEFN ENTITLEMENT MANAGER - THIRD-PARTY NOTICES
+UEFN TRANSACTION MANAGER - THIRD-PARTY NOTICES
 
 The release includes bundled open-source dependencies. Those dependencies are
 not owned by AD3PT Interactive Inc. and remain subject to their own license

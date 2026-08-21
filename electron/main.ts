@@ -21,6 +21,7 @@ const launcherAssets = new Map([
   ['/adept-insignia.png', { path: path.join(appRoot, 'electron', 'assets', 'adept-insignia.png'), type: 'image/png' }],
 ]);
 const launcherUrl = 'uem-launcher://app/index.html';
+// Compatibility: retain the 4.0.1 user-data namespace so upgrades do not fragment logs or state.
 const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager', 'logs');
 fs.mkdirSync(logRoot, { recursive: true });
 const diagnosticPath = path.join(logRoot, `electron-main-${process.pid}.log`);
@@ -197,7 +198,7 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
     allowedDashboardOrigin = null;
     launcherBusy = false;
     if (mainWindow && !mainWindow.isDestroyed()) {
-      await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Entitlement Manager', message: 'The selected project could not be opened.', detail: `${error instanceof Error ? error.message : String(error)}\n\nDiagnostic log: ${diagnosticPath}` });
+      await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Transaction Manager', message: 'The selected project could not be opened.', detail: `${error instanceof Error ? error.message : String(error)}\n\nDiagnostic log: ${diagnosticPath}` });
       sendLauncherState('Project startup failed. Select the project and try again.');
     }
     return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -243,7 +244,7 @@ async function stopOwnedProcessesForUpdate() {
 async function showFatalError(error: Error) {
   diagnostic(`Fatal error dialog: ${error.stack ?? error.message}`);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Entitlement Manager', message: 'The standalone manager could not start.', detail: `${error.message}\n\nDiagnostic log: ${diagnosticPath}` });
+    await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Transaction Manager', message: 'The standalone manager could not start.', detail: `${error.message}\n\nDiagnostic log: ${diagnosticPath}` });
   }
   await shutdownAndQuit();
 }
@@ -260,7 +261,7 @@ function configureIpc() {
         projects.set(project.id, project);
         selectedProjectId = project.id;
         discoverySession?.recordProject(project.projectFile, true);
-      } else await dialog.showMessageBox(mainWindow, { type: 'warning', title: 'UEFN Entitlement Manager', message: 'That file is not a usable UEFN project.', detail: 'Select a .uefnproject descriptor whose project Content directory is accessible.' });
+      } else await dialog.showMessageBox(mainWindow, { type: 'warning', title: 'UEFN Transaction Manager', message: 'That file is not a usable UEFN project.', detail: 'Select a .uefnproject descriptor whose project Content directory is accessible.' });
     }
     return launcherState();
   });
@@ -343,7 +344,7 @@ function createMainWindow() {
     frame: false,
     backgroundColor: '#080c14',
     icon: iconPath,
-    title: 'UEFN Entitlement Manager',
+    title: 'UEFN Transaction Manager',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -399,7 +400,8 @@ function createMainWindow() {
   return window;
 }
 
-const singleInstance = app.requestSingleInstanceLock();
+// The lifecycle harness opts into an isolated multi-process test mode so a running installed build cannot own its lock.
+const singleInstance = process.env.UEM_TEST_MODE === '1' || app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 else {
   app.on('second-instance', () => {

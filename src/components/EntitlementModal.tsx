@@ -439,13 +439,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           {activeTab === 'icon' && (
             <div className="space-y-4">
                 {!editorStatus?.nativeTextureImportAvailable && <div id="icon-import-unavailable" role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
-                  <p className="font-bold text-amber-200">Icon importing is unavailable until UEM has a full Python connection to UEFN.</p>
+                  <p className="font-bold text-amber-200">Icon importing is unavailable until Transaction Manager has a full Python connection to UEFN.</p>
                   <p className="mt-1 text-amber-100/80">{!editorStatus?.uefnRunning
-                    ? 'Open the linked project in UEFN, then return here. UEM will update this tab automatically.'
+                    ? 'Open the linked project in UEFN, then return here. Transaction Manager will update this tab automatically.'
                     : !editorStatus.pythonEnabled
                       ? 'In UEFN, open the Project menu with the small palm tree icon, choose Project Settings, and enable Python Editor Scripting. No restart is needed.'
                       : editorStatus.differentProjectOpen || !editorStatus.projectActive
-                        ? 'Open the project linked to this UEM window in UEFN. Icon importing is available only for that active project.'
+                        ? 'Open the project linked to this Transaction Manager window in UEFN. Icon importing is available only for that active project.'
                         : 'Python is enabled, but the full connector is not attached yet. Use UEFN Tools → Execute Python Script to run Content/Python/init_unreal.py. No restart is needed, and future launches will use the installed helper automatically.'}</p>
                 </div>}
                 <ImageUploadZone
@@ -581,7 +581,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         Optional odds disclosure
                       </label>
                       <p className="mb-2 text-[11px] leading-4 text-slate-400">
-                        Accurate numerical odds are required before purchase. This UEM field is optional: enter them here to add them to generated descriptions, or disclose them elsewhere in your island and clearly direct players there. Leaving it empty is allowed in UEM, but does not remove the underlying requirement.{' '}
+                        Accurate numerical odds are required before purchase. This Transaction Manager field is optional: enter them here to add them to generated descriptions, or disclose them elsewhere in your island and clearly direct players there. Leaving it empty is allowed in Transaction Manager, but does not remove the underlying requirement.{' '}
                         <a href={PAID_RANDOM_ITEM_GUIDANCE_URL} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, PAID_RANDOM_ITEM_GUIDANCE_URL)} className="inline-flex items-center gap-1 text-cyan-300 hover:underline">
                           Epic guidance <ExternalLink className="h-3 w-3" />
                         </a>

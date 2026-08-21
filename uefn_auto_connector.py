@@ -1,4 +1,4 @@
-"""Project-installed UEM connector loaded automatically by UEFN Python tooling."""
+"""Project-installed Transaction Manager connector loaded automatically by UEFN Python tooling."""
 
 import importlib.util
 import json
@@ -44,14 +44,14 @@ def _load_connector(script_path):
     module_name = "uem_editor_connector_runtime"
     specification = importlib.util.spec_from_file_location(module_name, script_path)
     if specification is None or specification.loader is None:
-        raise RuntimeError("UEM editor connector could not be loaded.")
+        raise RuntimeError("Transaction Manager editor connector could not be loaded.")
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
     return module
 
 
 def _session_matches_this_project(connector, state):
-    """Prevent another open UEFN editor from claiming this project's UEM session."""
+    """Prevent another open UEFN editor from claiming this project's Transaction Manager session."""
     active_content = os.path.normcase(os.path.realpath(connector.get_uefn_content_dir()))
     expected_content = os.path.normcase(os.path.realpath(state["contentRoot"]))
     active_mount = str(connector.get_uefn_asset_mount()).rstrip("/")
@@ -107,9 +107,9 @@ def install():
                 state["assetMount"],
             )
             attached_signature["value"] = signature
-            unreal.log("[EntitlementManager] Automatically attached native texture importing to the standalone UEM session.")
+            unreal.log("[TransactionManager] Automatically attached native texture importing to the standalone Transaction Manager session.")
         except Exception as error:
-            unreal.log_warning(f"[EntitlementManager] Automatic editor attachment failed: {error}")
+            unreal.log_warning(f"[TransactionManager] Automatic editor attachment failed: {error}")
 
     worker = threading.Thread(target=discover, name="UEMAutoConnector", daemon=True)
     worker.start()
@@ -118,5 +118,5 @@ def install():
     unreal._uem_auto_connector_thread = worker
     unreal._uem_auto_connector_tick_callback = tick
     unreal._uem_auto_connector_tick_handle = handle
-    unreal.log("[EntitlementManager] Automatic standalone connector is monitoring for UEM sessions.")
+    unreal.log("[TransactionManager] Automatic standalone connector is monitoring for Transaction Manager sessions.")
     return True
