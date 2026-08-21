@@ -31,4 +31,4 @@ jobs:
             --bucket adept-software-updates \
             --prefix uem/stable \
             --public-url https://updates.adeptinteractive.net/ \
-            --github-installer-url "https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe"
+            --github-installer-url "https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe"

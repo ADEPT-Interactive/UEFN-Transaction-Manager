@@ -18,6 +18,6 @@ The v4.1.0 GitHub Release custom assets are only:
 
 The machine-update objects are staged under `uem/stable/` in the ADEPT R2 update service. `latest.yml` is promoted separately and last, after the immutable installer, blockmap, manifest, public hashes, and GitHub installer alias have been verified.
 
-The release workflow creates a draft release after building and verifying these assets. Publish the draft only after reviewing the candidate. The 4.0.1 installer is intentionally unsigned and may produce a Windows SmartScreen unrecognized-publisher warning.
+The release workflow creates a draft release after building and verifying these assets. Publish the draft only after reviewing the candidate. The 4.1.0 installer is intentionally unsigned and may produce a Windows SmartScreen unrecognized-publisher warning.
 
 The per-user NSIS installer creates the Start Menu and uninstall registrations while preserving Transaction Manager user data on uninstall. Do not delete UEFN project content as part of release testing.

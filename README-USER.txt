@@ -55,7 +55,7 @@ or squashed.
 
 For source access, contribution rules, support links, security reporting, and
 license terms, visit:
-https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager
+https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager
 
 The software is owned by AD3PT Interactive Inc., operating as ADEPT Interactive
 and ADEPT. The source-available license does not permit unauthorized derivative

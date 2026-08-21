@@ -6,9 +6,9 @@ Transaction Manager 4.1.0 separates human downloads from machine updates.
 
 GitHub Releases is the manual distribution surface. The stable aliases are:
 
-- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe)
-- [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip)
-- [Latest release page](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest)
+- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe)
+- [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip)
+- [Latest release page](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest)
 
 Starting with 4.1.0, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
 

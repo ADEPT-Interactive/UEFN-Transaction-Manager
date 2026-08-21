@@ -60,11 +60,11 @@ jobs:
 
           ## What's changed
 
-          - Moved Transaction Manager's automatic updater to ADEPT's dedicated update infrastructure.
-          - Simplified GitHub Releases so manual downloads are clear.
-          - Corrected generated transaction notifications to use Verse's supported Await semantics.
-          - Corrected generated-device guidance to use the UEFN Content Browser.
-          - Added the live ADEPT Discord community badge to the repository README.
+          - UEFN Entitlement Manager is now UEFN Transaction Manager.
+          - The broader name reflects management of UEFN in-island transactions, offers, bundles, storefronts, generated Verse APIs, and ownership helpers.
+          - Existing project data remains compatible; no managed project conversion is required.
+          - Existing installations can upgrade normally, and updater/backend compatibility remains on the established ADEPT update path.
+          - The application icon and distribution identity now use the Transaction Manager branding.
 
           ## Windows SmartScreen
 

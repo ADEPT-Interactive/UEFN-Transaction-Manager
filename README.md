@@ -14,7 +14,7 @@
     &nbsp;&bull;&nbsp;
     <a href="https://discord.gg/playadept">Community Discord</a>
     &nbsp;&bull;&nbsp;
-    <a href="https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest">Latest release</a>
+    <a href="https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest">Latest release</a>
   </p>
 </div>
 
@@ -46,7 +46,7 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 
 ## Download and start
 
-1. Download `UEFN-Transaction-Manager-Setup.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe).
+1. Download `UEFN-Transaction-Manager-Setup.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe).
 2. Run the installer. Transaction Manager installs per user without requiring administrator access.
 3. Launch `UEFN Transaction Manager` from Windows Start/Search.
 4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
