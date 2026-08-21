@@ -45,7 +45,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, st
                 <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">Open{pascal}Purchase(Player)</code></p>
                 <p><span className="block text-slate-500">Grant without V-Bucks (promotion/testing)</span><code className="text-emerald-200">Grant{pascal}(Player, Quantity)</code></p>
                 {item.itemType === 'consumable' && <p><span className="block text-slate-500">Deduct after the reward is used</span><code className="text-emerald-200">Consume{pascal}(Player, Quantity)</code></p>}
-                <p><span className="block text-slate-500">Observe every positive entitlement delta</span><code className="text-emerald-200">{pascal}_GrantedEvent.Subscribe(...)</code></p>
+                <p><span className="block text-slate-500">Await every positive entitlement delta</span><code className="text-emerald-200">Await{pascal}GrantedEvent()</code></p>
               </div>
             </div>
           );

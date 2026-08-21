@@ -3,9 +3,10 @@
   <h1>UEFN Entitlement Manager</h1>
   <p><strong>Build and manage an in-island transaction catalog without hand-writing the full Verse implementation.</strong></p>
   <p>
-    <img alt="Version 4.0.0" src="https://img.shields.io/badge/version-4.0.0-24c7dd?style=flat-square">
+    <img alt="Version 4.0.1" src="https://img.shields.io/badge/version-4.0.1-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
+    <a href="https://discord.gg/playadept"><img alt="ADEPT Discord" src="https://img.shields.io/discord/790712680482603038?label=Discord&logo=discord&logoColor=white&color=5865F2&style=flat-square"></a>
     <a href="LICENSE"><img alt="ADEPT Source-Available License" src="https://img.shields.io/badge/license-ADEPT%20Source--Available-f59e0b?style=flat-square"></a>
   </p>
   <p>
@@ -45,7 +46,7 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 
 ## Download and start
 
-1. Download `UEFN-Entitlement-Manager-Setup-4.0.0.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest).
+1. Download `UEFN-Entitlement-Manager-Setup.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Entitlement-Manager-Setup.exe).
 2. Run the installer. UEM installs per user without requiring administrator access.
 3. Launch `UEFN Entitlement Manager` from Windows Start/Search.
 4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
@@ -53,9 +54,9 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 
 The launcher shows known projects immediately, then continues looking for projects across local fixed drives in the background. Network, optical, and removable drives are not traversed automatically.
 
-The installer registers UEM with Windows Start/Search and Add or Remove Programs. UEM checks for stable GitHub Releases updates in the background after the launcher is usable. Use Tools, then Check for Updates for a manual check. Updates download through UEM and can be applied with Restart and Install.
+The installer registers UEM with Windows Start/Search and Add or Remove Programs. UEM checks for stable ADEPT update-service updates in the background after the launcher is usable. Use Tools, then Check for Updates for a manual check. Updates download through UEM and can be applied with Restart and Install.
 
-`UEFN-Entitlement-Manager-4.0.0-Portable.zip` remains available as a secondary diagnostic and emergency portable artifact. The installer is the normal user download.
+`UEFN-Entitlement-Manager-Portable.zip` remains available as a secondary diagnostic and emergency portable artifact. The installer is the normal user download.
 
 ## Typical creator workflow
 
@@ -63,7 +64,7 @@ The installer registers UEM with Windows Start/Search and Add or Remove Programs
 2. Add bundles or focused storefronts when your catalog needs them, then edit Storefront membership to choose the concrete offers shown in All Offers and each focused store.
 3. Resolve any validation errors and review advisory warnings.
 4. Select **Save & Compile** to update `managed_transactions.verse` and compile it in UEFN.
-5. Place the generated `managed_transactions_device` in your island.
+5. Find the generated `managed_transactions_device` in UEFN's Content Browser and place it in your island.
 6. Connect the generated Trigger arrays or public events and functions to your gameplay systems.
 7. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session.
 
@@ -81,10 +82,21 @@ Projects generate canonical symbols from each persisted `verseKey`, so changing 
 
 ```verse
 Transactions.OpenDurableEntitlementPurchase(Player)
-Transactions.DurableEntitlement_GrantedEvent.Subscribe(OnGranted)
-Transactions.DurableEntitlement_RemovedEvent.Subscribe(OnRemoved)
-Transactions.DurableEntitlement_ReconciledEvent.Subscribe(OnReconciled)
 ```
+
+UEM's generated notification values are native user-created Verse `event(t)` values. Verse 42.00 does not support aliasing a private instance event to a public `awaitable(t)` member, so UEM exposes small public suspending await functions while keeping the signal-capable events private. They are recurring notifications, so wait for each next signal from a suspending watcher:
+
+```verse
+OnBegin<override>()<suspends>:void =
+    spawn{WatchDurableEntitlementGranted()}
+
+WatchDurableEntitlementGranted()<suspends>:void =
+    loop:
+        Grant := Transactions.AwaitDurableEntitlementGrantedEvent()
+        HandleDurableEntitlementGranted(Grant)
+```
+
+UEM custom notification values use the generated `Await<StableKeyStem>GrantedEvent()` / `RemovedEvent()` / `ReconciledEvent()` functions, backed by native `.Await()` calls, not `.Subscribe()`. Epic-provided device/listenable events such as button, trigger, and playspace events remain separate APIs and may support `.Subscribe()`.
 
 The global storefront helper is `OpenAllOffersStore(Player)`. Its offer collection is explicit project configuration, not an automatic list of every offer. Focused storefronts use `Open<StableKeyStem>(Player)` and each has its own ordered membership. Primary and alternate offers are separate Marketplace entries, while static bundles can be included like any other eligible offer. Dynamic remaining-quantity bundles are direct-purchase-only and cannot be added to a storefront. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
 
@@ -98,7 +110,12 @@ my_game_device := class(creative_device):
     Transactions : managed_transactions_device = managed_transactions_device{}
 
     OnBegin<override>()<suspends>:void =
-        Transactions.AccessPass_GrantedEvent.Subscribe(OnAccessPassGranted)
+        spawn{WatchAccessPassGranted()}
+
+    WatchAccessPassGranted()<suspends>:void =
+        loop:
+            Grant := Transactions.AwaitAccessPassGrantedEvent()
+            OnAccessPassGranted(Grant)
 
     CheckAccess(Player:player)<suspends>:void =
         OwnedCount := Transactions.GetAccessPassCount(Player)
@@ -112,7 +129,7 @@ my_game_device := class(creative_device):
 
 `GetAccessPassCount` and `HasAccessPass` query current Marketplace state. The same `Get<StableKeyStem>Count` and `Has<StableKeyStem>` helpers are generated for consumables; `HasX` means the current count is greater than zero. Alternate offers share the parent entitlement's helpers, while bundles and storefronts do not get ownership helpers.
 
-`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for listening to the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
+`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for awaiting the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
 
 For troubleshooting, enable **Enable Debug Logging** on the generated UEM device in UEFN to emit additional runtime diagnostics.
 
@@ -162,7 +179,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. A release build produces the installer, the secondary portable ZIP, `latest.yml`, the NSIS blockmap, SHA-256 checksums, and an artifact inventory. The installer and update metadata must be published together to the GitHub release. Local builds are unsigned unless a secure Authenticode certificate is supplied through the release environment, so Windows SmartScreen may show an unrecognized-publisher warning.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. A release build produces versioned machine-update artifacts, stable human-download aliases, `latest.yml`, the NSIS blockmap, SHA-256 checksums, and an artifact inventory. GitHub Releases carries only the human aliases; the ADEPT update service carries machine-update metadata and versioned installer artifacts. Local builds are unsigned unless a secure Authenticode certificate is supplied through the release environment, so Windows SmartScreen may show an unrecognized-publisher warning.
 
 ## License and support
 

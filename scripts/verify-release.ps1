@@ -1,17 +1,22 @@
 param(
-    [string]$ArchivePath = "release\UEFN-Entitlement-Manager-4.0.0-Portable.zip",
-    [string]$InstallerPath = "release\UEFN-Entitlement-Manager-Setup-4.0.0.exe",
+    [string]$ArchivePath,
+    [string]$InstallerPath,
     [switch]$KeepTestFiles
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 $toolRoot = Split-Path -Parent $PSScriptRoot
+$expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
+if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Entitlement-Manager-$expectedVersion-Portable.zip" }
+if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Entitlement-Manager-Setup-$expectedVersion.exe" }
 $installer = (Resolve-Path -LiteralPath (Join-Path $toolRoot $InstallerPath)).Path
 $archive = (Resolve-Path -LiteralPath (Join-Path $toolRoot $ArchivePath)).Path
 $releaseRoot = Split-Path -Parent $installer
-$expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
 $expectedInstallerName = "UEFN-Entitlement-Manager-Setup-$expectedVersion.exe"
+$expectedPortableName = "UEFN-Entitlement-Manager-$expectedVersion-Portable.zip"
+$humanInstallerPath = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Setup.exe"
+$humanPortablePath = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Portable.zip"
 $metadataPath = Join-Path $releaseRoot "latest.yml"
 $blockmapPath = Join-Path $releaseRoot "$expectedInstallerName.blockmap"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
@@ -36,6 +41,7 @@ function Get-PeMachine {
 }
 
 if ((Split-Path -Leaf $installer) -ne $expectedInstallerName) { throw "The installer name does not match the canonical identity/version: $installer" }
+if ((Split-Path -Leaf $archive) -ne $expectedPortableName) { throw "The portable archive name does not match the canonical identity/version: $archive" }
 $installerMachine = Get-PeMachine -Path $installer
 if ($installerMachine -notin @(0x14C, 0x8664)) { throw "The NSIS installer has an unsupported PE architecture: 0x$('{0:X4}' -f $installerMachine)." }
 foreach ($metadataFile in @($metadataPath, $blockmapPath, $checksumPath)) { if (-not (Test-Path -LiteralPath $metadataFile -PathType Leaf)) { throw "Required release metadata is missing: $metadataFile" } }
@@ -44,6 +50,11 @@ if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadat
 $checksumText = Get-Content -LiteralPath $checksumPath -Raw
 $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($checksumText -notmatch [regex]::Escape("$installerHash  $expectedInstallerName")) { throw "SHA256SUMS.txt does not match the installer." }
+foreach ($alias in @($humanInstallerPath, $humanPortablePath)) { if (-not (Test-Path -LiteralPath $alias -PathType Leaf)) { throw "Required human download alias is missing: $alias" } }
+if ((Get-FileHash -LiteralPath $humanInstallerPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $installerHash) { throw "Human installer alias is not byte-identical to the versioned installer." }
+$portableHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ((Get-FileHash -LiteralPath $humanPortablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $portableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
+Write-Host "Verified byte-identical human installer and portable aliases."
 Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, latest.yml, blockmap, and installer SHA-256 metadata." -f $installerMachine)
 
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
@@ -52,6 +63,13 @@ try {
     $packageRoot = Join-Path $extractRoot "UEFN Entitlement Manager"
     $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json).version
     if ($appVersion -ne $expectedVersion) { throw "The portable package version $appVersion does not match $expectedVersion." }
+    $updaterConfig = Join-Path $packageRoot "resources\app-update.yml"
+    if (-not (Test-Path -LiteralPath $updaterConfig -PathType Leaf)) { throw "The packaged release is missing electron-updater configuration: $updaterConfig" }
+    $updaterText = Get-Content -LiteralPath $updaterConfig -Raw
+    if ($updaterText -notmatch '(?m)^provider:\s*generic\s*$') { throw "Packaged electron-updater configuration is not generic." }
+    if ($updaterText -notmatch '(?m)^url:\s*https://updates\.adeptinteractive\.net/uem/stable/\s*$') { throw "Packaged electron-updater URL is not the ADEPT stable endpoint." }
+    if ($updaterText -match '(?i)github|owner:|repo:') { throw "Packaged electron-updater configuration still contains GitHub provider settings." }
+    Write-Host "Verified packaged electron-updater configuration: generic ADEPT stable endpoint." -ForegroundColor Green
     $desktopFileName = "UEFN Entitlement Manager.exe"
     $desktop = Join-Path $packageRoot $desktopFileName
     $appRoot = Join-Path $packageRoot "resources\app"

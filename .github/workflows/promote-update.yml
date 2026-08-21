@@ -1,0 +1,34 @@
+name: Promote published UEM update
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Verify and promote immutable manifest last
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          ADEPT_UPDATES_R2_ACCESS_KEY_ID: ${{ secrets.ADEPT_UPDATES_R2_ACCESS_KEY_ID }}
+          ADEPT_UPDATES_R2_SECRET_ACCESS_KEY: ${{ secrets.ADEPT_UPDATES_R2_SECRET_ACCESS_KEY }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/publish-updates.mjs promote \
+            --version "$VERSION" \
+            --bucket adept-software-updates \
+            --prefix uem/stable \
+            --public-url https://updates.adeptinteractive.net/ \
+            --github-installer-url "https://github.com/ADEPT-Interactive/UEFN-Entitlement-Manager/releases/latest/download/UEFN-Entitlement-Manager-Setup.exe"

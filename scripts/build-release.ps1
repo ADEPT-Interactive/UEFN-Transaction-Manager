@@ -172,6 +172,17 @@ try {
     foreach ($artifact in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
         Copy-Item -LiteralPath $artifact -Destination (Join-Path $releaseRoot (Split-Path -Leaf $artifact)) -Force
     }
+    $humanInstaller = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Setup.exe"
+    $humanPortable = Join-Path $releaseRoot "UEFN-Entitlement-Manager-Portable.zip"
+    Copy-Item -LiteralPath (Join-Path $releaseRoot $installerFileName) -Destination $humanInstaller -Force
+    Copy-Item -LiteralPath (Join-Path $releaseRoot $portableFileName) -Destination $humanPortable -Force
+    $versionedInstallerHash = (Get-FileHash -LiteralPath (Join-Path $releaseRoot $installerFileName) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $humanInstallerHash = (Get-FileHash -LiteralPath $humanInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+    $versionedPortableHash = (Get-FileHash -LiteralPath (Join-Path $releaseRoot $portableFileName) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $humanPortableHash = (Get-FileHash -LiteralPath $humanPortable -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($versionedInstallerHash -ne $humanInstallerHash) { throw "Human installer alias is not byte-identical to the versioned installer." }
+    if ($versionedPortableHash -ne $humanPortableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
+    Write-Host "Verified byte-identical human aliases for installer and portable archive." -ForegroundColor Green
     $checksumLines = [System.Collections.Generic.List[string]]::new()
     $releaseArtifacts = Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object { $_.Name -notin @("SHA256SUMS.txt", "UEFN Entitlement Manager.contents.tsv") } | Sort-Object Name
     foreach ($artifact in $releaseArtifacts) { Add-ReleaseChecksum -Path $artifact.FullName -Lines $checksumLines }
@@ -184,7 +195,7 @@ try {
     Write-Host "`nNSIS installer created: $(Join-Path $releaseRoot $installerFileName)" -ForegroundColor Green
     Write-Host "Portable secondary artifact created: $(Join-Path $releaseRoot $portableFileName)"
     Write-Host "Update metadata: $(Join-Path $releaseRoot 'latest.yml')"
-    Write-Host "SHA-256: $((Get-FileHash -LiteralPath (Join-Path $releaseRoot $installerFileName) -Algorithm SHA256).Hash.ToLowerInvariant())"
+    Write-Host "SHA-256: $versionedInstallerHash"
 }
 finally {
     Pop-Location

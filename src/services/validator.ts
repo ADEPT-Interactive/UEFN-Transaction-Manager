@@ -552,9 +552,12 @@ export function validateEntireProject(
   entitlements.forEach(item => {
     const pascal = toPascalCase(item.verseKey);
     const editableNames = entitlementEditableNames(item.verseKey);
-    registerMember(`${pascal}_GrantedEvent`, item, 'verseKey');
-    registerMember(`${pascal}_RemovedEvent`, item, 'verseKey');
-    registerMember(`${pascal}_ReconciledEvent`, item, 'verseKey');
+    registerMember(`${pascal}_GrantedSignal`, item, 'verseKey');
+    registerMember(`${pascal}_RemovedSignal`, item, 'verseKey');
+    registerMember(`${pascal}_ReconciledSignal`, item, 'verseKey');
+    registerMember(`Await${pascal}GrantedEvent`, item, 'verseKey');
+    registerMember(`Await${pascal}RemovedEvent`, item, 'verseKey');
+    registerMember(`Await${pascal}ReconciledEvent`, item, 'verseKey');
     registerMember(`Get${pascal}Count`, item, 'verseKey');
     registerMember(`Has${pascal}`, item, 'verseKey');
     registerMember(`Process${pascal}Grant`, item, 'verseKey');

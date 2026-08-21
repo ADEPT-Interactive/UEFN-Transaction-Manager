@@ -28,8 +28,10 @@ jobs:
         with:
           name: uefn-entitlement-manager-windows-x64
           path: |
-            release/UEFN-Entitlement-Manager-Setup-4.0.0.exe
-            release/UEFN-Entitlement-Manager-4.0.0-Portable.zip
+            release/UEFN-Entitlement-Manager-Setup-*.exe
+            release/UEFN-Entitlement-Manager-*-Portable.zip
+            release/UEFN-Entitlement-Manager-Setup.exe
+            release/UEFN-Entitlement-Manager-Portable.zip
             release/latest.yml
             release/UEFN-Entitlement-Manager-Setup-4.0.0.exe.blockmap
             release/SHA256SUMS.txt

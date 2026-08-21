@@ -25,6 +25,15 @@ jobs:
       - run: npm run install:electron-runtime
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
+      - name: Stage and verify immutable R2 update objects
+        shell: pwsh
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          ADEPT_UPDATES_R2_ACCESS_KEY_ID: ${{ secrets.ADEPT_UPDATES_R2_ACCESS_KEY_ID }}
+          ADEPT_UPDATES_R2_SECRET_ACCESS_KEY: ${{ secrets.ADEPT_UPDATES_R2_SECRET_ACCESS_KEY }}
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          node scripts/publish-updates.mjs stage --version $version --bucket adept-software-updates --prefix uem/stable --public-url https://updates.adeptinteractive.net/ --release-directory release
       - name: Create draft GitHub Release
         shell: pwsh
         env:
@@ -33,11 +42,59 @@ jobs:
           $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match version.json v$version." }
           $assets = @(
-            "release/UEFN-Entitlement-Manager-Setup-$version.exe",
-            "release/UEFN-Entitlement-Manager-$version-Portable.zip",
-            "release/latest.yml",
-            "release/UEFN-Entitlement-Manager-Setup-$version.exe.blockmap",
-            "release/SHA256SUMS.txt",
-            "release/UEFN Entitlement Manager.contents.tsv"
+            "release/UEFN-Entitlement-Manager-Setup.exe",
+            "release/UEFN-Entitlement-Manager-Portable.zip"
           )
-          gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --title "UEFN Entitlement Manager $version" --generate-notes
+          $notes = @"
+          # UEFN Entitlement Manager $version
+
+          ## Download
+
+          **Windows Installer, recommended**
+
+          `UEFN-Entitlement-Manager-Setup.exe`
+
+          **Portable version**
+
+          `UEFN-Entitlement-Manager-Portable.zip`
+
+          ## What's changed
+
+          - Moved UEM's automatic updater to ADEPT's dedicated update infrastructure.
+          - Simplified GitHub Releases so manual downloads are clear.
+          - Corrected generated transaction notifications to use Verse's supported Await semantics.
+          - Corrected generated-device guidance to use the UEFN Content Browser.
+          - Added the live ADEPT Discord community badge to the repository README.
+
+          ## Windows SmartScreen
+
+          The installer is currently unsigned. Windows may show an unrecognized-publisher warning.
+
+          ## SHA-256
+
+          Installer: `$((Get-FileHash release/UEFN-Entitlement-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())`
+
+          Portable: `$((Get-FileHash release/UEFN-Entitlement-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())`
+          "@
+          Set-Content -LiteralPath release-notes.md -Value $notes -Encoding UTF8
+          $existingJson = gh release view $env:GITHUB_REF_NAME --json isDraft 2>$null
+          $viewExitCode = $LASTEXITCODE
+          $existing = if ($viewExitCode -eq 0) { $existingJson | ConvertFrom-Json } else { $null }
+          if ($viewExitCode -eq 0 -and -not $existing.isDraft) { throw "A public release already exists for $env:GITHUB_REF_NAME; refusing to mutate it." }
+          if ($viewExitCode -eq 0) {
+            gh release edit $env:GITHUB_REF_NAME --title "UEFN Entitlement Manager $version" --notes-file release-notes.md
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          }
+          else {
+            gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --title "UEFN Entitlement Manager $version" --notes-file release-notes.md
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uefn-entitlement-manager-${{ github.ref_name }}-internal-release-metadata
+          path: |
+            release/latest.yml
+            release/UEFN-Entitlement-Manager-Setup-*.exe.blockmap
+            release/SHA256SUMS.txt
+            release/UEFN Entitlement Manager.contents.tsv
+            release/UEFN-Entitlement-Manager-Setup-*.exe
+            release/UEFN-Entitlement-Manager-*-Portable.zip

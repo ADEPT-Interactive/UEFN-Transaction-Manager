@@ -429,6 +429,7 @@ export function generateVerseCode(
     'using { /Fortnite.com/Playspaces }',
     'using { /UnrealEngine.com/Temporary/Diagnostics }',
     'using { /Verse.org/Assets }',
+    'using { /Verse.org/Concurrency }',
     'using { /Verse.org/Simulation }',
     '',
     `${UEM_LOG_CHANNEL} := class(log_channel){}`,
@@ -528,9 +529,12 @@ export function generateVerseCode(
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     push(
-      `    ${pascal}_GrantedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
-      `    ${pascal}_RemovedEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
-      `    ${pascal}_ReconciledEvent<public>:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    ${pascal}_GrantedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    ${pascal}_RemovedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    ${pascal}_ReconciledSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
+      `    Await${pascal}GrantedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_GrantedSignal.Await()`,
+      `    Await${pascal}RemovedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_RemovedSignal.Await()`,
+      `    Await${pascal}ReconciledEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ReconciledSignal.Await()`,
     );
   }
   push('');
@@ -620,7 +624,7 @@ export function generateVerseCode(
   push('');
 
   push(
-    '    # Managed implementation. Subscribe to the generated entitlement delta events from your own Verse to apply gameplay effects.',
+    '    # Managed implementation. Await the generated entitlement delta notifications from your own Verse to apply gameplay effects.',
     '    # Do not edit these handlers; regeneration may replace the managed implementation.',
     '',
   );
@@ -638,14 +642,14 @@ export function generateVerseCode(
     push(
       `    Process${pascal}Grant(Player:player, Quantity:int):void =`,
       `        LogDebug("Granted ${printableName} x{Quantity}.")`,
-      `        ${pascal}_GrantedEvent.Signal((Player, Quantity))`,
+      `        ${pascal}_GrantedSignal.Signal((Player, Quantity))`,
       ...(item.itemType === 'consumable' && item.autoConsume
         ? [`        spawn{AutoConsume${pascal}(Player, Quantity)}`]
         : []),
       '',
       `    Process${pascal}Removal(Player:player, Quantity:int):void =`,
       `        LogDebug("${item.itemType === 'durable' ? 'Ownership removed for' : 'Inventory decreased for'} ${printableName} x{Quantity}; reconcile saved state.")`,
-      `        ${pascal}_RemovedEvent.Signal((Player, Quantity))`,
+      `        ${pascal}_RemovedSignal.Signal((Player, Quantity))`,
       '',
     );
     if (item.itemType === 'consumable') {
@@ -894,7 +898,7 @@ export function generateVerseCode(
     }
     for (const item of entitlements) {
       const pascal = toVerseApiStem(item.verseKey);
-      push(`        ${pascal}_ReconciledEvent.Signal((Player, ${pascal}OwnedCount))`);
+      push(`        ${pascal}_ReconciledSignal.Signal((Player, ${pascal}OwnedCount))`);
     }
   }
   push('        LogDebug("Reconciliation completed for player.")', '');

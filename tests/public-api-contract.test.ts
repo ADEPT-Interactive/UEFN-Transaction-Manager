@@ -24,7 +24,7 @@ function expectedPublicDeclarations(): string[] {
     'dynamic_bundle_dynamic_offer<public> := class(bundle_offer):',
   );
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) declarations.push(
-    `${stem}_GrantedEvent<public>:event(tuple(player, int)) = …`, `${stem}_RemovedEvent<public>:event(tuple(player, int)) = …`, `${stem}_ReconciledEvent<public>:event(tuple(player, int)) = …`,
+    `Await${stem}GrantedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}RemovedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}ReconciledEvent<public>()<suspends>:tuple(player, int) = …`,
   );
   declarations.push(
     'GrantAccessPass<public>(Player:player, Quantity:int)<suspends>:logic = …', 'GrantSeasonPass<public>(Player:player, Quantity:int)<suspends>:logic = …',
@@ -64,7 +64,7 @@ test('the generated device is the supported facade and no UEM namespace is emitt
     'phase4_public_api_device := class(creative_device):',
   ]);
   assert.doesNotMatch(source, /\bUEM\.(?:Entitlements|Offers|Prices)\b/);
-  assert.match(source, /AccessPass_GrantedEvent<public>:event/);
+  assert.match(source, /AwaitAccessPassGrantedEvent<public>\(\)<suspends>:tuple\(player, int\)/);
 });
 
 test('UEFN editables are present while device plumbing remains private', () => {
@@ -89,6 +89,21 @@ test('canonical helper signatures and event ownership are stable', () => {
   assert.match(source, /OpenAllOffersStore<public>\(Player:player\):void/);
   assert.match(source, /OpenCoinStore<public>\(Player:player\):void/);
   assert.doesNotMatch(source, /PromptBuy|ShowStorefront|OpenStorefront|OwnershipVerifiedEvent|QuantityDecreasedEvent|PurchaseEvent/);
+});
+
+test('custom notification signals remain private and use native Await semantics', () => {
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
+    assert.match(source, new RegExp(`${stem}_GrantedSignal:event\\(tuple\\(player, int\\)\\)`));
+    assert.match(source, new RegExp(`Await${stem}GrantedEvent<public>\\(\\)<suspends>:tuple\\(player, int\\) = ${stem}_GrantedSignal\\.Await\\(\\)`));
+    assert.match(source, new RegExp(`${stem}_RemovedSignal:event\\(tuple\\(player, int\\)\\)`));
+    assert.match(source, new RegExp(`${stem}_ReconciledSignal:event\\(tuple\\(player, int\\)\\)`));
+  }
+  assert.match(source, /AccessPass_GrantedSignal\.Signal\(\(Player, Quantity\)\)/);
+  assert.match(source, /AccessPass_RemovedSignal\.Signal\(\(Player, Quantity\)\)/);
+  assert.match(source, /AccessPass_ReconciledSignal\.Signal\(\(Player, AccessPassOwnedCount\)\)/);
+  assert.doesNotMatch(source, /GrantedEvent\.Signal|RemovedEvent\.Signal|ReconciledEvent\.Signal/);
+  assert.doesNotMatch(source, /Subscribe to the generated entitlement delta events from your own Verse/);
 });
 
 test('Grant and Consume return native Marketplace results without signaling directly', () => {

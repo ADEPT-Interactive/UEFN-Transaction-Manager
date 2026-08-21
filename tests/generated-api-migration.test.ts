@@ -66,7 +66,7 @@ test('valid historical stable keys and retired keys remain intact across support
     const parsed = parseManagedData({ schemaVersion, entitlements: [legacyItem], bundles: [], retiredVerseKeys: ['old_entitlement_key'] });
     assert.equal(parsed.entitlements[0].verseKey, 'starter_bundle2213124124');
     assert.deepEqual(parsed.retiredVerseKeys, ['old_entitlement_key']);
-    assert.match(generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, [], parsed.retiredVerseKeys), /StarterBundle2213124124_GrantedEvent<public>/);
+    assert.match(generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, [], parsed.retiredVerseKeys), /AwaitStarterBundle2213124124GrantedEvent<public>/);
     assert.doesNotMatch(generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, [], parsed.retiredVerseKeys), /StarterBundle2213124124_2_GrantedEvent/);
   }
 });

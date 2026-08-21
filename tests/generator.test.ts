@@ -447,7 +447,7 @@ test('new marketplace safeguards and public helpers are generated', () => {
   assert.equal(restrictionMethod(source, 'vip_pass_offer'), expectedRestrictionMethod(featureItems[0].offerRestrictions!));
   assert.equal(restrictionMethod(source, 'starter_bundle_offer'), expectedRestrictionMethod(featureBundles[0].restrictions!));
   assert.equal(restrictionMethod(source, 'vip_pass_mobile_offer'), undefined);
-  assert.match(source, /VipPass_GrantedEvent<public>:event\(tuple\(player, int\)\)/);
+  assert.match(source, /AwaitVipPassGrantedEvent<public>\(\)<suspends>:tuple\(player, int\)/);
   assert.match(source, /GrantVipPass<public>/);
   assert.match(source, /ConsumeMysteryCrate<public>/);
   assert.match(source, /vip_pass_mobile_offer<public>/);
@@ -460,7 +460,7 @@ test('generated managed-file guidance keeps gameplay integration in external Ver
 
   assert.match(source, /Generated and managed by ADEPT Interactive UEFN Entitlement Manager\. Do not edit manually\./);
   assert.match(source, /Configure through UEM and integrate from your own Verse using the generated public API/);
-  assert.match(source, /Subscribe to the generated entitlement delta events from your own Verse to apply gameplay effects/);
+  assert.match(source, /Await the generated entitlement delta notifications from your own Verse to apply gameplay effects/);
   assert.match(source, /Do not edit these handlers; regeneration may replace the managed implementation/);
   assert.doesNotMatch(source, /Apply gameplay benefits here/);
   assert.doesNotMatch(source, /Do not rely on BuyOffer or GrantEntitlement return values/);
@@ -492,8 +492,8 @@ test('canonical ownership and count helpers query entitlement state once and exc
   assert.match(reconciliation, /if \(ManagedEntitlements\.vip_pass_entitlement\[Purchase\(0\)\]\):/);
   assert.match(reconciliation, /if \(ManagedEntitlements\.mystery_crate_entitlement\[Purchase\(0\)\]\):/);
   assert.doesNotMatch(reconciliation, /GetVipPassCount\(Player\)|GetMysteryCrateCount\(Player\)/);
-  assert.match(reconciliation, /VipPass_ReconciledEvent\.Signal\(\(Player, VipPassOwnedCount\)\)/);
-  assert.match(reconciliation, /MysteryCrate_ReconciledEvent\.Signal\(\(Player, MysteryCrateOwnedCount\)\)/);
+  assert.match(reconciliation, /VipPass_ReconciledSignal\.Signal\(\(Player, VipPassOwnedCount\)\)/);
+  assert.match(reconciliation, /MysteryCrate_ReconciledSignal\.Signal\(\(Player, MysteryCrateOwnedCount\)\)/);
 
   assert.equal((source.match(/GetVipPassCount<public>/g) ?? []).length, 1);
   assert.equal((source.match(/HasVipPass<public>/g) ?? []).length, 1);
@@ -766,7 +766,7 @@ test('batch reconciliation uses one base query and signals every managed entitle
     const fixture = makeFixture(count);
     const reconciliation = generatedFunctionBlock(generateVerseCode(fixture, [], config), 'ReconcilePlayerEntitlements');
     assert.equal((reconciliation.match(/GetPurchasedEntitlements\(/g) ?? []).length, 1, `${count} entitlements should use one Marketplace query`);
-    assert.equal((reconciliation.match(/_ReconciledEvent\.Signal\(/g) ?? []).length, count, `${count} entitlements should signal every reconciled event`);
+    assert.equal((reconciliation.match(/_ReconciledSignal\.Signal\(/g) ?? []).length, count, `${count} entitlements should signal every reconciled event`);
     assert.equal((reconciliation.match(/\[Purchase\(0\)\]/g) ?? []).length, count, `${count} entitlements should classify every managed subtype`);
   }
 });
@@ -777,7 +777,7 @@ test('batch reconciliation keeps legacy stable keys when display names change', 
   legacy.name = 'Renamed after migration';
   const reconciliation = generatedFunctionBlock(generateVerseCode([legacy], [], config), 'ReconcilePlayerEntitlements');
   assert.match(reconciliation, /if \(ManagedEntitlements\.starter_bundle2213124124_entitlement\[Purchase\(0\)\]\):/);
-  assert.match(reconciliation, /StarterBundle2213124124_ReconciledEvent\.Signal/);
+  assert.match(reconciliation, /StarterBundle2213124124_ReconciledSignal\.Signal/);
   assert.doesNotMatch(reconciliation, /RenamedAfterMigration|Renamed after migration/);
 });
 

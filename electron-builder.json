@@ -26,11 +26,8 @@
   },
   "publish": [
     {
-      "provider": "github",
-      "owner": "ADEPT-Interactive",
-      "repo": "UEFN-Entitlement-Manager",
-      "releaseType": "release",
-      "publishAutoUpdate": true
+      "provider": "generic",
+      "url": "https://updates.adeptinteractive.net/uem/stable/"
     }
   ]
 }

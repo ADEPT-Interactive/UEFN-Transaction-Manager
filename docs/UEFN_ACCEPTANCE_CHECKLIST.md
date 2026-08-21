@@ -1,6 +1,6 @@
 # UEFN Acceptance Checklist
 
-Status: Release-hardening evidence for version 3.0.1, 2026-08-18
+Status: Release-hardening evidence for version 4.0.1, 2026-08-21
 
 This checklist records the Phase 21 release candidate results. `PASS` means the behavior was directly verified by a test, packaged artifact, UEM session, or live UEFN editor. `NOT TESTED` identifies a boundary that could not be reached in the available project. No real Marketplace purchase or V-Bucks transaction was performed.
 
@@ -21,6 +21,7 @@ This checklist records the Phase 21 release candidate results. `PASS` means the 
 | Initial live compile | FAIL, fixed | 96 errors exposed logger argument typing, named log-level syntax, failable lock acquisition, and dynamic offer construction issues. |
 | Regenerate and compile | FAIL, fixed | 9 errors remained after the first fixes: logger named-argument syntax and dynamic offer subtype/immutability issues. |
 | Final live compile | PASS | The Workflow Server and UEFN editor both reported `Compilation complete`, `Linking complete`, `SUCCESS -- Build complete`, with 0 warnings and 0 errors. |
+| Phase 26 await consumer compile | PASS | A temporary external Verse consumer awaited `AwaitCoreEntitlementGrantedEvent()` from the generated device through the live UEM_Demo Workflow Server; the producer and consumer compiled with 0 warnings and 0 errors. The fixture was removed after verification. |
 | `GetMinPurchaseAge` | PASS | Restricted offer override compiled with the expected body and return. |
 | Restrictions | PASS | Country, platform, and age expressions compiled. |
 | Logger and diagnostic levels | PASS | Generated diagnostic helpers compile with `Message:string` and named `?Level := log_level.*`. |
@@ -47,7 +48,7 @@ This checklist records the Phase 21 release candidate results. `PASS` means the 
 | Area | Result | Evidence |
 | --- | --- | --- |
 | Generated source visible | PASS | Verse Explorer showed `managed_transactions.verse` in the UEM_Demo package. |
-| Generated device Details panel | NOT TESTED | `managed_transactions` and `managed_transactions_device` did not appear in Place Actors after compile, editor compile, and a full UEFN restart. No device instance was available to inspect. |
+| Generated device Details panel | NOT TESTED | The generated `managed_transactions_device` is expected to be found through the UEFN Content Browser and placed from there; no device instance was available to inspect during this acceptance run. |
 | Editable categories/tooltips and binding names | NOT TESTED | Source metadata was audited, but no generated device Details panel was available. |
 | Placed-device assignment persistence | NOT TESTED | No generated device could be placed, saved, regenerated, and reopened. |
 | Purchase button and trigger runtime | NOT TESTED | No generated device was available for wiring. Static generation and compile coverage passed. |
@@ -83,12 +84,12 @@ This checklist records the Phase 21 release candidate results. `PASS` means the 
 
 | Area | Result | Evidence |
 | --- | --- | --- |
-| Version | PASS | Version remains intentionally `3.0.1`, consistent across authoritative sources. |
+| Version | PASS | Version `4.0.1` is consistent across authoritative sources. |
 | Security sanity | PASS | Security and bridge tests passed. Discovery excludes automatic network, removable, and optical-drive crawling, and bridge paths remain project-scoped. |
 | Performance sanity | PASS | Cached/known launcher results arrived before broad discovery. The six-fixed-drive broad scan took about 21 seconds without blocking launcher usability. |
 | Documentation | PASS | Current API contract and this acceptance record describe the canonical device API, explicit storefront membership, current launcher discovery, and live validation boundary. |
-| Release artifact | PASS | Fresh `release\UEFN Entitlement Manager.zip`, 141,619,216 bytes; `scripts/verify-release.ps1` passed extraction, x64, frontend, authentication, file IO, texture normalization, visible lifecycle, switching, and shutdown checks. |
+| Release artifact | PASS | Fresh 4.0.1 NSIS installer and portable ZIP passed `scripts/verify-release.ps1`, including extraction, x64, frontend, authentication, file IO, texture normalization, visible lifecycle, switching, and shutdown checks. The installer SHA-256 is `e654b4365c259251adb453f2a2e50d7b46ae5dc6caa5ad73fe03f6f82043ab8a`. |
 
 ## Final boundary
 
-The only material live boundary remaining is editor placement of the generated device in UEM_Demo. The source is visible and compiles cleanly, but the class was not surfaced in Place Actors, preventing Details panel, placed assignment, and device-runtime Marketplace checks. This is not treated as proof that those behaviors work at runtime. No unrelated architecture change was made to work around that editor boundary.
+The only material live boundary remaining is editor placement of the generated device in UEM_Demo. The source is visible and compiles cleanly, but no device instance was available through the Content Browser placement workflow, preventing Details panel, placed assignment, and device-runtime Marketplace checks. This is not treated as proof that those behaviors work at runtime. No unrelated architecture change was made to work around that editor boundary.
