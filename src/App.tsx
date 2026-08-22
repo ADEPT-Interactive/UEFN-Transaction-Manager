@@ -217,6 +217,26 @@ async function hydrateProjectImages(
   };
 }
 
+function preserveTransientImages<T extends { id: string; iconImageData?: string; iconFileName?: string }>(nextItems: T[], previousItems: T[]): T[] {
+  const previousById = new Map(previousItems.map(item => [item.id, item]));
+  return nextItems.map(item => {
+    const previous = previousById.get(item.id);
+    return item.iconImageData || !previous?.iconImageData
+      ? item
+      : { ...item, iconImageData: previous.iconImageData, iconFileName: previous.iconFileName };
+  });
+}
+
+function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlements: EntitlementItem[], previousBundles: BundleOffer[]): CatalogSnapshotPayload {
+  const previousEntitlementsById = new Map(previousEntitlements.map(item => [item.id, item]));
+  const entitlements = preserveTransientImages(next.entitlements, previousEntitlements).map(item => {
+    const previous = previousEntitlementsById.get(item.id);
+    if (!item.alternateOffers?.length || !previous?.alternateOffers?.length) return item;
+    return { ...item, alternateOffers: preserveTransientImages(item.alternateOffers, previous.alternateOffers) };
+  });
+  return { ...next, entitlements, bundles: preserveTransientImages(next.bundles, previousBundles) };
+}
+
 const SetupGuide: React.FC<{ bridgeConnected: boolean; onCreateEntitlement: () => void }> = ({ bridgeConnected, onCreateEntitlement }) => {
   if (!bridgeConnected) {
     return (
@@ -362,18 +382,19 @@ export const App: React.FC = () => {
   const isDirty = catalogReady ? catalogDirty : currentSnapshot !== lastSavedSnapshot;
 
   const applyCatalogSnapshot = (next: CatalogSnapshotPayload) => {
+    const nextWithImages = preserveCatalogImages(next, entitlements, bundles);
     suppressCatalogSyncRef.current = true;
-    catalogRevisionRef.current = next.revision;
-    setCatalogRevision(next.revision);
-    setCatalogDirty(next.dirty);
-    setConfig(next.config);
-    setEntitlements(next.entitlements);
-    setBundles(next.bundles);
-    setStorefrontMembership(next.storefrontMembership);
-    setRetiredVerseKeys(next.retiredVerseKeys);
-    setProjectDataDiagnostics(next.projectDataDiagnostics);
-    setLoadedFileRevision({ fileName: next.config.targetVerseFileName, contentHash: next.savedFileHash });
-    if (!next.dirty) setLastSavedSnapshot(snapshot(next.entitlements, next.bundles, next.storefrontMembership, next.retiredVerseKeys, next.config));
+    catalogRevisionRef.current = nextWithImages.revision;
+    setCatalogRevision(nextWithImages.revision);
+    setCatalogDirty(nextWithImages.dirty);
+    setConfig(nextWithImages.config);
+    setEntitlements(nextWithImages.entitlements);
+    setBundles(nextWithImages.bundles);
+    setStorefrontMembership(nextWithImages.storefrontMembership);
+    setRetiredVerseKeys(nextWithImages.retiredVerseKeys);
+    setProjectDataDiagnostics(nextWithImages.projectDataDiagnostics);
+    setLoadedFileRevision({ fileName: nextWithImages.config.targetVerseFileName, contentHash: nextWithImages.savedFileHash });
+    if (!nextWithImages.dirty) setLastSavedSnapshot(snapshot(nextWithImages.entitlements, nextWithImages.bundles, nextWithImages.storefrontMembership, nextWithImages.retiredVerseKeys, nextWithImages.config));
   };
 
   useEffect(() => {
@@ -858,7 +879,7 @@ export const App: React.FC = () => {
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
-      <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
+      <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} showcaseMode={showcaseMode} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and focused storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />

@@ -27,7 +27,6 @@ test('release packaging includes the skill without changing public README scope'
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.match(build, /resources\\agent-skills\\uefn-transaction-manager/);
   assert.match(verify, /resources\\agent-skills\\uefn-transaction-manager\\SKILL.md/);
-  assert.match(readme, /Version 4\.2\.0/);
-  assert.doesNotMatch(readme, /utm-mcp|Agent Integration/);
+  assert.match(readme, /Version 4\.3\.0/);
+  assert.match(readme, /utm-mcp|Agent Integration/);
 });
-
