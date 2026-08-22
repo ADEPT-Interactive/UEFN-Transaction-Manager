@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/uem-mark.svg" alt="UEFN Transaction Manager icon" width="112" height="112">
   <h1>UEFN Transaction Manager</h1>
-  <p><strong>Build and manage an in-island transaction catalog without hand-writing the full Verse implementation.</strong></p>
+  <p><strong>Build in-island transactions for UEFN with a visual catalog and generated Verse.</strong></p>
   <p>
     <img alt="Version 4.2.0" src="https://img.shields.io/badge/version-4.2.0-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
@@ -18,98 +18,118 @@
   </p>
 </div>
 
-UEFN Transaction Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It links directly to the UEFN project you have open, turns entitlements, offers, alternate offers, bundles, storefronts, pricing, restrictions, and gameplay hooks into project-ready Verse, then saves and compiles it through that live UEFN session.
+UEFN Transaction Manager is a Windows companion for Fortnite creators who want to design, validate, and connect in-island transactions without hand-writing the full Marketplace integration. Build the catalog in a visual app, generate the Verse for your project, and use the resulting device from your own gameplay code.
 
-![A connected UEFN project with a visual entitlement catalog, custom icons, and a single-line command header](docs/screenshots/phase28-catalog-overview.png)
+![UEFN Transaction Manager catalog and connected project workflow](docs/screenshots/phase28-catalog-overview.png)
 
-## Connected directly to UEFN
+## What you can do
 
-Transaction Manager is more than a standalone Verse generator. Its launcher finds active and recent `.uefnproject` files, confirms the project you intend to edit, and starts a local project bridge restricted to that project's `Content` directory. **Save**, then **Compile** writes the generated Verse with a backup and requests a real compile from the Verse Workflow Server running with UEFN.
+- Create durable, consumable, time-limited, access, and paid-random products.
+- Set prices, descriptions, icons, ownership limits, age requirements, country restrictions, and platform restrictions.
+- Offer primary products, alternate offers, bundles, and focused storefronts.
+- Let your project Verse provide runtime prices or bundle quantities when the value depends on gameplay.
+- Import supported artwork into the UEFN Content Browser or adopt an existing project Texture2D.
+- Generate purchase helpers, ownership queries, grant and consume helpers, and reconciliation events for your own Verse.
+- Review validation errors and advisory moderation warnings before testing your island.
+- Save the catalog per project and compile the generated Verse through the UEFN project you have open.
 
-When Python Editor Scripting is enabled, Transaction Manager also installs and attaches its project connector automatically. Confirmed supported raster images enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Existing project Texture2D assets can also be adopted through Unreal's editor export API, then pass through the same normalization/import queue. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Compile** reports UEFN's compile result directly.
+## Download
+
+**Recommended: [Download the Windows installer](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Installer.exe)**
+
+The installer is a per-user Windows x64 application. It does not require administrator access, Node.js, Python, or a separate runtime installation.
+
+The [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip) is a secondary option for testing or environments where you do not want an installed copy. Portable builds from before 4.2.0 need to download the latest Portable ZIP once. Starting with 4.2.0, portable updates remain portable and update in the same folder.
+
+## Requirements
+
+- Windows x64.
+- UEFN installed for project connection and Verse compilation.
+- The target `.uefnproject` open in UEFN when you save, compile, or import artwork.
+- **Python Editor Scripting** enabled in the UEFN project when you want native icon import or Texture2D adoption.
+
+The installed application includes its own runtime. You only need Node.js and Python when developing Transaction Manager from source.
+
+## Quick start
+
+1. Open the UEFN project you want to work on.
+2. [Download and run the installer](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Installer.exe).
+3. Select the open project, choose a recent project, or browse to its `.uefnproject` file.
+4. Confirm the project and create your first product.
+
+Known projects appear immediately. The launcher can continue finding projects on local fixed drives while you work. Network, optical, and removable drives are not scanned automatically.
 
 <p align="center">
-  <img src="docs/screenshots/phase28-launcher.png" alt="Transaction Manager project launcher" width="48%">
-  <img src="docs/screenshots/phase28-verse-split.png" alt="Transaction Manager catalog and generated Verse split view" width="48%">
+  <img src="docs/screenshots/phase28-launcher.png" alt="UEFN Transaction Manager project launcher" width="72%">
 </p>
-<p align="center"><em>Project selection and the connected catalog-to-Verse workflow.</em></p>
+<p align="center"><em>Select the project that should receive the catalog and generated Verse.</em></p>
 
-Verse compilation discovers the active UEFN-owned loopback Workflow Server session at runtime. Transaction Manager does not require users to configure a port, does not launch VS Code for compilation, and refuses ambiguous or non-local endpoints. UEFN must be running with the linked project loaded. Developers and automated tests may use the loopback-only `UEM_VERSE_COMPILER_ENDPOINT=host:port` override; normal users should not configure it. See [Verse compiler portability](docs/VERSE_COMPILER_PORTABILITY.md) for the discovery contract and diagnostic states. The reusable standalone interoperability project is [ADEPT-Interactive/uefn-verse-compiler](https://github.com/ADEPT-Interactive/uefn-verse-compiler).
+## Build your transaction catalog
 
-## What it helps you do
+Start with an entitlement, choose whether it is durable or consumable, then configure its offer details and gameplay-facing options. Add alternate offers when the same entitlement needs another offer configuration. Add bundles for grouped purchases and storefronts for the offers you want to present together.
 
-- Create durable, consumable, time-limited, access, and paid-random entitlements.
-- Build individual offers, alternate variants, nested bundles, and focused storefront displays with explicit offer membership.
-- Configure V-Bucks prices, age requirements, country restrictions, and platform restrictions.
-- Configure runtime-priced direct, alternate, and bundle offers with typed Verse options and preflight validation.
-- Import supported raster artwork as native Texture2D assets, or adopt an existing UEFN Texture2D through the editor bridge.
-- Generate canonical stable-key-based grant, removal, and reconciliation events for your gameplay code.
-- Use deliberate Trigger bindings by default, with optional Purchase Button bindings under Advanced settings. Passive zone entry is not a purchase binding.
-- Save and reopen each project's catalog without rebuilding it from scratch.
-- Save the generated Verse and request a compile from the connected UEFN session.
-- Review schema errors and advisory moderation warnings before testing your island.
+Use explicit Trigger or Button bindings for deliberate player interactions. Passive zone entry is not treated as a purchase action.
 
-Moderation warnings are review aids. They never block entitlement creation or saving, and they do not guarantee Epic approval.
+<p align="center">
+  <img src="docs/screenshots/phase28-offer-general-pricing.png" alt="Offer details and pricing editor" width="48%">
+  <img src="docs/screenshots/phase28-behavior-moderation.png" alt="Behavior and moderation settings" width="48%">
+</p>
 
-## Download and start
+Prices are entered as V-Bucks. Product names and descriptions are used in the generated offer. A stable project key keeps your Verse helper names consistent even if you later change a display name.
 
-1. Download `UEFN-Transaction-Manager-Installer.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Installer.exe).
-2. Run the installer. Transaction Manager installs per user without requiring administrator access.
-3. Launch `UEFN Transaction Manager` from Windows Start/Search.
-4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
-5. Confirm the project and begin building the catalog.
+### Runtime prices and quantities
 
-The launcher shows known projects immediately, then continues looking for projects across local fixed drives in the background. Network, optical, and removable drives are not traversed automatically.
+Some offers need values supplied by gameplay, such as a price calculated from progression or a bundle quantity calculated from the player's current state. Mark the offer for runtime values, then pass the generated options type from your project Verse when opening the purchase. Transaction Manager validates the allowed range and rejects invalid values before the Marketplace interface opens.
 
-The installer registers Transaction Manager with Windows Start/Search and Add or Remove Programs. Transaction Manager checks for stable ADEPT update-service updates in the background after the launcher is usable. Use Tools, then Check for Updates for a manual check. Updates download through Transaction Manager and can be applied with Restart and Install.
+Fill-to-max bundles calculate the remaining quantity from current ownership. Runtime-quantity bundles let your Verse supply positive quantities for the configured entries. Runtime-configured bundles are direct purchases and are not added to storefront displays.
 
-`UEFN-Transaction-Manager-Portable.zip` remains available as a secondary diagnostic and emergency portable artifact. The installer is the normal user download.
+<p align="center">
+  <img src="docs/screenshots/phase28-dynamic-pricing.png" alt="Runtime pricing configuration" width="72%">
+</p>
 
-Portable updates download and verify a portable-specific manifest and ZIP, then replace the managed application files in the same portable directory after restart. They never invoke the NSIS installer or silently create an installed copy. Settings remain in the existing `%LOCALAPPDATA%\UEFN Entitlement Manager` compatibility namespace; “portable” describes the application update path, not a newly redesigned self-contained profile.
+See the [Generated Verse reference](docs/GENERATED_VERSE_REFERENCE.md) for concise examples of runtime option types and purchase helpers.
 
-## Typical creator workflow
+### Bundles and storefronts
 
-1. Add entitlements and configure their prices, limits, descriptions, icons, and gameplay options.
-2. Add bundles or focused storefronts when your catalog needs them, then edit Storefront membership to choose the concrete offers shown in All Offers and each focused store.
-3. Resolve any validation errors and review advisory warnings.
-4. Select **Save**, then **Compile** to update `managed_transactions.verse` and compile it in UEFN.
-5. Find the generated `managed_transactions_device` in UEFN's Content Browser and place it in your island.
-6. Connect the generated Trigger arrays or public events and functions to your gameplay systems.
-7. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session.
+Bundles keep their configured order and quantities. Storefront membership is explicit, so you choose exactly which primary offers, alternate offers, and static bundles appear in the all-offers display or in each focused storefront.
 
-Transaction Manager creates the transaction interface, but your project remains responsible for granting gameplay benefits and reconciling saved player state.
+<p align="center">
+  <img src="docs/screenshots/phase28-bundles.png" alt="Bundle configuration" width="48%">
+  <img src="docs/screenshots/phase28-storefronts.png" alt="Storefront membership configuration" width="48%">
+</p>
 
-## Marketplace validation
+## Icons and UEFN project assets
 
-Transaction Manager validates known Marketplace and generator constraints before it writes generated Verse. Errors block generated-file save and compilation, while warnings keep the project usable and call out responsibilities Transaction Manager cannot verify, such as external paid-random odds disclosure. The manager does not round prices, truncate text, or require odds to be entered in its optional paid-random field.
+To import artwork into the Content Browser:
 
-The current checks follow Epic's [Creating Items and Offers](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite) and [In-Island Transactions Restrictions](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-restrictions-in-fortnite) guidance for price, text, MaxCount, bundle depth, entitlement identifiers, restrictions, and paid-random classification. Transaction Manager-specific validation also protects stable Verse identifiers, generated symbols, explicit storefront membership, and runtime offer values. Runtime-configured bundles remain direct purchase only; the compatibility-preserving fill-to-max shape is one entitlement at quantity 1, while runtime quantity bundles expose typed values and reject zero or over-limit entries before opening Marketplace.
+1. In UEFN, open the palm-tree **Project** menu.
+2. Choose **Project Settings**.
+3. Enable **Python Editor Scripting**.
+4. Keep UEFN and Transaction Manager connected to the same project.
+5. Add or edit an icon in the product editor and confirm the import.
 
-## Generated Verse API
+Power-of-two PNGs are kept unchanged. Other supported raster images are normalized and scaled uniformly to a suitable power-of-two shape, with transparent padding only when needed to preserve the original proportions. The Icon tab can also use a verified UEFN Texture2D object path. Do not enter a Windows filesystem path or edit `.uasset` files manually.
 
-Projects generate canonical symbols from each persisted `verseKey`, so changing a display name does not rename the integration surface. For an entitlement with key `durable_entitlement`, use:
+<p align="center">
+  <img src="docs/screenshots/phase28-icon-texture.png" alt="Icon and Texture2D workflow" width="72%">
+</p>
 
-```verse
-Transactions.OpenDurableEntitlementPurchase(Player)
-```
+## Compile and connect the generated Verse
 
-Transaction Manager's generated notification values are native user-created Verse `event(t)` values. Verse 42.00 does not support aliasing a private instance event to a public `awaitable(t)` member, so Transaction Manager exposes small public suspending await functions while keeping the signal-capable events private. They are recurring notifications, so wait for each next signal from a suspending watcher:
+When the catalog is ready:
 
-```verse
-OnBegin<override>()<suspends>:void =
-    spawn{WatchDurableEntitlementGranted()}
+1. Resolve validation errors and review warnings.
+2. Choose **Save** to persist the project catalog and update `managed_transactions.verse`.
+3. Choose **Compile** while the target project is open in UEFN.
+4. In UEFN, find the generated `managed_transactions_device` in the Content Browser and place it in your island.
+5. Assign any generated Trigger or Button arrays in the device details panel.
+6. Reference the placed device from your own Verse and connect purchases to your gameplay systems.
 
-WatchDurableEntitlementGranted()<suspends>:void =
-    loop:
-        Grant := Transactions.AwaitDurableEntitlementGrantedEvent()
-        HandleDurableEntitlementGranted(Grant)
-```
+<p align="center">
+  <img src="docs/screenshots/phase28-verse-split.png" alt="Catalog and generated Verse view" width="72%">
+</p>
 
-Transaction Manager custom notification values use the generated `Await<StableKeyStem>GrantedEvent()` / `RemovedEvent()` / `ReconciledEvent()` functions, backed by native `.Await()` calls, not `.Subscribe()`. Epic-provided device/listenable events such as button, trigger, and playspace events remain separate APIs and may support `.Subscribe()`.
-
-The global storefront helper is `OpenAllOffersStore(Player)`. Its offer collection is explicit project configuration, not an automatic list of every offer. Focused storefronts use `Open<StableKeyStem>(Player)` and each has its own ordered membership. Primary and alternate offers are separate Marketplace entries, while static bundles can be included like any other eligible offer. Dynamic remaining-quantity bundles are direct-purchase-only and cannot be added to a storefront. `_GrantedEvent` means every positive entitlement delta, including a direct grant, not only a purchase.
-
-Use the generated device from your own Verse for both event integration and current Marketplace queries:
+The generated device is the supported integration surface. For an entitlement with the stable key `access_pass`, your project Verse can use helpers shaped like these:
 
 ```verse
 using { /Fortnite.com/Devices }
@@ -118,103 +138,74 @@ my_game_device := class(creative_device):
     @editable
     Transactions : managed_transactions_device = managed_transactions_device{}
 
-    OnBegin<override>()<suspends>:void =
-        spawn{WatchAccessPassGranted()}
-
-    WatchAccessPassGranted()<suspends>:void =
-        loop:
-            Grant := Transactions.AwaitAccessPassGrantedEvent()
-            OnAccessPassGranted(Grant)
+    BuyAccess(Player:player):void =
+        Transactions.OpenAccessPassPurchase(Player)
 
     CheckAccess(Player:player)<suspends>:void =
         OwnedCount := Transactions.GetAccessPassCount(Player)
-        # Apply game-specific state from OwnedCount in this external device.
+        # Apply your game's access rules using OwnedCount.
 
-    GrantAccess(Player:player)<suspends>:void =
-        GrantSucceeded := Transactions.GrantAccessPass(Player, 1)
-        if (GrantSucceeded?):
-            Print("Marketplace grant accepted")
+    WatchAccess()<suspends>:void =
+        loop:
+            Grant := Transactions.AwaitAccessPassGrantedEvent()
+            HandleAccessGranted(Grant)
 ```
 
-`GetAccessPassCount` and `HasAccessPass` query current Marketplace state. The same `Get<StableKeyStem>Count` and `Has<StableKeyStem>` helpers are generated for consumables; `HasX` means the current count is greater than zero. Alternate offers share the parent entitlement's helpers, while bundles and storefronts do not get ownership helpers.
+Use the generated `Get<StableKeyStem>Count` and `Has<StableKeyStem>` helpers for current ownership. Use `Grant<StableKeyStem>` or consumable `Consume<StableKeyStem>` only when your game needs a server-side operation. Await the generated grant, removal, and reconciliation functions for authoritative gameplay-state notifications. Runtime-price and runtime-quantity examples are in the [Generated Verse reference](docs/GENERATED_VERSE_REFERENCE.md).
 
-`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` helpers are suspending and return the native Marketplace operation result as `logic`. A `true` result reports only that the operation succeeded at the Marketplace API boundary. It is not a replacement for awaiting the canonical `<StableKeyStem>_GrantedEvent` or `<StableKeyStem>_RemovedEvent`, which remain the authoritative gameplay-state signals. Non-positive quantities return `false` without calling Marketplace. Keep `managed_transactions.verse` manager-owned and do not edit it manually.
+Keep `managed_transactions.verse` manager-owned. Put rewards, eligibility, progression, saved state, and game-specific UI in your own Verse.
 
-For troubleshooting, enable **Enable Debug Logging** on the generated Transaction Manager device in UEFN to emit additional runtime diagnostics.
+## Validation and testing
 
-The generated file also contains configured modules such as `ManagedEntitlementInfo`, `ManagedEntitlements`, `ManagedTransactionPrices`, `ManagedOffers`, and `EntitlementIcons`. These are generated Marketplace plumbing, not a second Transaction Manager API. Use the generated device for runtime integration instead of calling raw generated entitlement, offer, price, metadata, or icon declarations directly. Transaction Manager does not guarantee those generated module or asset member names as supported API.
+Errors prevent invalid catalog data from being saved or compiled. Warnings are review aids and do not guarantee Marketplace approval. In particular, paid-random offers still need accurate numerical odds disclosed to players before purchase.
 
-Transaction Manager supports one generated API. Existing manifests from supported schemas, including manifests produced during pre-release API development, are loaded as project data and regenerated with the same current canonical symbols. Obsolete generated-API metadata and purchase-event fields are ignored when reading and are not written to new manifests.
+<p align="center">
+  <img src="docs/screenshots/phase28-validation.png" alt="Transaction catalog validation report" width="72%">
+</p>
 
-## Native icon import
+A successful Verse compile proves that the generated code compiles. It does not prove that your gameplay grants the intended reward, that a purchase flow works in a live session, or that an island will be approved. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in the real UEFN session before publishing.
 
-To import PNGs directly into the UEFN Content Browser:
+## Troubleshooting
 
-1. Open the UEFN project.
-2. Open the **Project** menu using the palm-tree icon.
-3. Select **Project Settings**.
-4. Scroll to **Python Editor Scripting** and enable it.
+### The project is not connected
 
-No restart is needed. Transaction Manager installs and connects the project helper automatically when the project is linked.
+Make sure UEFN is open with the same `.uefnproject` selected in Transaction Manager. Close duplicate UEFN sessions if more than one project is open, then reopen or reconnect the project in the launcher.
 
-Power-of-two PNGs are imported without any modification. Other supported raster images are normalized to canonical PNG, then scaled uniformly to the closest suitable power-of-two shape. Transparent edge space is added only when it is necessary to preserve the original aspect ratio, so artwork is never stretched or squashed. The Icon tab also accepts a verified project Texture2D object path such as `/MyProject/Icons/VipPass.VipPass`; filesystem paths and `.uasset` byte parsing are rejected.
+### Compile does not start or reports errors
 
-## Phase 28 showcase and capability boundary
+Keep UEFN open with the project loaded, save the catalog first, and read the compiler result in UEFN and Transaction Manager. Fix errors in your own Verse outside the managed file. Do not edit `managed_transactions.verse` by hand.
 
-The deterministic showcase catalog and original vector icon sources are in [docs/showcase](docs/showcase/README.md). The implementation boundary between local validation, UEFN compile acceptance, and gameplay acceptance is recorded in the [Phase 28 capability matrix](docs/PHASE28_CAPABILITY_MATRIX.md).
+### Icon import is unavailable
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/phase28-offer-general-pricing.png" alt="Offer General and Pricing editor" width="100%"><br><sub>General and runtime pricing</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-icon-texture.png" alt="Icon and Texture editor" width="100%"><br><sub>Imported and adoptable Texture2D artwork</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/phase28-behavior-moderation.png" alt="Behavior and Moderation editor" width="100%"><br><sub>Durability and moderation controls</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-dynamic-pricing.png" alt="Dynamic pricing configuration" width="100%"><br><sub>Calculated-by-Verse price behavior</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/phase28-bundles.png" alt="Bundle offers" width="100%"><br><sub>Static and runtime bundle offers</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-storefronts.png" alt="Storefront membership" width="100%"><br><sub>Explicit storefront membership</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/phase28-validation.png" alt="Validation report with local checks passed" width="100%"><br><sub>Pre-save validation report</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-launcher.png" alt="Filtered project launcher" width="100%"><br><sub>Launcher with the deterministic showcase project</sub></td>
-  </tr>
-</table>
+Enable **Python Editor Scripting** in the project's UEFN settings, then confirm that UEFN and Transaction Manager are connected to the same project. Native import also requires the editor connection to remain available while the import is confirmed.
 
-## Templates and in-app help
+### The generated device or an editable field is missing
 
-The included templates provide focused starting points for common entitlement categories. The **Need Help?** panel covers setup, compiling, placing the generated device, and connecting it to your own Verse.
+Compile successfully, refresh the UEFN Content Browser, and confirm that you placed the generated device from the target project. If the catalog changed, save and compile again before inspecting the device details.
 
-## Important boundaries
+### Updates
 
-- A successful compile confirms Verse compilation, not gameplay correctness or marketplace approval.
-- Native texture import must be confirmed in the UEFN Content Browser.
-- Voluntary purchase helpers and storefront dialogs call the Fortnite Marketplace APIs normally. Creator-authored sales messaging is outside the entitlement and transaction generator, so messaging restrictions are not used as general purchase-eligibility guards. Configured offer age, country, platform, paid-random, and validator rules remain in force.
-- Paid-random offers require accurate numerical odds to be available to players before purchase. Transaction Manager's odds field is optional: use it to add a disclosure to generated descriptions, or disclose the odds elsewhere in your island and clearly direct players there.
-- Keep the manager open while using connected save, compile, and import actions.
+Installed copies check the ADEPT update service after startup. Use **Tools**, then **Check for Updates** for a manual check. Portable copies use the Portable ZIP update path and remain in the same folder. If a portable copy predates 4.2.0, download the latest Portable ZIP once to make the transition.
 
-See [SECURITY.md](SECURITY.md) to report a security issue.
+## More documentation
 
-## Build from source
+- [Generated Verse reference](docs/GENERATED_VERSE_REFERENCE.md) for purchase, ownership, events, grants, consumption, runtime values, and device bindings.
+- [Epic's In-Island Transactions documentation](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-in-fortnite).
+- [Epic's Creating Items and Offers guide](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite).
+- [Epic's In-Island Transactions restrictions](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-restrictions-in-fortnite).
+- [Contribution guide](CONTRIBUTING.md) for developers working from source.
+- [Security policy](SECURITY.md) for reporting a security issue.
 
-Contributors need Windows, Node.js 22.12.0 or newer, and UEFN for live editor validation.
+## Support and community
 
-```powershell
-scripts\setup.bat
-npm run test:all
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1
-```
+Ask questions and share feedback in the [ADEPT Community Discord](https://discord.gg/playadept). You can also visit [ADEPT Interactive](https://adeptinteractive.net) or open an issue in this repository for a reproducible problem.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. A release build produces versioned machine-update artifacts, stable human-download aliases, `latest.yml`, the NSIS blockmap, SHA-256 checksums, and an artifact inventory. GitHub Releases carries only the human aliases; the ADEPT update service carries machine-update metadata and versioned installer artifacts. Local builds are unsigned unless a secure Authenticode certificate is supplied through the release environment, so Windows SmartScreen may show an unrecognized-publisher warning.
+## Contributing
 
-## License and support
+The repository is source-available. Before submitting a contribution, read [CONTRIBUTING.md](CONTRIBUTING.md) and complete the required [CLA acceptance process](CLA-ACCEPTANCE.md). Please keep changes focused and include the relevant automated or live UEFN evidence.
+
+## License
 
 Copyright © 2026 AD3PT Interactive Inc., operating as ADEPT Interactive and ADEPT.
 
-This project uses the [ADEPT Source-Available License](LICENSE). Viewing, private evaluation, and contribution through the official repository are permitted, but unauthorized redistribution, derivative releases, repackaging, embedding, commercialization, and branding use are not.
-
-- [ADEPT Interactive](https://adeptinteractive.net)
-- [Discord community](https://discord.gg/playadept)
-- [GitHub Sponsors](https://github.com/sponsors/ADEPT-Interactive)
+This project uses the [ADEPT Source-Available License](LICENSE). Viewing, private evaluation, and contribution through the official repository are permitted. The license does not permit unauthorized redistribution, derivative releases, repackaging, embedding, commercialization, or branding use.
