@@ -200,7 +200,10 @@ def _export_existing_texture(job, unreal):
     directory = os.path.dirname(destination)
     filename = os.path.splitext(os.path.basename(destination))[0]
     export_texture(None, texture, directory, filename)
-    candidates = [destination, os.path.join(directory, filename + ".png"), os.path.join(directory, filename + ".hdr")]
+    # UEFN 6.0 may honor the basename literally and emit no extension, while
+    # older editor builds append .png or .hdr. Accept only these exporter-owned
+    # paths; never fall back to reading a project .uasset file.
+    candidates = [destination, os.path.join(directory, filename), os.path.join(directory, filename + ".png"), os.path.join(directory, filename + ".hdr")]
     exported = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
     if not exported:
         raise RuntimeError(f"UEFN did not export Texture2D {source_asset_path} to the adoption staging path.")

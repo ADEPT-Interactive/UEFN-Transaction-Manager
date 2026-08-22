@@ -296,7 +296,7 @@ function directRuntimeOfferLines(
     '        PriceVBucks:float',
     '',
     ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
-    `    Make${pascal}DynamicOffer<public>(Options:${optionType}):?offer =`,
+    `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
     `        if (not IsValid${pascal}RuntimePrice(Options.PriceVBucks)):`,
     '            return false',
     `        option{${offersModule}.${itemKey}_dynamic_offer{RuntimePrice := Options.PriceVBucks}}`,
@@ -347,15 +347,19 @@ function bundleOfferClass(
 
 function dynamicBundleOfferClass(source: GeneratedBundleOffer, runtimePrice: boolean): string {
   const classKey = `${source.key}_dynamic`;
+  const runtimePriceLines = runtimePrice
+    ? [`        var RuntimePrice:float = ${source.priceReference}`]
+    : [];
+  const priceExpression = runtimePrice ? 'RuntimePrice' : source.priceReference;
   return [
     `    ${classKey}_offer<public> := class(bundle_offer):`,
     `        var Name<override>:message = ${source.metadataKey}.Name`,
     `        var Description<override>:message = ${source.metadataKey}.Description`,
     `        var ShortDescription<override>:message = ${source.metadataKey}.ShortDescription`,
     `        var Icon<override>:texture = ${source.iconTexture}`,
-    `        var RuntimePrice:float = ${runtimePrice ? `${source.priceReference}` : `${source.priceReference}`}`,
+    ...runtimePriceLines,
     `        Offers<override>:[]tuple(offer, int) = array{}`,
-    `        Price<override>:price_dimension = MakePriceVBucks(RuntimePrice)`,
+    `        Price<override>:price_dimension = MakePriceVBucks(${priceExpression})`,
     restrictionLines(source.restrictions),
     '',
   ].filter(Boolean).join('\n');
@@ -606,18 +610,32 @@ export function generateVerseCode(
     push(`    ${optionType}<public> := struct:`);
     if (dynamicPriceEnabled(bundle.dynamicOffer)) push('        PriceVBucks:float');
     for (const entry of dynamicEntries) {
-      const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+      const key = entry.entitlementId
+        ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
+        : entry.bundleId
+          ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
+          : 'entry';
       push(`        ${toVerseApiStem(key)}Quantity:int`);
     }
+    const runtimePriceLines = dynamicPriceEnabled(bundle.dynamicOffer)
+      ? [
+          ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
+          `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
+          `        if (not IsValid${pascal}RuntimePrice(Options.PriceVBucks)):`,
+          '            return false',
+        ]
+      : [
+          `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
+        ];
     push('',
-      ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
-      '',
-      `    Make${pascal}DynamicOffer<public>(Options:${optionType}):?offer =`,
-      '        if (not IsValid' + pascal + 'RuntimePrice(' + (dynamicPriceEnabled(bundle.dynamicOffer) ? 'Options.PriceVBucks' : `${bundle.priceVBucks.toFixed(1)}`) + ')):',
-      '            return false',
+      ...runtimePriceLines,
     );
     for (const entry of dynamicEntries) {
-      const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+      const key = entry.entitlementId
+        ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
+        : entry.bundleId
+          ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
+          : 'entry';
       const maximum = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId)?.maxCount ?? 0 : MARKETPLACE_CONSTRAINTS.maxCount;
       const field = `${toVerseApiStem(key)}Quantity`;
       push(
@@ -630,7 +648,11 @@ export function generateVerseCode(
       const behavior = bundleQuantityBehavior(bundle, entry);
       const reference = resolveBundleEntry(entry, entitlements, bundles);
       if (behavior === 'runtime') {
-        const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+        const key = entry.entitlementId
+          ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
+          : entry.bundleId
+            ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
+            : 'entry';
         const field = `${toVerseApiStem(key)}Quantity`;
         push(`        if (Options.${field} > 0):`, `            set RuntimeOffers += array{(${reference}, Options.${field})}`);
       } else {
@@ -964,7 +986,7 @@ export function generateVerseCode(
     const purchaseEntryName = `Open${pascal}Purchase`;
     const dynamicItem = dynamicEntry ? entitlements.find(candidate => candidate.id === dynamicEntry.entitlementId) : undefined;
     if (hasRuntimeBundleValues(bundle)) {
-      const optionType = `${pascal}RuntimeOptions`;
+      const optionType = `${offersModule}.${pascal}RuntimeOptions`;
       push(
         `    ${purchaseEntryName}<public>(Player:player, Options:${optionType}):void =`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
@@ -972,7 +994,7 @@ export function generateVerseCode(
         `            spawn{ExecuteDynamicPurchase${pascal}(Player, Options)}`,
         '',
         `    ExecuteDynamicPurchase${pascal}(Player:player, Options:${optionType})<suspends>:void =`,
-        `        if (DynamicOffer := Make${pascal}DynamicOffer(Options)?):`,
+        `        if (DynamicOffer := ${offersModule}.Make${pascal}DynamicOffer(Options)?):`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
         `            LogWarning("${printableName} was not opened because its runtime values were invalid.")`,

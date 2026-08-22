@@ -349,7 +349,9 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', (req, res, next) => {
   const uiAuthorized = tokensEqual(req.get('x-uem-token'), sessionToken);
   const editorAuthorized = tokensEqual(req.get('x-uem-editor-token'), editorSessionToken);
-  const editorRoute = req.path === '/editor/session' || req.path === '/texture/import/next' || (req.path.startsWith('/texture/import/') && req.path.endsWith('/result'));
+  const editorRoute = req.path === '/editor/session'
+    || req.path === '/texture/import/next'
+    || (req.path.startsWith('/texture/import/') && (req.path.endsWith('/normalize') || req.path.endsWith('/result')));
   if (editorRoute ? !editorAuthorized : !uiAuthorized) return res.status(401).json({ success: false, error: 'Invalid or missing bridge session token.' });
   if (!editorRoute) lastUiActivity = Date.now();
   next();

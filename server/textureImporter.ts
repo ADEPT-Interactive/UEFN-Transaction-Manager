@@ -59,10 +59,88 @@ const stagingRoot = path.join(os.tmpdir(), 'UEFN Entitlement Manager', 'texture-
 const JOB_TTL_MS = 15 * 60 * 1000;
 const CLAIM_TIMEOUT_MS = 120 * 1000;
 const MAX_PENDING_TEXTURE_JOBS = 32;
+
+function decodeRadianceHdr(buffer: Buffer): { data: Buffer; width: number; height: number } {
+  const headerEnd = buffer.indexOf(Buffer.from('\n\n'));
+  if (headerEnd < 0) throw new Error('The exported HDR texture has no valid Radiance header.');
+  const resolutionLineEnd = buffer.indexOf(0x0a, headerEnd + 2);
+  const resolutionLine = buffer.subarray(headerEnd + 2, resolutionLineEnd < 0 ? buffer.length : resolutionLineEnd).toString('ascii').trim();
+  const resolutionMatch = /^-Y (\d+) \+X (\d+)$/.exec(resolutionLine);
+  if (!resolutionMatch) throw new Error('The exported HDR texture has no supported -Y/+X resolution.');
+  const height = Number(resolutionMatch[1]);
+  const width = Number(resolutionMatch[2]);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 32767) {
+    throw new Error('The exported HDR texture has an invalid resolution.');
+  }
+
+  let offset = resolutionLineEnd < 0 ? buffer.length : resolutionLineEnd + 1;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    if (offset + 4 > buffer.length) throw new Error('The exported HDR texture ended before a complete scanline.');
+    const isRle = buffer[offset] === 2 && buffer[offset + 1] === 2 && buffer[offset + 2] === (width >> 8) && buffer[offset + 3] === (width & 255);
+    offset += 4;
+    if (!isRle) {
+      offset -= 4;
+      for (let x = 0; x < width; x += 1) {
+        if (offset + 4 > buffer.length) throw new Error('The exported HDR texture ended inside a pixel.');
+        const red = buffer[offset++];
+        const green = buffer[offset++];
+        const blue = buffer[offset++];
+        const exponent = buffer[offset++];
+        const scale = exponent === 0 ? 0 : 255 * 2 ** (exponent - 128) / 256;
+        const pixelOffset = (y * width + x) * 3;
+        pixels[pixelOffset] = Math.min(255, Math.round(red * scale));
+        pixels[pixelOffset + 1] = Math.min(255, Math.round(green * scale));
+        pixels[pixelOffset + 2] = Math.min(255, Math.round(blue * scale));
+      }
+      continue;
+    }
+    const channels: Buffer[] = [];
+    for (let channel = 0; channel < 4; channel += 1) {
+      const values = Buffer.alloc(width);
+      let position = 0;
+      while (position < width) {
+        if (offset >= buffer.length) throw new Error('The exported HDR texture ended inside a scanline.');
+        const count = buffer[offset++];
+        if (isRle && count > 128) {
+          const runLength = count - 128;
+          if (runLength < 1 || position + runLength > width || offset >= buffer.length) throw new Error('The exported HDR texture contains an invalid RLE run.');
+          values.fill(buffer[offset++], position, position + runLength);
+          position += runLength;
+        } else {
+          const literalLength = isRle ? count : Math.min(count, width - position);
+          if (literalLength < 1 || position + literalLength > width || offset + literalLength > buffer.length) throw new Error('The exported HDR texture contains an invalid literal run.');
+          buffer.copy(values, position, offset, offset + literalLength);
+          offset += literalLength;
+          position += literalLength;
+        }
+      }
+      channels.push(values);
+    }
+    for (let x = 0; x < width; x += 1) {
+      const exponent = channels[3][x];
+      const scale = exponent === 0 ? 0 : 255 * 2 ** (exponent - 128) / 256;
+      const pixelOffset = (y * width + x) * 3;
+      pixels[pixelOffset] = Math.min(255, Math.round(channels[0][x] * scale));
+      pixels[pixelOffset + 1] = Math.min(255, Math.round(channels[1][x] * scale));
+      pixels[pixelOffset + 2] = Math.min(255, Math.round(channels[2][x] * scale));
+    }
+  }
+  return { data: pixels, width, height };
+}
+
 export async function normalizeImageToPowerOfTwo(imageBuffer: Buffer): Promise<Buffer> {
+  if (imageBuffer.subarray(0, 10).toString('ascii') === '#?RADIANCE') {
+    const decoded = decodeRadianceHdr(imageBuffer);
+    const layout = calculatePowerOfTwoTextureLayout(decoded.width, decoded.height);
+    const image = sharp(decoded.data, { raw: { width: decoded.width, height: decoded.height, channels: 3 } });
+    return (layout.normalized
+      ? image.resize(layout.targetWidth, layout.targetHeight, { fit: 'contain', position: 'centre', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      : image).png().toBuffer();
+  }
   const image = sharp(imageBuffer, { failOn: 'error', limitInputPixels: 8192 * 8192 });
   const metadata = await image.metadata();
-  if (!metadata.width || !metadata.height || !metadata.format || !['png', 'jpeg', 'webp', 'gif', 'avif', 'tiff'].includes(metadata.format)) {
+  if (!metadata.width || !metadata.height || !metadata.format || !['png', 'jpeg', 'webp', 'gif', 'avif', 'tiff', 'hdr'].includes(metadata.format)) {
     throw new Error('The selected image is not a supported readable image.');
   }
   const layout = calculatePowerOfTwoTextureLayout(metadata.width, metadata.height);

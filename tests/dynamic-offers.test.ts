@@ -40,10 +40,10 @@ test('generated runtime bundles expose a stable options type, factory, and purch
     ],
   }], publicApiConfig);
   assert.match(source, /RuntimeBundleRuntimeOptions<public> := struct:/);
-  assert.match(source, /MakeRuntimeBundleDynamicOffer<public>\(Options:RuntimeBundleRuntimeOptions\):\?offer/);
-  assert.match(source, /OpenRuntimeBundlePurchase<public>\(Player:player, Options:RuntimeBundleRuntimeOptions\):void/);
+  assert.match(source, /MakeRuntimeBundleDynamicOffer<public>\(Options:RuntimeBundleRuntimeOptions\)<transacts>:\?offer/);
+  assert.match(source, /OpenRuntimeBundlePurchase<public>\(Player:player, Options:Phase4PublicApiOffers\.RuntimeBundleRuntimeOptions\):void/);
   assert.match(source, /RuntimeOffers\.Length = 0/);
-  assert.match(source, /Options\.CoinsQuantity > 0/);
+  assert.match(source, /Options\.CoinPackQuantity > 0/);
   assert.doesNotMatch(source, /runtime_bundle_offer<public> := class\(bundle_offer\):/);
 });
 
@@ -58,7 +58,7 @@ test('runtime direct offers expose typed pricing for primary and alternate varia
     }],
   }], [], publicApiConfig);
   assert.match(source, /AccessPassRuntimeOptions<public> := struct:/);
-  assert.match(source, /MakeAccessPassDynamicOffer<public>\(Options:AccessPassRuntimeOptions\):\?offer/);
+  assert.match(source, /MakeAccessPassDynamicOffer<public>\(Options:AccessPassRuntimeOptions\)<transacts>:\?offer/);
   assert.match(source, /OpenAccessPassPurchase<public>\(Player:player, Options:AccessPassRuntimeOptions\):void/);
   assert.match(source, /CoinsAltRuntimeOptions<public> := struct:/);
   assert.match(source, /OpenCoinsAltPurchase<public>\(Player:player, Options:CoinsAltRuntimeOptions\):void/);

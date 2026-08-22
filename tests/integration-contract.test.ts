@@ -30,5 +30,6 @@ test('integration contract is derived from generator naming for static, alternat
   }
   assert.match(verse, /MakeCoinsDynamicOffer/);
   assert.match(verse, /RuntimePackRuntimeOptions/);
+  assert.match(verse, /CoinsQuantity:int/);
+  assert.doesNotMatch(verse, /Ent-2Quantity:int/);
 });
-
