@@ -157,7 +157,7 @@ Keep `managed_transactions.verse` manager-owned. Put rewards, eligibility, progr
 
 ## Validation and testing
 
-Errors prevent invalid catalog data from being saved or compiled. Warnings are review aids and do not guarantee Marketplace approval. In particular, paid-random offers still need accurate numerical odds disclosed to players before purchase.
+Errors prevent invalid catalog data from being saved or compiled. Warnings are review aids and do not guarantee Marketplace approval. Transaction Manager's odds field is optional, but paid-random offers still need accurate numerical odds disclosed to players before purchase.
 
 <p align="center">
   <img src="docs/screenshots/phase28-validation.png" alt="Transaction catalog validation report" width="72%">
