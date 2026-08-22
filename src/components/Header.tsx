@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { DISCORD_CONTROL_SIZE, DISCORD_ICON_SIZE, DiscordIcon } from './BrandControls';
@@ -28,12 +28,13 @@ interface HeaderProps {
   appVersion: string;
   updateState: DesktopUpdateState | null;
   onCheckForUpdates: () => void;
+  onOpenAgentIntegration: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   config, onSaveToDisk, onLoadFromDisk, onCompileVerse, onExportPreset, onImportPreset,
   onOpenSettings, onOpenValidator, onSwitchProject, validationIssues, isSaving, isCompiling,
-  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, appVersion, updateState, onCheckForUpdates,
+  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, appVersion, updateState, onCheckForUpdates, onOpenAgentIntegration,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const toolsRef = React.useRef<HTMLDivElement>(null);
@@ -101,6 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="my-1 border-t border-slate-800" />
               <button role="menuitem" type="button" onClick={() => runTool(onCheckForUpdates)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><RefreshCw className="h-4 w-4 text-cyan-300" />Check for Updates{updateState?.status === 'checking' && <span className="ml-auto text-[10px] text-slate-500">Checking</span>}</button>
               <button role="menuitem" type="button" onClick={() => runTool(onOpenSettings)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><Settings className="h-4 w-4 text-slate-400" />Project settings</button>
+              <button role="menuitem" type="button" onClick={() => runTool(onOpenAgentIntegration)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800"><PlugZap className="h-4 w-4 text-cyan-300" />Agent Integration</button>
             </div>}
             <input type="file" ref={fileInputRef} onChange={onImportPreset} accept="application/json,.json" className="hidden" />
           </div>

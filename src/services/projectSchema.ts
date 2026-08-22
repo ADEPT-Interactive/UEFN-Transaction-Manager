@@ -61,14 +61,23 @@ function normalizeAlternateOffer(value: unknown, parentKey: string, index: numbe
     ...(value.durationDescription !== undefined ? { durationDescription: stringValue(value.durationDescription) } : {}),
     priceVBucks: numberValue(value.priceVBucks, 100),
     iconTexture: stringValue(value.iconTexture, `EntitlementIcons.${verseKey}`),
+    iconImageData: stringValue(value.iconImageData) || undefined,
     restrictions: normalizeOfferRestrictions(value.restrictions),
     dynamicOffer: normalizeDynamicOffer(value.dynamicOffer),
   };
 }
 
 export function stripTransientImages<T extends EntitlementItem | BundleOffer>(item: T): T {
-  const { iconImageData: _iconImageData, ...rest } = item;
-  return rest as T;
+  const { iconImageData: _iconImageData, alternateOffers, ...rest } = item as T & { alternateOffers?: Array<Record<string, unknown>> };
+  return {
+    ...rest,
+    ...(alternateOffers ? {
+      alternateOffers: alternateOffers.map(offer => {
+        const { iconImageData: _alternateImageData, ...cleanOffer } = offer;
+        return cleanOffer;
+      }),
+    } : {}),
+  } as T;
 }
 
 export function normalizeEntitlement(value: unknown, index: number): EntitlementItem {

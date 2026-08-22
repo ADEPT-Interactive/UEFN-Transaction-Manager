@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, ImageIcon, Layers, PlugZap } from 'lucide-react';
 import { Header } from './components/Header';
 import { EntitlementList } from './components/EntitlementList';
@@ -13,7 +13,7 @@ import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
 import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
-import { EditorStatus, FileService } from './services/fileService';
+import { EditorStatus, FileService, type CatalogSnapshotPayload } from './services/fileService';
 import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray, parseStoredStorefrontMembership } from './services/projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
@@ -22,6 +22,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
 import { UpdateCard } from './components/UpdateCard';
+import { AgentIntegrationPanel } from './components/AgentIntegrationPanel';
 import { isDynamicBundle } from './services/dynamicOffers';
 import { createHealthyShowcaseConnection } from './services/showcaseMode';
 import versionInfo from '../version.json';
@@ -329,6 +330,13 @@ export const App: React.FC = () => {
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState('1');
+  const [catalogDirty, setCatalogDirty] = useState(false);
+  const [agentIntegrationOpen, setAgentIntegrationOpen] = useState(false);
+  const [agentIntegrationStatus, setAgentIntegrationStatus] = useState<import('./services/fileService').AgentIntegrationStatus | null>(null);
+  const catalogRevisionRef = useRef('1');
+  const suppressCatalogSyncRef = useRef(false);
 
   const allValidationIssues = useMemo(() => {
     const issues = validateEntireProject(entitlements, bundles, config, storefrontMembership, retiredVerseKeys);
@@ -351,7 +359,22 @@ export const App: React.FC = () => {
   [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, hasErrors]);
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
   const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
-  const isDirty = currentSnapshot !== lastSavedSnapshot;
+  const isDirty = catalogReady ? catalogDirty : currentSnapshot !== lastSavedSnapshot;
+
+  const applyCatalogSnapshot = (next: CatalogSnapshotPayload) => {
+    suppressCatalogSyncRef.current = true;
+    catalogRevisionRef.current = next.revision;
+    setCatalogRevision(next.revision);
+    setCatalogDirty(next.dirty);
+    setConfig(next.config);
+    setEntitlements(next.entitlements);
+    setBundles(next.bundles);
+    setStorefrontMembership(next.storefrontMembership);
+    setRetiredVerseKeys(next.retiredVerseKeys);
+    setProjectDataDiagnostics(next.projectDataDiagnostics);
+    setLoadedFileRevision({ fileName: next.config.targetVerseFileName, contentHash: next.savedFileHash });
+    if (!next.dirty) setLastSavedSnapshot(snapshot(next.entitlements, next.bundles, next.storefrontMembership, next.retiredVerseKeys, next.config));
+  };
 
   useEffect(() => {
     const activeWarningIds = new Set(allValidationIssues.filter(issue => issue.severity === 'warning').map(issue => issue.id));
@@ -400,48 +423,31 @@ export const App: React.FC = () => {
         return;
       }
       setEditorStatus(showcaseConnection?.editorStatus ?? await FileService.getEditorStatus());
-      let loadedEntitlements = entitlements;
-      let loadedBundles = bundles;
-      let loadedStorefrontMembership = storefrontMembership;
-      let loadedRetiredVerseKeys = retiredVerseKeys;
-      let loadedProjectDataDiagnostics: string[] = [];
-      const result = await FileService.loadVerseFile(config.targetVerseFileName);
-      if (result.success && result.content) {
-        const parsed = parseVerseCode(result.content);
-        if (!parsed.managed || parsed.error) {
-          setUnmanagedTargetFile(config.targetVerseFileName);
-          setStatus({ message: parsed.error ?? 'Existing Verse was left untouched.', error: true });
-          return;
-        }
-        loadedEntitlements = parsed.entitlements;
-        loadedBundles = parsed.bundles;
-        loadedStorefrontMembership = parsed.storefrontMembership;
-        loadedRetiredVerseKeys = parsed.retiredVerseKeys;
-        loadedProjectDataDiagnostics = parsed.projectDataDiagnostics;
-        setUnmanagedTargetFile(null);
-        setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash ?? null });
-        setLastSavedSnapshot(snapshot(loadedEntitlements, loadedBundles, loadedStorefrontMembership, loadedRetiredVerseKeys, config));
-      } else if (result.status !== 404) {
-        setStatus({ message: result.error ?? 'The configured Verse file could not be inspected.', error: true });
+      const opened = await FileService.openCatalog(config, {
+        entitlements,
+        bundles,
+        storefrontMembership,
+        retiredVerseKeys,
+      });
+      if (!opened.success || !opened.catalog) {
+        setStatus({ message: opened.error ?? 'The shared catalog session could not be opened.', error: true });
         return;
-      } else {
-        setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: null });
       }
-      const hydrated = await hydrateProjectImages(loadedEntitlements, loadedBundles, config.assetFolderName);
+      if (opened.managed === false) {
+        setUnmanagedTargetFile(opened.catalog.config.targetVerseFileName);
+        setStatus({ message: opened.catalog.projectDataDiagnostics[0] ?? 'Existing Verse was left untouched because it is not managed by Transaction Manager.', error: true });
+        return;
+      }
+      setUnmanagedTargetFile(null);
+      const loadedCatalog = opened.catalog;
+      const hydrated = await hydrateProjectImages(loadedCatalog.entitlements, loadedCatalog.bundles, loadedCatalog.config.assetFolderName);
       if (!active) return;
-      // Image hydration only adds transient previews. Mark the hydrated data
-      // clean so a showcase/opened project does not present a false Unsaved
-      // state before the creator edits anything.
-      setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, loadedStorefrontMembership, loadedRetiredVerseKeys, config));
-      setEntitlements(hydrated.entitlements);
-      setBundles(hydrated.bundles);
-      setStorefrontMembership(loadedStorefrontMembership);
-      setRetiredVerseKeys(loadedRetiredVerseKeys);
-      setProjectDataDiagnostics(loadedProjectDataDiagnostics);
-      const diagnosticNote = loadedProjectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
-      setStatus({ message: result.success && result.content
-        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${diagnosticNote}`
-        : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
+      applyCatalogSnapshot({ ...loadedCatalog, entitlements: hydrated.entitlements, bundles: hydrated.bundles });
+      setCatalogReady(true);
+      const diagnosticNote = loadedCatalog.projectDataDiagnostics.length ? ' Review the repaired project-data warning in Validation.' : '';
+      setStatus({ message: loadedCatalog.savedFileHash
+        ? `Loaded ${hydrated.entitlements.length} entitlements and ${hydrated.bundles.length} bundles from ${loadedCatalog.config.targetVerseFileName}${hydrated.loadedCount ? `, including ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'}` : ''}.${diagnosticNote}`
+        : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${loadedCatalog.config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
     };
     void initialize();
     const heartbeat = window.setInterval(() => {
@@ -452,6 +458,50 @@ export const App: React.FC = () => {
     }, 2000);
     return () => { active = false; window.clearInterval(heartbeat); window.clearInterval(editorHeartbeat); stopSessionLease(); };
   }, []);
+
+  useEffect(() => {
+    if (!catalogReady) return;
+    return FileService.subscribeCatalog(next => {
+      applyCatalogSnapshot(next);
+    });
+  }, [catalogReady]);
+
+  useEffect(() => {
+    if (!catalogReady) return;
+    if (suppressCatalogSyncRef.current) {
+      suppressCatalogSyncRef.current = false;
+      return;
+    }
+    let active = true;
+    const nextCatalog = { config, entitlements, bundles, storefrontMembership, retiredVerseKeys, projectDataDiagnostics };
+    void FileService.replaceCatalog(nextCatalog, catalogRevisionRef.current).then(result => {
+      if (!active) return;
+      if (result.success && result.catalog) {
+        catalogRevisionRef.current = result.catalog.revision;
+        setCatalogRevision(result.catalog.revision);
+        setCatalogDirty(result.catalog.dirty);
+        return;
+      }
+      if (result.status === 409) {
+        void FileService.getCatalogSnapshot().then(remote => {
+          if (remote.success && remote.catalog) {
+            applyCatalogSnapshot(remote.catalog);
+            setStatus({ message: 'The catalog changed in another client. The newer shared draft was loaded; review it before continuing.', error: true });
+          }
+        });
+      } else if (result.error) {
+        setStatus({ message: result.error, error: true });
+      }
+    });
+    return () => { active = false; };
+  }, [catalogReady, config, entitlements, bundles, storefrontMembership, retiredVerseKeys, projectDataDiagnostics]);
+
+  useEffect(() => {
+    if (!serverOnline) return;
+    refreshAgentIntegration();
+    const timer = window.setInterval(refreshAgentIntegration, 3000);
+    return () => window.clearInterval(timer);
+  }, [serverOnline]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (isDirty) event.preventDefault(); };
@@ -490,6 +540,32 @@ export const App: React.FC = () => {
         else setStatus({ message: result.error ?? 'The update could not be installed.', error: true });
       }
     });
+  };
+
+  const refreshAgentIntegration = () => {
+    void FileService.getAgentIntegrationStatus().then(result => setAgentIntegrationStatus(result)).catch(() => undefined);
+  };
+
+  const updateAgentIntegration = async (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }) => {
+    const result = await FileService.updateAgentIntegration(input);
+    if (result.status) setAgentIntegrationStatus(result.status);
+    return result;
+  };
+
+  const copyAgentConfig = () => FileService.copyAgentConfig();
+
+  const applyBridgeMutation = async (operation: Record<string, unknown>): Promise<boolean> => {
+    const result = await FileService.mutateCatalog(operation, catalogRevisionRef.current);
+    if (result.success && result.catalog) {
+      applyCatalogSnapshot(result.catalog);
+      return true;
+    }
+    if (result.status === 409) {
+      const remote = await FileService.getCatalogSnapshot();
+      if (remote.success && remote.catalog) applyCatalogSnapshot(remote.catalog);
+    }
+    setStatus({ message: result.error ?? 'The shared catalog rejected this mutation.', error: true });
+    return false;
   };
 
   const saveToDisk = async (): Promise<{ contentHash: string; placeholderDeferred: boolean } | undefined> => {
@@ -538,7 +614,7 @@ export const App: React.FC = () => {
       return undefined;
     }
     setUnmanagedTargetFile(null);
-    const result = await FileService.saveVerseFile(config.targetVerseFileName, verseCode, config.autoBackup, knownRevision?.contentHash ?? null);
+    const result = await FileService.saveCatalog(catalogRevisionRef.current);
     setIsSaving(false);
     if (!result.success) {
       setStatus({ message: result.status === 409 ? result.error ?? 'The file changed outside this manager. Reload it before saving.' : `Project save failed: ${result.error ?? 'Unknown bridge error.'}`, error: true });
@@ -548,6 +624,7 @@ export const App: React.FC = () => {
       setStatus({ message: 'Project save was not accepted because the bridge omitted the saved file hash.', error: true });
       return undefined;
     }
+    if (result.catalog) applyCatalogSnapshot(result.catalog);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash });
     setLastSavedSnapshot(currentSnapshot);
     setStatus({ message: placeholderDeferred
@@ -649,9 +726,8 @@ export const App: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const saveModalItem = (item: EntitlementItem) => {
+  const saveModalItem = async (item: EntitlementItem) => {
     const isDraft = item.id.startsWith('new-');
-    const previousItem = entitlements.find(existing => existing.id === item.id);
     const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
     const shouldAllocateDraftKey = isDraft && item.verseKey === sanitizeVerseIdentifier(item.name);
     const draftVerseKey = shouldAllocateDraftKey ? allocator.allocate(item.name) : item.verseKey;
@@ -668,41 +744,17 @@ export const App: React.FC = () => {
         return { ...offer, id: isNewAlternate ? `offer-${crypto.randomUUID()}` : offer.id, verseKey };
       }),
     };
-    const retired = [
-      ...(previousItem && previousItem.verseKey !== persistedItem.verseKey ? [previousItem.verseKey] : []),
-      ...(previousItem?.alternateOffers ?? []).flatMap(previousOffer => {
-        const nextOffer = persistedItem.alternateOffers?.find(offer => offer.id === previousOffer.id);
-        return !nextOffer || nextOffer.verseKey !== previousOffer.verseKey ? [previousOffer.verseKey] : [];
-      }),
-    ];
-    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
-    setEntitlements(items => items.some(existing => existing.id === item.id) ? items.map(existing => existing.id === item.id ? persistedItem : existing) : [...items, persistedItem]);
-    const validOfferKeys = new Set([persistedItem.verseKey, ...(persistedItem.alternateOffers ?? []).map(offer => offer.verseKey)]);
-    setStorefrontMembership(current => ({
-      allOffers: [
-        ...current.allOffers
-          .map(entry => entry.entitlementId === item.id ? { ...entry, entitlementId: persistedItem.id } : entry)
-          .filter(entry => entry.entitlementId !== persistedItem.id || !entry.offerVerseKey || validOfferKeys.has(entry.offerVerseKey)),
-        ...(isDraft && !current.allOffers.some(entry => entry.entitlementId === persistedItem.id) ? [{ entitlementId: persistedItem.id }] : []),
-      ],
-      focused: current.focused.map(group => ({
-        ...group,
-        entries: group.entries.map(entry => entry.entitlementId === item.id ? { ...entry, entitlementId: persistedItem.id } : entry).filter(entry => entry.entitlementId !== persistedItem.id || !entry.offerVerseKey || validOfferKeys.has(entry.offerVerseKey)),
-      })),
-    }));
-    setIsModalOpen(false);
-    setEditingItem(null);
+    const applied = await applyBridgeMutation(isDraft
+      ? { type: 'create_entitlement', data: persistedItem }
+      : { type: 'update_entitlement', entitlementId: item.id, data: persistedItem });
+    if (applied) {
+      setIsModalOpen(false);
+      setEditingItem(null);
+    }
   };
 
-  const deleteItem = (item: EntitlementItem) => {
-    setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, [item.verseKey, ...(item.alternateOffers ?? []).map(offer => offer.verseKey)]));
-    setEntitlements(items => items.filter(candidate => candidate.id !== item.id));
-    setBundles(items => items.map(bundle => ({ ...bundle, items: bundle.items.filter(entry => entry.entitlementId !== item.id) })));
-    setStorefrontMembership(current => ({
-      allOffers: current.allOffers.filter(entry => entry.entitlementId !== item.id),
-      focused: current.focused.map(group => ({ ...group, entries: group.entries.filter(entry => entry.entitlementId !== item.id) })),
-    }));
-    setPendingDelete(null);
+  const deleteItem = async (item: EntitlementItem) => {
+    if (await applyBridgeMutation({ type: 'delete_entitlement', entitlementId: item.id })) setPendingDelete(null);
   };
 
   const listProps = {
@@ -710,8 +762,7 @@ export const App: React.FC = () => {
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
     onDuplicate: (item: EntitlementItem) => {
       const copy = duplicateEntitlement(item, entitlements, bundles, crypto.randomUUID, storefrontMembership.focused);
-      setEntitlements(items => [...items, copy]);
-      setStorefrontMembership(current => ({ ...current, allOffers: current.allOffers.some(entry => entry.entitlementId === copy.id) ? current.allOffers : [...current.allOffers, { entitlementId: copy.id }] }));
+      void applyBridgeMutation({ type: 'create_entitlement', data: copy });
     },
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
   };
@@ -783,7 +834,7 @@ export const App: React.FC = () => {
          onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
          validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
          saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
-         appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates}
+         appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates} onOpenAgentIntegration={() => { refreshAgentIntegration(); setAgentIntegrationOpen(true); }}
       />
       <UpdateCard state={updateState} onCheck={checkForUpdates} onDownload={downloadUpdate} onInstall={() => installUpdate()} onLater={dismissUpdate} />
 
@@ -807,6 +858,7 @@ export const App: React.FC = () => {
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
+      <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and focused storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />

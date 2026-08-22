@@ -23,6 +23,7 @@ export interface AlternateOffer {
   durationDescription?: string;
   priceVBucks: number;
   iconTexture: string;
+  iconImageData?: string;
   restrictions: OfferRestrictions;
   dynamicOffer?: DynamicOfferConfig;
 }

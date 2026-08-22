@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import childProcess from 'child_process';
@@ -9,6 +10,10 @@ import { assertExistingPathInsideRoot, tokensEqual, validateIdentifier, validate
 import { compileVerseProject } from './workflowClient';
 import { listProjectIconPreviews, resolveProjectIconPreview } from './iconPreviews';
 import versionInfo from '../version.json';
+import { CatalogDomainError, CatalogSession, catalogForMcp, defaultProjectConfig, type CatalogDocument } from '../src/services/catalogSession';
+import { parseVerseCode } from '../src/services/verseParser';
+import { generateVerseCode } from '../src/services/verseGenerator';
+import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -45,6 +50,72 @@ if (configuredProjectFile) {
   ].filter(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()).map(candidate => fs.realpathSync(candidate).toLowerCase());
   if (!allowedContentRoots.includes(contentRoot.toLowerCase())) throw new Error('The selected Content root does not belong to UEM_PROJECT_FILE.');
 }
+
+const stateRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager');
+const agentIntegrationStatePath = path.join(stateRoot, 'agent-integration.json');
+const defaultCatalogConfig = defaultProjectConfig(contentRoot);
+
+interface AgentIntegrationState {
+  enabled: boolean;
+  port: number;
+  token?: string;
+}
+
+function loadAgentIntegrationState(): AgentIntegrationState {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(agentIntegrationStatePath, 'utf8')) as Partial<AgentIntegrationState>;
+    return {
+      enabled: parsed.enabled === true,
+      port: Number.isInteger(parsed.port) && Number(parsed.port) >= 1024 && Number(parsed.port) <= 65535 ? Number(parsed.port) : 8001,
+      token: typeof parsed.token === 'string' && parsed.token.length >= 32 ? parsed.token : undefined,
+    };
+  } catch {
+    return { enabled: false, port: 8001 };
+  }
+}
+
+function saveAgentIntegrationState(state: AgentIntegrationState): void {
+  fs.mkdirSync(stateRoot, { recursive: true });
+  const temporary = `${agentIntegrationStatePath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+  fs.renameSync(temporary, agentIntegrationStatePath);
+}
+
+function readCatalogAtConfig(config: CatalogDocument['config']): { document: CatalogDocument; contentHash: string | null; managed: boolean } {
+  const fileName = validateVerseFileName(config.targetVerseFileName);
+  const filePath = path.join(contentRoot, fileName);
+  if (fs.existsSync(filePath)) assertExistingPathInsideRoot(contentRoot, filePath);
+  const empty = () => ({ document: { config, entitlements: [], bundles: [], storefrontMembership: { allOffers: [], focused: [] }, retiredVerseKeys: [], projectDataDiagnostics: [] }, contentHash: null, managed: true });
+  if (!fs.existsSync(filePath)) {
+    return empty();
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseVerseCode(content);
+  if (!parsed.managed || parsed.error) {
+    return {
+      document: { config, entitlements: [], bundles: [], storefrontMembership: { allOffers: [], focused: [] }, retiredVerseKeys: [], projectDataDiagnostics: parsed.error ? [parsed.error] : [] },
+      contentHash: sha256(content),
+      managed: false,
+    };
+  }
+  return {
+    document: { config, entitlements: parsed.entitlements, bundles: parsed.bundles, storefrontMembership: parsed.storefrontMembership, retiredVerseKeys: parsed.retiredVerseKeys, projectDataDiagnostics: parsed.projectDataDiagnostics },
+    contentHash: sha256(content),
+    managed: true,
+  };
+}
+
+function readInitialCatalog(): { document: CatalogDocument; contentHash: string | null; managed: boolean } {
+  return readCatalogAtConfig(defaultCatalogConfig);
+}
+
+const initialCatalog = readInitialCatalog();
+const catalogSession = new CatalogSession(initialCatalog.document, { savedFileHash: initialCatalog.contentHash });
+let catalogManaged = initialCatalog.managed;
+let catalogOpen = false;
+const agentIntegration = loadAgentIntegrationState();
+let mcpHost: UTMcpHost | null = null;
+let mcpUnavailableReason: string | undefined;
 const distPath = path.join(__dirname, '..', 'dist');
 let lastUiActivity = Date.now();
 const uiLeases = new Set<express.Response>();
@@ -140,6 +211,125 @@ const allowedOrigins = new Set([
   ...(process.env.UEM_ALLOW_DEV_ORIGIN === '1' ? ['http://127.0.0.1:5173', 'http://localhost:5173'] : []),
 ]);
 
+function currentProjectContext(): UTMProjectContext {
+  const snapshot = catalogSession.snapshot();
+  const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
+  const editorConnected = editorSessionIsFresh();
+  return {
+    productVersion: versionInfo.version,
+    projectName: configuredProjectFile ? path.basename(configuredProjectFile, path.extname(configuredProjectFile)) : path.basename(contentRoot),
+    projectFile: configuredProjectFile ?? '',
+    contentRoot,
+    assetMount: configuredAssetMount!,
+    targetManagedVerseFile: snapshot.config.targetVerseFileName,
+    configuredIconFolder: snapshot.config.assetFolderName,
+    editorConnection: {
+      editorConnected,
+      projectActive: selectedProjectIsActiveInUefn(),
+      uefnRunning: uefnIsRunning(),
+      processId: (editorSession?.processId ?? launchedUefnProcessId) || undefined,
+    },
+    nativeTextureAdoptionAvailable: editorConnected,
+    managedFileOwned: catalogManaged,
+    ...({ generatedFile: { present: fs.existsSync(filePath), contentHash: fs.existsSync(filePath) ? sha256(fs.readFileSync(filePath)) : null } }),
+  };
+}
+
+function installedAgentSkillPath(): string {
+  const packaged = path.resolve(__dirname, '..', 'resources', 'agent-skills', 'uefn-transaction-manager');
+  if (fs.existsSync(path.join(packaged, 'SKILL.md'))) return packaged;
+  const source = path.resolve(__dirname, '..', 'skills', 'uefn-transaction-manager');
+  return fs.existsSync(path.join(source, 'SKILL.md')) ? source : 'skills/uefn-transaction-manager';
+}
+
+async function adoptIconThroughBridge(request: { sourceAssetPath: string; assetFolderName: string; assetName: string }): Promise<{ success: boolean; verseAssetPath?: string; assetObjectPath?: string; imageData?: string; error?: string }> {
+  if (!editorSessionIsFresh()) return { success: false, error: 'EDITOR_CONNECTION_REQUIRED: the verified UEFN editor connector is not connected.' };
+  const queued = queueTextureAdoption(request.assetFolderName, request.assetName, request.sourceAssetPath);
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const job = getTextureImportJob(queued.jobId);
+    if (job.status === 'failed') return { success: false, error: job.error ?? 'The UEFN Texture2D adoption job failed.' };
+    if (job.status !== 'completed') continue;
+    let imageData: string | undefined;
+    try {
+      const previewPath = resolveProjectIconPreview(contentRoot, request.assetFolderName, request.assetName);
+      imageData = `data:image/png;base64,${fs.readFileSync(previewPath).toString('base64')}`;
+    } catch {
+      // A native asset may be complete even if its optional cached preview is unavailable.
+    }
+    return { success: true, verseAssetPath: job.verseAssetPath, assetObjectPath: job.assetObjectPath, imageData };
+  }
+  return { success: false, error: 'The UEFN Texture2D adoption job did not complete within the MCP call window. The queued job remains available to the connected editor.' };
+}
+
+function saveGeneratedCatalog(): SaveCatalogResult {
+  const snapshot = catalogSession.snapshot();
+  if (!catalogManaged) return { success: false, code: 'PROJECT_NOT_READY', error: 'PROJECT_NOT_READY: the selected target Verse file is not managed by UTM and will not be overwritten.', status: 409 };
+  const errors = snapshot.validation.filter(issue => issue.severity === 'error');
+  if (errors.length) return { success: false, error: 'CATALOG_VALIDATION_FAILED: validation errors block save.', status: 422 };
+  const fileName = validateVerseFileName(snapshot.config.targetVerseFileName);
+  const filePath = path.join(contentRoot, fileName);
+  if (fs.existsSync(filePath)) assertExistingPathInsideRoot(contentRoot, filePath);
+  const currentHash = fs.existsSync(filePath) ? sha256(fs.readFileSync(filePath)) : null;
+  if (currentHash !== snapshot.savedFileHash) return { success: false, currentHash: currentHash ?? undefined, error: 'The managed Verse file changed outside UTM. Reload before saving.', status: 409 } as SaveCatalogResult;
+  let content: string;
+  try {
+    content = generateVerseCode(snapshot.entitlements, snapshot.bundles, snapshot.config, snapshot.storefrontMembership, snapshot.retiredVerseKeys);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'The generated Verse could not be produced.', status: 422 };
+  }
+  let backupPath: string | undefined;
+  let temporaryPath = '';
+  try {
+    if (snapshot.config.autoBackup && fs.existsSync(filePath)) {
+      const backupDir = path.join(contentRoot, '.backups');
+      fs.mkdirSync(backupDir, { recursive: true });
+      assertExistingPathInsideRoot(contentRoot, backupDir);
+      backupPath = path.join(backupDir, `${fileName}.${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
+      fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    }
+    temporaryPath = path.join(contentRoot, `.${fileName}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
+    fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(temporaryPath, filePath);
+    return { success: true, fileName, filePath, backupPath, contentHash: sha256(content) } as SaveCatalogResult;
+  } catch (error) {
+    if (temporaryPath && fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    return { success: false, error: error instanceof Error ? error.message : 'The managed Verse file could not be written.', status: 500 };
+  }
+}
+
+async function startConfiguredMcp(): Promise<void> {
+  if (!agentIntegration.enabled || mcpHost) return;
+  if (!agentIntegration.token) {
+    agentIntegration.token = crypto.randomBytes(48).toString('base64url');
+    saveAgentIntegrationState(agentIntegration);
+  }
+  const host = new UTMcpHost({
+    version: versionInfo.version,
+    token: agentIntegration.token,
+    catalog: catalogSession,
+    getProjectContext: currentProjectContext,
+    adoptIcon: adoptIconThroughBridge,
+    saveCatalog: async () => saveGeneratedCatalog(),
+  });
+  try {
+    await host.start(agentIntegration.port);
+    mcpHost = host;
+    mcpUnavailableReason = undefined;
+  } catch (error) {
+    mcpUnavailableReason = error instanceof Error && (error as NodeJS.ErrnoException).code === 'EADDRINUSE'
+      ? `MCP port ${agentIntegration.port} is already in use. Configure an alternate loopback port under Agent Integration.`
+      : error instanceof Error ? error.message : 'UTM MCP could not start.';
+  }
+}
+
+async function stopConfiguredMcp(): Promise<void> {
+  if (!mcpHost) return;
+  const host = mcpHost;
+  mcpHost = null;
+  await host.stop();
+}
+
 app.disable('x-powered-by');
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -171,6 +361,144 @@ const requireEditorToken: express.RequestHandler = (req, res, next) => {
 };
 
 app.post('/api/session/heartbeat', (_req, res) => res.json({ success: true }));
+
+app.post('/api/catalog/open', (req, res) => {
+  try {
+    if (catalogOpen) return res.json({ success: true, managed: catalogManaged, catalog: catalogSession.snapshot() });
+    const current = catalogSession.snapshot();
+    const allowInitialRecovery = current.revision === '1' && !current.dirty;
+    const requestedConfig = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
+    const config = defaultProjectConfig(contentRoot, { ...requestedConfig, contentFolderPath: contentRoot });
+    const recovery = req.body?.recovery && typeof req.body.recovery === 'object' ? req.body.recovery : undefined;
+    const targetChanged = config.targetVerseFileName !== current.config.targetVerseFileName;
+    if (allowInitialRecovery && targetChanged) {
+      const loaded = readCatalogAtConfig(config);
+      const recoveryDocument = loaded.contentHash === null && recovery ? {
+        ...loaded.document,
+        entitlements: Array.isArray(recovery.entitlements) ? recovery.entitlements : loaded.document.entitlements,
+        bundles: Array.isArray(recovery.bundles) ? recovery.bundles : loaded.document.bundles,
+        storefrontMembership: recovery.storefrontMembership ?? loaded.document.storefrontMembership,
+        retiredVerseKeys: Array.isArray(recovery.retiredVerseKeys) ? recovery.retiredVerseKeys : loaded.document.retiredVerseKeys,
+      } : loaded.document;
+      catalogManaged = loaded.managed;
+      catalogSession.initialize(recoveryDocument, { savedFileHash: loaded.contentHash, initialDirty: loaded.contentHash === null && Boolean(recovery) });
+      catalogOpen = true;
+      return res.json({ success: true, managed: catalogManaged, catalog: catalogSession.snapshot() });
+    }
+    const next: CatalogDocument = {
+      ...current,
+      config,
+      ...(initialCatalog.contentHash === null && recovery && allowInitialRecovery ? {
+        entitlements: Array.isArray(recovery.entitlements) ? recovery.entitlements : current.entitlements,
+        bundles: Array.isArray(recovery.bundles) ? recovery.bundles : current.bundles,
+        storefrontMembership: recovery.storefrontMembership ?? current.storefrontMembership,
+        retiredVerseKeys: Array.isArray(recovery.retiredVerseKeys) ? recovery.retiredVerseKeys : current.retiredVerseKeys,
+      } : {}),
+    };
+    if (allowInitialRecovery && (JSON.stringify(next.config) !== JSON.stringify(current.config) || next.entitlements.length !== current.entitlements.length || next.bundles.length !== current.bundles.length || initialCatalog.contentHash === null && recovery)) {
+      catalogSession.replaceDocument(next, current.revision);
+    }
+    catalogOpen = true;
+    res.json({ success: true, managed: catalogManaged, catalog: catalogSession.snapshot() });
+  } catch (error) {
+    res.status(error instanceof CatalogDomainError ? error.status : 400).json({ success: false, error: error instanceof Error ? error.message : 'Catalog could not be initialized.' });
+  }
+});
+
+app.get('/api/catalog/snapshot', (_req, res) => res.json({ success: true, managed: catalogManaged, catalog: catalogSession.snapshot() }));
+
+app.post('/api/catalog/replace', (req, res) => {
+  try {
+    if (!req.body?.catalog || typeof req.body.catalog !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog replacement requires a catalog and expectedRevision.');
+    const result = catalogSession.replaceDocument(req.body.catalog as CatalogDocument, req.body.expectedRevision);
+    res.json({ success: true, catalog: result.snapshot, cascades: result.cascades });
+  } catch (error) {
+    const status = error instanceof CatalogDomainError ? error.status : 400;
+    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Catalog replacement failed.', ...(error instanceof CatalogDomainError ? { code: error.code, data: error.data } : {}) });
+  }
+});
+
+app.post('/api/catalog/mutate', (req, res) => {
+  try {
+    if (!req.body?.operation || typeof req.body.operation !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog mutation requires an operation and expectedRevision.');
+    const result = catalogSession.mutate(req.body.operation, req.body.expectedRevision);
+    res.json({ success: true, catalog: result.snapshot, affected: result.affected, cascades: result.cascades });
+  } catch (error) {
+    const status = error instanceof CatalogDomainError ? error.status : 400;
+    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Catalog mutation failed.', ...(error instanceof CatalogDomainError ? { code: error.code, data: error.data } : {}) });
+  }
+});
+
+app.get('/api/catalog/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (snapshot = catalogSession.snapshot()) => {
+    if (!res.writableEnded) res.write(`event: catalog\ndata: ${JSON.stringify(snapshot)}\n\n`);
+  };
+  send();
+  const unsubscribe = catalogSession.subscribe(send);
+  const keepAlive = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
+  req.once('close', () => { clearInterval(keepAlive); unsubscribe(); });
+});
+
+app.get('/api/agent-integration/status', (_req, res) => {
+  res.json({
+    success: true,
+    enabled: agentIntegration.enabled,
+    running: Boolean(mcpHost?.running),
+    endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`,
+    serverName: 'utm-mcp',
+    port: agentIntegration.port,
+    projectName: currentProjectContext().projectName,
+    unavailableReason: mcpUnavailableReason,
+    connectionConfigured: Boolean(agentIntegration.token),
+    skillPath: installedAgentSkillPath(),
+  });
+});
+
+app.post('/api/agent-integration/config', async (req, res) => {
+  try {
+    if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') throw new Error('enabled must be boolean.');
+    if (req.body?.port !== undefined && (!Number.isInteger(req.body.port) || req.body.port < 1024 || req.body.port > 65535)) throw new Error('MCP port must be an integer between 1024 and 65535.');
+    const previousPort = agentIntegration.port;
+    if (req.body?.port !== undefined) agentIntegration.port = Number(req.body.port);
+    if (req.body?.enabled !== undefined) agentIntegration.enabled = req.body.enabled === true;
+    if (req.body?.refreshConnection === true) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
+    if (agentIntegration.enabled && !agentIntegration.token) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
+    if (!agentIntegration.enabled || previousPort !== agentIntegration.port || req.body?.refreshConnection === true) await stopConfiguredMcp();
+    saveAgentIntegrationState(agentIntegration);
+    if (agentIntegration.enabled) await startConfiguredMcp();
+    else mcpUnavailableReason = undefined;
+    res.json({ success: true, ...(req.body?.includeToken === true ? { token: agentIntegration.token } : {}), status: { enabled: agentIntegration.enabled, running: Boolean(mcpHost?.running), endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`, serverName: 'utm-mcp', port: agentIntegration.port, unavailableReason: mcpUnavailableReason } });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Agent Integration settings could not be changed.' });
+  }
+});
+
+app.post('/api/agent-integration/copy-config', (_req, res) => {
+  if (!agentIntegration.enabled || !agentIntegration.token) return res.status(409).json({ success: false, error: 'Enable UTM MCP before copying a client configuration.' });
+  res.json({ success: true, config: { mcpServers: { 'utm-mcp': { type: 'http', url: `http://127.0.0.1:${agentIntegration.port}/mcp`, headers: { Authorization: `Bearer ${agentIntegration.token}` } } } } });
+});
+
+app.post('/api/catalog/save', (req, res) => {
+  try {
+    if (typeof req.body?.expectedRevision !== 'string') throw new Error('Catalog save requires expectedRevision.');
+    const snapshot = catalogSession.snapshot();
+    if (snapshot.revision !== req.body.expectedRevision) {
+      throw new CatalogDomainError('CATALOG_REVISION_CONFLICT', 'The catalog changed before save.', { expectedRevision: req.body.expectedRevision, currentRevision: snapshot.revision }, 409);
+    }
+    const saved = saveGeneratedCatalog();
+    if (!saved.success || !saved.contentHash) {
+      return res.status(saved.status ?? 422).json(saved);
+    }
+    res.json({ ...saved, catalog: catalogSession.markSaved(saved.contentHash) });
+  } catch (error) {
+    const status = error instanceof CatalogDomainError ? error.status : 400;
+    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Catalog save failed.', ...(error instanceof CatalogDomainError ? { code: error.code, data: error.data } : {}) });
+  }
+});
 
 app.post('/api/editor/bootstrap-status', (req, res) => {
   const allowed = new Set(['not-needed', 'waiting', 'attempting', 'connected', 'failed']);
@@ -316,6 +644,7 @@ app.post('/api/verse/save', (req, res) => {
     fs.writeFileSync(temporaryPath, req.body.content, { encoding: 'utf8', flag: 'wx' });
     fs.renameSync(temporaryPath, filePath);
     temporaryPath = '';
+    if (fileName === catalogSession.snapshot().config.targetVerseFileName) catalogSession.markSaved(sha256(req.body.content));
     res.json({ success: true, filePath, backupPath, contentHash: sha256(req.body.content), message: 'Verse file written atomically.' });
   } catch (error) {
     if (temporaryPath && fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
@@ -431,7 +760,7 @@ app.post('/api/verse/compile', async (req, res) => {
 
 app.post('/api/session/shutdown', (_req, res) => {
   res.json({ success: true });
-  setTimeout(() => shutdownBridge(), 25);
+  setTimeout(() => { void shutdownBridge(); }, 25);
 });
 
 if (fs.existsSync(distPath)) app.use(express.static(distPath, { etag: false, maxAge: 0 }));
@@ -448,9 +777,10 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 
 const server = app.listen(port, host, () => {
   console.log(`[UEFN Entitlement Manager Bridge] listening on http://${host}:${port}`);
+  void startConfiguredMcp();
 });
 
-function shutdownBridge() {
+async function shutdownBridge() {
   if (leaseShutdownTimer) {
     clearTimeout(leaseShutdownTimer);
     leaseShutdownTimer = undefined;
@@ -458,6 +788,7 @@ function shutdownBridge() {
   for (const lease of uiLeases) lease.end();
   uiLeases.clear();
   clearInterval(idleTimer);
+  await stopConfiguredMcp();
   server.close(() => process.exit(0));
 }
 

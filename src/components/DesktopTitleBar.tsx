@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Maximize2, Minus, Square, X } from 'lucide-react';
 
 export const isDesktopHost = () => window.uemDesktop?.isDesktop === true;
@@ -7,14 +7,17 @@ export const postDesktopWindowAction = (action: 'drag' | 'minimize' | 'toggle-ma
 export const DesktopTitleBar: React.FC<{ dirty: boolean; onRequestClose: () => void }> = ({ dirty, onRequestClose }) => {
   const [visible] = useState(isDesktopHost);
   const [maximized, setMaximized] = useState(false);
+  const closeHandler = useRef(onRequestClose);
+
+  useEffect(() => { closeHandler.current = onRequestClose; }, [onRequestClose]);
 
   useEffect(() => {
     if (!visible || !window.uemDesktop) return;
     const removeStateListener = window.uemDesktop.window.onState(state => setMaximized(state === 'maximized'));
-    const removeCloseListener = window.uemDesktop.window.onConfirmClose(onRequestClose);
+    const removeCloseListener = window.uemDesktop.window.onConfirmClose(() => closeHandler.current());
     window.uemDesktop.window.action('request-state');
     return () => { removeStateListener(); removeCloseListener(); };
-  }, [visible, onRequestClose]);
+  }, [visible]);
 
   useEffect(() => {
     if (visible) window.uemDesktop?.window.setDirty(dirty);

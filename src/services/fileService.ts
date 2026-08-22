@@ -1,4 +1,4 @@
-import { BundleOffer, EntitlementItem, ProjectConfig } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import { cleanManagedData } from './projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import versionInfo from '../../version.json';
@@ -34,6 +34,7 @@ export interface SaveResult {
   currentHash?: string | null;
   message?: string;
   error?: string;
+  catalog?: CatalogSnapshotPayload;
 }
 
 export interface UploadTextureResult {
@@ -76,6 +77,46 @@ export interface ProjectScanResult {
   verseFiles?: string[];
   subDirs?: string[];
   iconPreviews?: ProjectIconPreview[];
+  error?: string;
+}
+
+export interface CatalogSnapshotPayload {
+  config: ProjectConfig;
+  entitlements: EntitlementItem[];
+  bundles: BundleOffer[];
+  storefrontMembership: StorefrontMembership;
+  retiredVerseKeys: string[];
+  projectDataDiagnostics: string[];
+  revision: string;
+  savedRevision: string;
+  dirty: boolean;
+  savedFileHash: string | null;
+  managedFileHash: string | null;
+  validation: import('../types/entitlement').ValidationIssue[];
+  managed?: boolean;
+}
+
+export interface AgentIntegrationStatus {
+  success: boolean;
+  enabled: boolean;
+  running: boolean;
+  endpoint: string;
+  serverName: string;
+  port: number;
+  projectName?: string;
+  unavailableReason?: string;
+  connectionConfigured?: boolean;
+  skillPath?: string;
+}
+
+export interface CatalogMutationResult {
+  success: boolean;
+  catalog?: CatalogSnapshotPayload;
+  affected?: unknown;
+  cascades?: string[];
+  status?: number;
+  code?: string;
+  data?: Record<string, unknown>;
   error?: string;
 }
 
@@ -159,6 +200,93 @@ export const FileService = {
 
   async heartbeat(): Promise<void> {
     await apiFetch('/session/heartbeat', { method: 'POST', body: '{}' });
+  },
+
+  async openCatalog(config: ProjectConfig, recovery?: { entitlements: EntitlementItem[]; bundles: BundleOffer[]; storefrontMembership: StorefrontMembership; retiredVerseKeys: string[] }): Promise<{ success: boolean; managed?: boolean; catalog?: CatalogSnapshotPayload; error?: string }> {
+    return apiFetch('/catalog/open', { method: 'POST', body: JSON.stringify({ config, recovery }) });
+  },
+
+  async getCatalogSnapshot(): Promise<{ success: boolean; catalog?: CatalogSnapshotPayload; error?: string }> {
+    return apiFetch('/catalog/snapshot', { method: 'GET' });
+  },
+
+  async replaceCatalog(catalog: Omit<CatalogSnapshotPayload, 'revision' | 'savedRevision' | 'dirty' | 'savedFileHash' | 'managedFileHash' | 'validation'>, expectedRevision: string): Promise<{ success: boolean; catalog?: CatalogSnapshotPayload; status?: number; code?: string; data?: Record<string, unknown>; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE}/catalog/replace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-UEM-Token': getToken() },
+        body: JSON.stringify({ catalog, expectedRevision }),
+      });
+      const data = await response.json().catch(() => ({ success: false, error: `Bridge returned HTTP ${response.status}.` }));
+      return { ...(data as { success: boolean; catalog?: CatalogSnapshotPayload; code?: string; data?: Record<string, unknown>; error?: string }), status: response.status };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Catalog synchronization failed.' };
+    }
+  },
+
+  async mutateCatalog(operation: Record<string, unknown>, expectedRevision: string): Promise<CatalogMutationResult> {
+    try {
+      const response = await fetch(`${API_BASE}/catalog/mutate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-UEM-Token': getToken() },
+        body: JSON.stringify({ operation, expectedRevision }),
+      });
+      const data = await response.json().catch(() => ({ success: false, error: `Bridge returned HTTP ${response.status}.` }));
+      return { ...(data as CatalogMutationResult), status: response.status };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Catalog mutation failed.' };
+    }
+  },
+
+  async saveCatalog(expectedRevision: string): Promise<SaveResult> {
+    try {
+      const response = await fetch(`${API_BASE}/catalog/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-UEM-Token': getToken() },
+        body: JSON.stringify({ expectedRevision }),
+      });
+      const data = await response.json().catch(() => ({ success: false, error: `Bridge returned HTTP ${response.status}.` }));
+      return { ...(data as SaveResult), status: response.status };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Catalog save failed.' };
+    }
+  },
+
+  subscribeCatalog(listener: (catalog: CatalogSnapshotPayload) => void): () => void {
+    const controller = new AbortController();
+    void fetch(`${API_BASE}/catalog/events`, { headers: { 'X-UEM-Token': getToken(), Accept: 'text/event-stream' }, cache: 'no-store', signal: controller.signal }).then(async response => {
+      if (!response.ok || !response.body) return;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) break;
+          buffer += decoder.decode(next.value, { stream: true });
+          const blocks = buffer.split(/\r?\n\r?\n/);
+          buffer = blocks.pop() ?? '';
+          for (const block of blocks) {
+            const line = block.split(/\r?\n/).find(value => value.startsWith('data: '));
+            if (!line) continue;
+            try { listener(JSON.parse(line.slice(6)) as CatalogSnapshotPayload); } catch { /* Health polling remains authoritative if an event is malformed. */ }
+          }
+        }
+      } finally { reader.releaseLock(); }
+    }).catch(() => undefined);
+    return () => controller.abort();
+  },
+
+  async getAgentIntegrationStatus(): Promise<AgentIntegrationStatus> {
+    return apiFetch('/agent-integration/status', { method: 'GET' });
+  },
+
+  async updateAgentIntegration(input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }): Promise<{ success: boolean; token?: string; status?: AgentIntegrationStatus; error?: string }> {
+    return apiFetch('/agent-integration/config', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  async copyAgentConfig(): Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }> {
+    return apiFetch('/agent-integration/copy-config', { method: 'POST', body: '{}' });
   },
 
   async getEditorStatus(): Promise<EditorStatus> {
