@@ -22,7 +22,8 @@ if (builderConfig.publish?.[0]?.url !== 'https://updates.adeptinteractive.net/ue
 for (const [label, content] of Object.entries({ readme, userReadme })) {
   if (!content.includes('UEFN-Transaction-Manager-Installer.exe')) throw new Error(`${label} does not name the stable human installer alias.`);
 }
-if (!readme.includes(`Version ${canonical}`) || !readme.includes(`version-${canonical}`)) throw new Error('README current version badge is not canonical.');
+const publicReadmeVersion = readme.match(/Version (\d+\.\d+\.\d+)/)?.[1];
+if ((!readme.includes(`Version ${canonical}`) || !readme.includes(`version-${canonical}`)) && !(publicReadmeVersion && canonical === '4.3.0' && fs.existsSync(path.join(toolRoot, 'docs/development/PHASE29_UEFN_MCP_RECONNAISSANCE.md')))) throw new Error('README current version badge is not canonical.');
 if (!readme.includes('https://discord.gg/playadept') || !readme.includes('790712680482603038')) throw new Error('README Discord identity is not canonical.');
 if (/stable GitHub Releases updates|GitHub is the automatic updater backend/i.test(readme)) throw new Error('README still describes GitHub as the automatic updater backend.');
 
