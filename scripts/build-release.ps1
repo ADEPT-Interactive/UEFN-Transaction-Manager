@@ -115,6 +115,7 @@ try {
         "electron\portable-update-helper.ps1",
         "electron\assets\uem-icon.ico",
         "electron\assets\uem-icon.svg",
+        "electron\assets\discord-icon.svg",
         "electron\assets\adept-insignia.png",
         "entitlement_manager.py",
         "uefn_auto_connector.py",

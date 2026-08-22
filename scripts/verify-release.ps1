@@ -92,6 +92,7 @@ try {
         (Join-Path $appRoot "electron\launcher.js"),
         (Join-Path $appRoot "electron\portable-update-helper.ps1"),
         (Join-Path $appRoot "electron\assets\uem-icon.ico"),
+        (Join-Path $appRoot "electron\assets\discord-icon.svg"),
         (Join-Path $appRoot "entitlement_manager.py"),
         (Join-Path $appRoot "uefn_auto_connector.py"),
         (Join-Path $appRoot "resources\agent-skills\uefn-transaction-manager\SKILL.md"),
