@@ -11,7 +11,7 @@ Phases 1 through 20 remain intact. Phase 21 found and fixed three concrete gener
 
 ## Live UEFN validation
 
-- Selected project: `UEM_Demo`, `<project-root>\UEM_Demo`.
+- Selected project: `UEM_Demo` in the local UEFN Projects directory.
 - No existing UEM-managed generated transaction Verse file was present before generation. Unrelated project content was preserved.
 - Python Editor Scripting was enabled, and `Content/Python/init_unreal.py` was run through UEFN Tools. The bridge became fully connected without requiring a restart.
 - The Verse Workflow Server at `127.0.0.1:1962` became reachable.
@@ -84,10 +84,10 @@ Tests were updated for all three fixes. No architecture overhaul was introduced.
 
 ## Release artifact
 
-- Fresh artifact: `<workspace>\release\UEFN Entitlement Manager.zip`.
+- Fresh artifact: the local release ZIP produced by the release build.
 - Size: 141,619,216 bytes.
 - The exact final archive SHA-256 is recorded in the handoff below because ZIP metadata changes on each fresh packaging run.
-- Inventory: `<workspace>\release\UEFN Entitlement Manager.contents.tsv`.
+- Inventory: the contents inventory produced alongside the local release ZIP.
 - `scripts/verify-release.ps1`: PASS. It verified archive extraction, required files, x64 native modules, source/runtime exclusion, frontend serving, authentication, revision-safe save/load, texture normalization, visible lifecycle, project switching, and shutdown.
 
 ## Final issue list
