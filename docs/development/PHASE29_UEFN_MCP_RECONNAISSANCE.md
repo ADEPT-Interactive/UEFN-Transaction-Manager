@@ -647,3 +647,21 @@ Only these items remain materially unresolved after live testing:
 
 No unresolved asset-discovery blocker remains. Epic MCP's live Texture2D search/read/export path is sufficient for the first UTM MCP design.
 
+## 26. Phase 29 implementation conclusions
+
+The first implementation slice now exists locally on the post-release reconnaissance commit:
+
+- `CatalogSession` is the bridge-owned canonical project draft. Renderer synchronization, UTM MCP, validation, generation, icon assignment, and save share this project-scoped state rather than maintaining an MCP catalog copy.
+- Catalog revisions are monotonic session values and are separate from managed Verse content hashes. Mutations require `expectedRevision`; managed-file writes retain compare-and-swap and atomic backup behavior.
+- UTM MCP uses the maintained TypeScript MCP SDK and Streamable HTTP on a separate loopback listener, defaulting to port 8001. It is disabled by default, bearer-authenticated, Host/Origin constrained, and tolerant of a port conflict.
+- The Agent Skill is distributed under `skills/uefn-transaction-manager` and packaged under `resources/agent-skills/uefn-transaction-manager`. It requires live dual-server discovery and same-project proof, asks UTM for the current integration contract, and encodes the proven device/session fallbacks.
+- The remaining Epic MCP limitations are not treated as UTM failures. UTM does not duplicate generic editor/device/session/asset tooling and does not weaken managed-file or project-root protections.
+
+## 27. Phase 29 implementation-time live spike update
+
+The focused implementation spike repeated the two remaining unknowns against the enabled demo project:
+
+- For generated `[]trigger_device` and `[]button_device` editables, a placed managed device, trigger, and button were discovered by live asset/object IDs. A single-reference array payload using the placed actor path was rejected by strict Verse type validation. Passing JSON arrays and class-reference values produced no error but also produced no read-back assignment. No supported representation was proven, so the safe Phase 29 result is manual reference wiring with no binary asset manipulation.
+- For the play session, a temporary harmless Verse file was written and the full compile attempt became unresponsive. Follow-up session status, cleanup, and stop calls did not return from the Epic MCP within the live call window. This is characterized as an external 42.00 MCP responsiveness limitation, not a successful PushChanges or client-log result. The Agent Skill therefore uses the safe save/full-compile/restart fallback and does not loop on unavailable refresh commands.
+
+The implementation did not claim a live client refresh, client-log, or reference-array success that the current external server did not prove.

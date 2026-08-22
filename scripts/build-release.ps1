@@ -102,6 +102,11 @@ try {
     } | ConvertTo-Json -Depth 20
     [IO.File]::WriteAllText((Join-Path $stagingApp "package.json"), $runtimePackage, [Text.UTF8Encoding]::new($false))
     Copy-AppDirectory -RelativePath "dist"
+    $skillSource = Join-Path $toolRoot "skills\uefn-transaction-manager"
+    $skillDestination = Join-Path $stagingApp "resources\agent-skills\uefn-transaction-manager"
+    if (-not (Test-Path -LiteralPath $skillSource -PathType Container)) { throw "Required Agent Skill directory is missing: skills\uefn-transaction-manager" }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $skillDestination) -Force | Out-Null
+    Copy-Item -LiteralPath $skillSource -Destination $skillDestination -Recurse -Force
     foreach ($file in @(
         "dist-electron\main.cjs",
         "dist-electron\preload.cjs",

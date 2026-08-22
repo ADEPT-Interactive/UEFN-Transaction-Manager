@@ -94,6 +94,7 @@ try {
         (Join-Path $appRoot "electron\assets\uem-icon.ico"),
         (Join-Path $appRoot "entitlement_manager.py"),
         (Join-Path $appRoot "uefn_auto_connector.py"),
+        (Join-Path $appRoot "resources\agent-skills\uefn-transaction-manager\SKILL.md"),
         (Join-Path $appRoot "node_modules\sharp"),
         (Join-Path $appRoot "node_modules\@img\sharp-win32-x64"),
         (Join-Path $appRoot "node_modules\koffi"),
@@ -122,7 +123,7 @@ try {
     }
     $sourceCruft = @(Get-ChildItem -LiteralPath $appRoot -Recurse -File | Where-Object {
         $_.Extension -in @(".ts", ".tsx", ".map", ".mjs", ".cc", ".cpp", ".h", ".hh", ".asm", ".lib") -or
-        ($_.Extension -eq ".md" -and $_.Name -notmatch "^LICENSE") -or
+        ($_.Extension -eq ".md" -and $_.Name -notmatch "^LICENSE" -and $_.FullName -notmatch "[\\/]resources[\\/]agent-skills[\\/]uefn-transaction-manager[\\/]") -or
         $_.FullName -match "[\\/](doc|docs|test|tests|vendor|install)[\\/]"
     })
     if ($sourceCruft) { throw "The release contains non-runtime source, documentation, test, or build files: $($sourceCruft.FullName -join ', ')" }
