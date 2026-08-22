@@ -9,7 +9,7 @@ import type { ProjectConfig } from '../src/types/entitlement';
 
 const rootArgument = process.argv.find((argument, index) => argument === '--output' && process.argv[index + 1])
   ? process.argv[process.argv.indexOf('--output') + 1]
-  : process.env.UEM_SHOWCASE_OUTPUT ?? path.join(os.tmpdir(), 'uem-phase28-showcase');
+  : process.env.UEM_SHOWCASE_OUTPUT ?? path.join(os.tmpdir(), 'utm-4.3-showcase');
 const root = path.resolve(rootArgument.replaceAll('"', ''));
 const contentRoot = path.join(root, 'Content');
 const iconRoot = path.join(contentRoot, 'EntitlementIcons');

@@ -9,24 +9,26 @@ const read = (relativePath: string) => fs.readFileSync(path.join(root, relativeP
 const screenshotRoot = path.join(root, 'docs', 'screenshots');
 
 const expectedScreenshots = [
-  'phase28-launcher.png',
-  'phase28-catalog-overview.png',
-  'phase28-offer-general-pricing.png',
-  'phase28-icon-texture.png',
-  'phase28-behavior-moderation.png',
-  'phase28-dynamic-pricing.png',
-  'phase28-bundles.png',
-  'phase28-storefronts.png',
-  'phase28-validation.png',
-  'phase28-verse-split.png',
+  'launcher.png',
+  'catalog-overview.png',
+  'offer-editor.png',
+  'dynamic-transactions.png',
+  'icon-texture.png',
+  'bundles-storefronts.png',
+  'validation.png',
+  'verse-integration.png',
+  'agent-integration.png',
+  'moderation-guidance.png',
 ];
 
 test('launcher and manager share the compact 48px Discord control geometry', () => {
   const brandSource = read('src/components/BrandControls.tsx');
   const headerSource = read('src/components/Header.tsx');
   const launcherSource = read('electron/launcher.html');
+  const iconSource = read('electron/assets/discord-icon.svg');
   assert.match(brandSource, /DISCORD_CONTROL_SIZE = 48/);
   assert.match(brandSource, /DISCORD_ICON_SIZE = 30/);
+  assert.match(brandSource, /discord-icon\.svg/);
   assert.match(headerSource, /DISCORD_CONTROL_SIZE/);
   assert.match(headerSource, /DISCORD_ICON_SIZE/);
   assert.match(headerSource, /https:\/\/discord\.gg\/playadept/);
@@ -34,7 +36,9 @@ test('launcher and manager share the compact 48px Discord control geometry', () 
   assert.match(headerSource, /title="Join Discord"/);
   assert.match(headerSource, /sr-only.*Join Discord/);
   assert.match(launcherSource, /\.discord\{[^}]*width:48px;height:48px/);
-  assert.match(launcherSource, /\.discord svg\{width:30px;height:30px/);
+  assert.match(launcherSource, /\.discord \.discord-mark\{width:30px;height:30px/);
+  assert.match(launcherSource, /src="\/discord-icon\.svg"/);
+  assert.match(iconSource, /A18 18 0 0 0/);
   assert.match(launcherSource, /\.discord > span\{[^}]*clip:rect\(0,0,0,0\)/);
   assert.match(launcherSource, /href="https:\/\/discord\.gg\/playadept"[^>]*aria-label="Join the ADEPT Interactive Discord server"[^>]*title="Join Discord"/);
 });
@@ -78,10 +82,21 @@ function pngDimensions(filePath: string) {
 test('canonical showcase captures are complete, lossless, and free of stale image references', () => {
   const actual = fs.readdirSync(screenshotRoot).filter(fileName => /\.(?:png|jpe?g)$/i.test(fileName)).sort();
   assert.deepEqual(actual, [...expectedScreenshots].sort());
+  const expectedDimensions: Record<string, { width: number; height: number }> = {
+    'launcher.png': { width: 1100, height: 820 },
+    'catalog-overview.png': { width: 1440, height: 980 },
+    'offer-editor.png': { width: 1032, height: 959 },
+    'dynamic-transactions.png': { width: 1032, height: 959 },
+    'icon-texture.png': { width: 744, height: 623 },
+    'bundles-storefronts.png': { width: 1440, height: 980 },
+    'validation.png': { width: 648, height: 519 },
+    'verse-integration.png': { width: 1440, height: 1000 },
+    'agent-integration.png': { width: 992, height: 1100 },
+    'moderation-guidance.png': { width: 744, height: 624 },
+  };
   for (const fileName of expectedScreenshots) {
     const dimensions = pngDimensions(path.join(screenshotRoot, fileName));
-    if (fileName === 'phase28-launcher.png') assert.deepEqual(dimensions, { width: 1100, height: 820 });
-    else assert.deepEqual(dimensions, { width: 1400, height: 1400 });
+    assert.deepEqual(dimensions, expectedDimensions[fileName]);
   }
 
   const readmes = [read('README.md'), read('docs/showcase/README.md')];
@@ -92,5 +107,7 @@ test('canonical showcase captures are complete, lossless, and free of stale imag
     }
   }
   assert.doesNotMatch(read('README.md'), /screenshots\/[^\s)]+\.jpe?g/i);
-  assert.doesNotMatch(read('README.md'), /template-chooser\.png|python-help\.png|phase28-main-workspace\.png/);
+  assert.doesNotMatch(read('README.md'), /template-chooser\.png|python-help\.png/i);
+  assert.ok(actual.every(fileName => !fileName.toLowerCase().startsWith('phase')));
+  assert.doesNotMatch(read('scripts/capture-showcase.mjs'), /phase|uem-phase/i);
 });

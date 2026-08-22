@@ -19,6 +19,7 @@ const launcherAssets = new Map([
   ['/index.html', { path: path.join(appRoot, 'electron', 'launcher.html'), type: 'text/html; charset=utf-8' }],
   ['/launcher.js', { path: path.join(appRoot, 'electron', 'launcher.js'), type: 'text/javascript; charset=utf-8' }],
   ['/uem-icon.svg', { path: path.join(appRoot, 'electron', 'assets', 'uem-icon.svg'), type: 'image/svg+xml' }],
+  ['/discord-icon.svg', { path: path.join(appRoot, 'electron', 'assets', 'discord-icon.svg'), type: 'image/svg+xml' }],
   ['/adept-insignia.png', { path: path.join(appRoot, 'electron', 'assets', 'adept-insignia.png'), type: 'image/png' }],
 ]);
 const launcherUrl = 'uem-launcher://app/index.html';

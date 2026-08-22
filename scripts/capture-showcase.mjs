@@ -1,23 +1,26 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const screenshotRoot = path.join(root, 'docs', 'screenshots');
 const cdpPort = 9222;
+const showcaseStateRoot = path.join(os.tmpdir(), 'utm-4.3-showcase-state');
 const names = [
-  'phase28-launcher',
-  'phase28-catalog-overview',
-  'phase28-offer-general-pricing',
-  'phase28-icon-texture',
-  'phase28-behavior-moderation',
-  'phase28-dynamic-pricing',
-  'phase28-bundles',
-  'phase28-storefronts',
-  'phase28-validation',
-  'phase28-verse-split',
+  'launcher',
+  'catalog-overview',
+  'offer-editor',
+  'dynamic-transactions',
+  'icon-texture',
+  'bundles-storefronts',
+  'validation',
+  'verse-integration',
+  'agent-integration',
+  'moderation-guidance',
 ];
 
 function wait(milliseconds) {
@@ -151,7 +154,7 @@ async function getTarget() {
 }
 
 async function waitFor(cdp, expression, description) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     if (await cdp.evaluate(expression)) return;
     await wait(250);
   }
@@ -160,24 +163,37 @@ async function waitFor(cdp, expression, description) {
 
 async function clickText(cdp, text, selector = 'button') {
   const expression = `(() => { const target = [...document.querySelectorAll(${JSON.stringify(selector)})].find(element => (element.innerText || element.textContent || '').trim().includes(${JSON.stringify(text)})); if (!target) throw new Error(${JSON.stringify(`Could not click ${text}.`)}); target.click(); })()`;
-  const result = await cdp.send('Runtime.evaluate', { expression });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? `Could not click ${text}.`);
+  await cdp.evaluate(expression);
 }
 
 async function clickAria(cdp, label) {
   const expression = `(() => { const target = [...document.querySelectorAll('[aria-label]')].find(element => element.getAttribute('aria-label') === ${JSON.stringify(label)}); if (!target) throw new Error(${JSON.stringify(`Could not click ${label}.`)}); target.click(); })()`;
-  const result = await cdp.send('Runtime.evaluate', { expression });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? `Could not click ${label}.`);
+  await cdp.evaluate(expression);
 }
 
 async function scrollToId(cdp, id) {
-  const result = await cdp.send('Runtime.evaluate', { expression: `(() => { const target = document.getElementById(${JSON.stringify(id)}); if (!target) throw new Error(${JSON.stringify(`Could not scroll to ${id}.`)}); const root = document.scrollingElement || document.documentElement; const top = Math.max(0, target.getBoundingClientRect().top + root.scrollTop - 220); root.scrollTop = top; window.scrollTo(0, top); })()` });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? `Could not scroll to ${id}.`);
+  const expression = `(() => { const target = document.getElementById(${JSON.stringify(id)}); if (!target) throw new Error(${JSON.stringify(`Could not scroll to ${id}.`)}); const root = document.scrollingElement || document.documentElement; const top = Math.max(0, target.getBoundingClientRect().top + root.scrollTop - 24); root.scrollTop = top; window.scrollTo(0, top); })()`;
+  await cdp.evaluate(expression);
 }
 
-async function capture(cdp, name) {
-  const result = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
-  const target = path.join(root, 'docs', 'screenshots', `${name}.png`);
+async function setViewport(cdp, width, height) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false, screenWidth: width, screenHeight: height });
+  await wait(350);
+}
+
+async function capture(cdp, name, { width, height, selector, padding = 36, paddingX = padding, paddingY = padding } = {}) {
+  await setViewport(cdp, width, height);
+  const params = { format: 'png', fromSurface: true, captureBeyondViewport: false };
+  if (selector) {
+    const rect = await cdp.evaluate(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element) throw new Error(${JSON.stringify(`Could not capture ${selector}.`)}); const rect = element.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }; })()`);
+    const x = Math.max(0, rect.x - paddingX);
+    const y = Math.max(0, rect.y - paddingY);
+    const right = Math.min(width, rect.x + rect.width + paddingX);
+    const bottom = Math.min(height, rect.y + rect.height + paddingY);
+    params.clip = { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y), scale: 1 };
+  }
+  const result = await cdp.send('Page.captureScreenshot', params);
+  const target = path.join(screenshotRoot, `${name}.png`);
   fs.writeFileSync(target, Buffer.from(result.data, 'base64'));
   console.log(`${name}: ${target}`);
 }
@@ -191,12 +207,14 @@ try {
     : ['npm', ['run', 'showcase:fixture']];
   const fixture = spawn(fixtureCommand[0], fixtureCommand[1], { cwd: root, env: { ...process.env, UEM_SHOWCASE_OUTPUT: fixtureRoot }, stdio: 'inherit' });
   await new Promise((resolve, reject) => { fixture.once('exit', code => code === 0 ? resolve() : reject(new Error(`Showcase fixture generation failed with exit code ${code}.`))); fixture.once('error', reject); });
-  fs.rmSync(path.join(root, 'docs', 'screenshots'), { recursive: true, force: true });
-  fs.mkdirSync(path.join(root, 'docs', 'screenshots'), { recursive: true });
+  fs.rmSync(screenshotRoot, { recursive: true, force: true });
+  fs.mkdirSync(screenshotRoot, { recursive: true });
+  fs.rmSync(showcaseStateRoot, { recursive: true, force: true });
+  fs.mkdirSync(showcaseStateRoot, { recursive: true });
   const electronPath = path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
-  child = spawn(electronPath, [`--remote-debugging-port=${cdpPort}`, root], {
+  child = spawn(electronPath, [`--remote-debugging-port=${cdpPort}`, '.'], {
     cwd: root,
-    env: { ...process.env, UEM_SHOWCASE_MODE: '1' },
+    env: { ...process.env, LOCALAPPDATA: showcaseStateRoot, UEM_SHOWCASE_MODE: '1' },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -206,49 +224,57 @@ try {
   await cdp.connect();
   await cdp.send('Runtime.enable');
   await waitFor(cdp, "document.querySelector('[data-uem-launcher-ready]') && document.querySelectorAll('#projects .project').length >= 4", 'showcase launcher projects');
-  await capture(cdp, 'phase28-launcher');
+  await capture(cdp, 'launcher', { width: 1100, height: 820 });
+
   await clickText(cdp, 'Open project in Transaction Manager', '#continue');
   await waitFor(cdp, "document.querySelector('#root') && document.body.innerText.includes('This project is open and fully connected')", 'healthy showcase manager');
-  // Keep the manager captures tall enough to show complete cards and dialogs even
-  // when the host desktop work area is shorter than the showcase composition.
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 1400, deviceScaleFactor: 1, mobile: false });
-  await wait(2000);
-  await capture(cdp, 'phase28-catalog-overview');
+  // The bridge may finish the catalog load before the image elements have
+  // committed. Give the renderer a short, deterministic hydration window;
+  // the capture remains useful even when a local preview cache is unavailable.
+  await wait(1500);
+  const bridgeToken = await cdp.evaluate("sessionStorage.getItem('uem_bridge_token')");
+  await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ enabled: true, port: 8001 }) })`, true);
+  await waitFor(cdp, "document.body.innerText.includes('This project is open and fully connected')", 'healthy connected state');
+
+  await capture(cdp, 'catalog-overview', { width: 1440, height: 980 });
+
   await clickAria(cdp, 'Edit Access Pass');
   await waitFor(cdp, "document.body.innerText.includes('General & Pricing')", 'offer editor');
-  await capture(cdp, 'phase28-offer-general-pricing');
+  await capture(cdp, 'offer-editor', { width: 1200, height: 1100, selector: '[role="dialog"]', paddingX: 180, paddingY: 52 });
   await clickText(cdp, 'Icon & Texture');
-  await wait(250);
-  await capture(cdp, 'phase28-icon-texture');
+  await capture(cdp, 'icon-texture', { width: 1120, height: 820, selector: '[role="dialog"]' });
   await clickText(cdp, 'Behavior & Moderation');
-  await wait(250);
-  await capture(cdp, 'phase28-behavior-moderation');
+  await capture(cdp, 'moderation-guidance', { width: 1120, height: 820, selector: '[role="dialog"]' });
   await clickAria(cdp, 'Close offer editor');
   await wait(250);
+
   await clickAria(cdp, 'Edit Ember Coins');
-  await waitFor(cdp, "document.body.innerText.includes('General & Pricing') && Boolean(document.querySelector('[aria-label=\"Offer price behavior\"]'))", 'dynamic offer editor');
-  await capture(cdp, 'phase28-dynamic-pricing');
+  await waitFor(cdp, "document.body.innerText.includes('General & Pricing') && Boolean(document.querySelector('[aria-label=\"Offer price behavior\"]'))", 'dynamic transaction editor');
+  await capture(cdp, 'dynamic-transactions', { width: 1200, height: 1100, selector: '[role="dialog"]', paddingX: 180, paddingY: 52 });
   await clickAria(cdp, 'Close offer editor');
   await wait(250);
-  await scrollToId(cdp, 'bundle-heading');
-  await cdp.evaluate('const root = document.scrollingElement || document.documentElement; root.scrollTop += 48; window.scrollTo(0, root.scrollTop);');
-  await wait(350);
-  await capture(cdp, 'phase28-bundles');
-  await clickAria(cdp, 'Edit Seasonal Store');
-  await waitFor(cdp, "Boolean(document.querySelector('[aria-label=\"Close storefront editor\"]'))", 'storefront editor');
-  await capture(cdp, 'phase28-storefronts');
-  await clickAria(cdp, 'Close storefront editor');
-  await wait(250);
+
   await cdp.evaluate('window.scrollTo(0, 0)');
   await clickText(cdp, 'Locally valid');
   await waitFor(cdp, "Boolean(document.querySelector('[aria-label=\"Close validation report\"]'))", 'validation report');
-  await capture(cdp, 'phase28-validation');
+  await capture(cdp, 'validation', { width: 1100, height: 820, selector: '[role="dialog"]' });
   await clickAria(cdp, 'Close validation report');
   await wait(250);
-  await clickText(cdp, 'Catalog + Verse');
+
+  await scrollToId(cdp, 'bundle-heading');
+  await capture(cdp, 'bundles-storefronts', { width: 1440, height: 980 });
   await cdp.evaluate('window.scrollTo(0, 0)');
+  await clickText(cdp, 'Catalog + Verse');
   await wait(350);
-  await capture(cdp, 'phase28-verse-split');
+  await capture(cdp, 'verse-integration', { width: 1440, height: 1000 });
+
+  await clickText(cdp, 'Catalog');
+  await wait(250);
+  await clickText(cdp, 'Tools');
+  await clickText(cdp, 'Agent Integration');
+  await waitFor(cdp, "Boolean(document.querySelector('[aria-labelledby=\"agent-integration-title\"]'))", 'Agent Integration panel');
+  await waitFor(cdp, "document.body.innerText.includes('Running')", 'running UTM MCP status');
+  await capture(cdp, 'agent-integration', { width: 1200, height: 1100, selector: '[aria-labelledby="agent-integration-title"]', paddingX: 160, paddingY: 40 });
   console.log(`Captured ${names.length} cursor-free PNG showcase views.`);
 } finally {
   cdp?.close();
