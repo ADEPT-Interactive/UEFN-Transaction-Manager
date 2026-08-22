@@ -1,4 +1,4 @@
-UEFN TRANSACTION MANAGER 4.2.0
+UEFN TRANSACTION MANAGER 4.3.0
 
 GET STARTED
 
@@ -10,55 +10,35 @@ GET STARTED
 
 Known projects appear first. The launcher can continue discovering projects across local fixed drives while it is open.
 
-Transaction Manager installs as a per-user Windows x64 application. It creates a Start menu
-entry and an Add or Remove Programs entry. Project data, discovery cache, and
-settings remain in your user profile when Transaction Manager is upgraded or uninstalled.
+Transaction Manager installs as a per-user Windows x64 application. Project data, discovery cache, and settings remain in your user profile when Transaction Manager is upgraded or uninstalled.
 
-Transaction Manager checks for stable ADEPT update-service updates in the background after the launcher is ready.
-Use Tools, then Check for Updates to check manually. Choose Restart and Install
-after an installed update has finished downloading. Portable copies use a
-separate verified ZIP update path and choose Restart and Update; they stay in
-the same folder and never silently install a second copy. The portable ZIP is
-a secondary diagnostic fallback, not the normal installation path.
+Transaction Manager checks for stable ADEPT update-service updates in the background after the launcher is ready. Use Tools, then Check for Updates to check manually. Portable copies use a verified ZIP update path and stay in the same folder.
 
 CREATOR WORKFLOW
 
-Create your entitlements, offers, bundles, and displays, then use Save and Compile
-to write managed_transactions.verse and compile it in UEFN. Find the generated
-managed_transactions_device in UEFN's Content Browser, place it in your island,
-and connect its Trigger arrays or canonical public events and functions to your gameplay systems. Transaction Manager uses
-stable-key-based names such as OpenDurableEntitlementPurchase and
-AwaitDurableEntitlementGrantedEvent for every project. Use Get<StableKeyStem>Count
-and Has<StableKeyStem> from your own Verse to query current Marketplace
-ownership; do not edit the managed file.
-Grant<StableKeyStem> and consumable Consume<StableKeyStem> are
-suspending helpers that return the native Marketplace operation result as logic.
-Non-positive quantities return false without calling Marketplace. That result is
-not a replacement for awaiting the canonical entitlement delta events, which
-remain the gameplay-state signal. Transaction Manager custom notifications use generated
-`Await<StableKeyStem>GrantedEvent()` / `RemovedEvent()` / `ReconciledEvent()`
-functions backed by native `.Await()`, not `.Subscribe()`. Epic-provided
-device/listenable events may separately support `.Subscribe()`. Supported old manifests and temporary
-compatibility metadata regenerate to the same current canonical API.
+Create entitlements, offers, bundles, and storefronts, then use Save and Compile to write managed_transactions.verse and compile it in UEFN. Find the generated managed_transactions_device in UEFN's Content Browser, place one instance in your island, and connect it to your own gameplay systems. Do not edit the managed file by hand.
 
-Test purchases, cancellations, refunds, consumption, saved state, and rejoin
-behavior in a real UEFN session before publishing.
+Use the generated purchase helpers, ownership/count queries, grants, consumption helpers, and Await-based state notifications from your project Verse. Keep rewards, eligibility, progression, saved state, UI, and game-specific calculations in your own Verse. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session before publishing.
+
+AGENT INTEGRATION
+
+UTM 4.3 can work with UEFN's separate Unreal MCP through an MCP-compatible coding agent.
+
+1. Enable Python Editor Scripting and UEFN MCP Toolsets in the UEFN project.
+2. Open Tools -> Agent Integration in Transaction Manager.
+3. Enable UTM MCP and choose Copy MCP configuration.
+4. Install the packaged Agent Skill from resources\agent-skills\uefn-transaction-manager.
+5. Connect the agent to both UTM MCP and UEFN MCP, and verify they target the same project.
+
+Keep copied bearer configuration private. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated contract inspection, compile verification, and ambiguity stops.
 
 NATIVE ICON IMPORT
 
-In UEFN, open the palm-tree Project menu, choose Project Settings, scroll to
-Python Editor Scripting, and enable it. No restart is needed. Transaction Manager installs and
-connects the project helper automatically.
+In UEFN, open the palm-tree Project menu, choose Project Settings, and enable Python Editor Scripting. Transaction Manager installs and connects the project helper automatically.
 
-Power-of-two PNGs are imported unchanged. Other sizes are scaled uniformly to
-the closest suitable power-of-two shape. Transparent edge space is added only
-when needed to preserve the original proportions, so icons are never stretched
-or squashed.
+Power-of-two PNGs are imported unchanged. Other sizes are scaled uniformly to a suitable power-of-two shape, with transparent padding only when needed to preserve proportions. Existing UEFN Texture2D assets can be adopted through the verified project workflow; do not enter filesystem paths or edit .uasset files manually.
 
-For source access, contribution rules, support links, security reporting, and
-license terms, visit:
+For source access, contribution rules, support links, security reporting, and license terms, visit:
 https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager
 
-The software is owned by AD3PT Interactive Inc., operating as ADEPT Interactive
-and ADEPT. The source-available license does not permit unauthorized derivative
-releases, repackaging, embedding, redistribution, or commercialization.
+The software is owned by AD3PT Interactive Inc., operating as ADEPT Interactive and ADEPT. The source-available license does not permit unauthorized derivative releases, repackaging, embedding, redistribution, or commercialization.

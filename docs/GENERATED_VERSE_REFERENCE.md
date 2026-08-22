@@ -1,4 +1,4 @@
-# Generated Verse reference
+# Generated Verse reference (UTM 4.3)
 
 UEFN Transaction Manager generates `managed_transactions.verse` from the catalog saved for your project. The generated file is managed by the application. Do not edit it manually. Put gameplay rules, rewards, saved state, and player-specific decisions in your own Verse.
 
