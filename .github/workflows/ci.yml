@@ -30,8 +30,9 @@ jobs:
           path: |
             release/UEFN-Transaction-Manager-Setup-*.exe
             release/UEFN-Transaction-Manager-*-Portable.zip
-            release/UEFN-Transaction-Manager-Setup.exe
+            release/UEFN-Transaction-Manager-Installer.exe
             release/UEFN-Transaction-Manager-Portable.zip
+            release/portable-latest.json
             release/latest.yml
             release/UEFN-Transaction-Manager-Setup-*.exe.blockmap
             release/SHA256SUMS.txt

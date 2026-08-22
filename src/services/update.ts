@@ -3,6 +3,7 @@ export type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'd
 export interface UpdateState {
   status: UpdateStatus;
   currentVersion: string;
+  distributionMode?: 'installed' | 'portable';
   availableVersion?: string;
   releaseName?: string;
   releaseNotes?: string;

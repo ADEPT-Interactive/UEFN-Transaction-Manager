@@ -6,6 +6,7 @@ dist-ssr
 *.local
 .runtime
 release
+docs/showcase/runtime/
 desktop/
 
 # Logs

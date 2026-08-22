@@ -15,9 +15,10 @@ $archive = (Resolve-Path -LiteralPath (Join-Path $toolRoot $ArchivePath)).Path
 $releaseRoot = Split-Path -Parent $installer
 $expectedInstallerName = "UEFN-Transaction-Manager-Setup-$expectedVersion.exe"
 $expectedPortableName = "UEFN-Transaction-Manager-$expectedVersion-Portable.zip"
-$humanInstallerPath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Setup.exe"
+$humanInstallerPath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Installer.exe"
 $humanPortablePath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Portable.zip"
 $metadataPath = Join-Path $releaseRoot "latest.yml"
+$portableManifestPath = Join-Path $releaseRoot "portable-latest.json"
 $blockmapPath = Join-Path $releaseRoot "$expectedInstallerName.blockmap"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
 $extractRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-test-" + [guid]::NewGuid().ToString("N"))
@@ -44,15 +45,18 @@ if ((Split-Path -Leaf $installer) -ne $expectedInstallerName) { throw "The insta
 if ((Split-Path -Leaf $archive) -ne $expectedPortableName) { throw "The portable archive name does not match the canonical identity/version: $archive" }
 $installerMachine = Get-PeMachine -Path $installer
 if ($installerMachine -notin @(0x14C, 0x8664)) { throw "The NSIS installer has an unsupported PE architecture: 0x$('{0:X4}' -f $installerMachine)." }
-foreach ($metadataFile in @($metadataPath, $blockmapPath, $checksumPath)) { if (-not (Test-Path -LiteralPath $metadataFile -PathType Leaf)) { throw "Required release metadata is missing: $metadataFile" } }
+foreach ($metadataFile in @($metadataPath, $portableManifestPath, $blockmapPath, $checksumPath)) { if (-not (Test-Path -LiteralPath $metadataFile -PathType Leaf)) { throw "Required release metadata is missing: $metadataFile" } }
 $metadataText = Get-Content -LiteralPath $metadataPath -Raw
 if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadataText -notmatch "version: $([regex]::Escape($expectedVersion))") { throw "latest.yml does not match the installer name and version." }
+$portableManifest = Get-Content -LiteralPath $portableManifestPath -Raw | ConvertFrom-Json
+if ($portableManifest.version -ne $expectedVersion -or $portableManifest.filename -ne $expectedPortableName -or $portableManifest.path -ne $expectedPortableName) { throw "portable-latest.json does not match the portable archive name and version." }
 $checksumText = Get-Content -LiteralPath $checksumPath -Raw
 $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($checksumText -notmatch [regex]::Escape("$installerHash  $expectedInstallerName")) { throw "SHA256SUMS.txt does not match the installer." }
 foreach ($alias in @($humanInstallerPath, $humanPortablePath)) { if (-not (Test-Path -LiteralPath $alias -PathType Leaf)) { throw "Required human download alias is missing: $alias" } }
 if ((Get-FileHash -LiteralPath $humanInstallerPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $installerHash) { throw "Human installer alias is not byte-identical to the versioned installer." }
 $portableHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($portableManifest.sha256 -ne $portableHash -or [int64]$portableManifest.size -ne (Get-Item -LiteralPath $archive).Length) { throw "portable-latest.json does not match the portable archive hash or size." }
 if ((Get-FileHash -LiteralPath $humanPortablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $portableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
 Write-Host "Verified byte-identical human installer and portable aliases."
 Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, latest.yml, blockmap, and installer SHA-256 metadata." -f $installerMachine)
@@ -63,6 +67,10 @@ try {
     $packageRoot = Join-Path $extractRoot "UEFN Transaction Manager"
     $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json).version
     if ($appVersion -ne $expectedVersion) { throw "The portable package version $appVersion does not match $expectedVersion." }
+    $portableMarkerPath = Join-Path $packageRoot "portable.json"
+    if (-not (Test-Path -LiteralPath $portableMarkerPath -PathType Leaf)) { throw "The portable package is missing portable.json." }
+    $portableMarker = Get-Content -LiteralPath $portableMarkerPath -Raw | ConvertFrom-Json
+    if ($portableMarker.distribution -ne "portable" -or $portableMarker.version -ne $expectedVersion -or $portableMarker.schemaVersion -ne 1 -or -not $portableMarker.managedFiles) { throw "The portable package marker is invalid." }
     $updaterConfig = Join-Path $packageRoot "resources\app-update.yml"
     if (-not (Test-Path -LiteralPath $updaterConfig -PathType Leaf)) { throw "The packaged release is missing electron-updater configuration: $updaterConfig" }
     $updaterText = Get-Content -LiteralPath $updaterConfig -Raw
@@ -82,6 +90,7 @@ try {
         (Join-Path $appRoot "dist-electron\preload.cjs"),
         (Join-Path $appRoot "electron\launcher.html"),
         (Join-Path $appRoot "electron\launcher.js"),
+        (Join-Path $appRoot "electron\portable-update-helper.ps1"),
         (Join-Path $appRoot "electron\assets\uem-icon.ico"),
         (Join-Path $appRoot "entitlement_manager.py"),
         (Join-Path $appRoot "uefn_auto_connector.py"),

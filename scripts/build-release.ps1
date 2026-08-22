@@ -107,6 +107,7 @@ try {
         "dist-electron\preload.cjs",
         "electron\launcher.html",
         "electron\launcher.js",
+        "electron\portable-update-helper.ps1",
         "electron\assets\uem-icon.ico",
         "electron\assets\uem-icon.svg",
         "electron\assets\adept-insignia.png",
@@ -158,6 +159,14 @@ try {
     $portableRoot = Join-Path $stagingRoot "portable\UEFN Transaction Manager"
     New-Item -ItemType Directory -Path (Split-Path -Parent $portableRoot) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $builderOutput "win-unpacked") -Destination $portableRoot -Recurse -Force
+    $managedFiles = @(Get-ChildItem -LiteralPath $portableRoot -Recurse -File | ForEach-Object { $_.FullName.Substring($portableRoot.Length).TrimStart('\').Replace('\', '/') } | Sort-Object)
+    $portableMarker = [ordered]@{
+        distribution = "portable"
+        version = $appVersion
+        schemaVersion = 1
+        managedFiles = @($managedFiles + "portable.json")
+    }
+    [IO.File]::WriteAllText((Join-Path $portableRoot "portable.json"), ($portableMarker | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
     Compress-Archive -LiteralPath $portableRoot -DestinationPath $builtPortable -CompressionLevel Optimal
     foreach ($required in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "electron-builder omitted required release artifact: $required" }
@@ -172,7 +181,7 @@ try {
     foreach ($artifact in @($builtInstaller, $builtPortable, $builtMetadata, $builtBlockmap)) {
         Copy-Item -LiteralPath $artifact -Destination (Join-Path $releaseRoot (Split-Path -Leaf $artifact)) -Force
     }
-    $humanInstaller = Join-Path $releaseRoot "UEFN-Transaction-Manager-Setup.exe"
+    $humanInstaller = Join-Path $releaseRoot "UEFN-Transaction-Manager-Installer.exe"
     $humanPortable = Join-Path $releaseRoot "UEFN-Transaction-Manager-Portable.zip"
     Copy-Item -LiteralPath (Join-Path $releaseRoot $installerFileName) -Destination $humanInstaller -Force
     Copy-Item -LiteralPath (Join-Path $releaseRoot $portableFileName) -Destination $humanPortable -Force
@@ -183,6 +192,14 @@ try {
     if ($versionedInstallerHash -ne $humanInstallerHash) { throw "Human installer alias is not byte-identical to the versioned installer." }
     if ($versionedPortableHash -ne $humanPortableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
     Write-Host "Verified byte-identical human aliases for installer and portable archive." -ForegroundColor Green
+    $portableManifest = [ordered]@{
+        version = $appVersion
+        filename = $portableFileName
+        path = $portableFileName
+        sha256 = $versionedPortableHash
+        size = (Get-Item -LiteralPath (Join-Path $releaseRoot $portableFileName)).Length
+    }
+    [IO.File]::WriteAllText((Join-Path $releaseRoot "portable-latest.json"), ($portableManifest | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
     $checksumLines = [System.Collections.Generic.List[string]]::new()
     $releaseArtifacts = Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object { $_.Name -notin @("SHA256SUMS.txt", "UEFN Transaction Manager.contents.tsv") } | Sort-Object Name
     foreach ($artifact in $releaseArtifacts) { Add-ReleaseChecksum -Path $artifact.FullName -Lines $checksumLines }

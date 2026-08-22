@@ -42,7 +42,7 @@ jobs:
           $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match version.json v$version." }
           $assets = @(
-            "release/UEFN-Transaction-Manager-Setup.exe",
+            "release/UEFN-Transaction-Manager-Installer.exe",
             "release/UEFN-Transaction-Manager-Portable.zip"
           )
           $notes = @"
@@ -52,7 +52,7 @@ jobs:
 
           **Windows Installer, recommended**
 
-          `UEFN-Transaction-Manager-Setup.exe`
+          `UEFN-Transaction-Manager-Installer.exe`
 
           **Portable version**
 
@@ -72,7 +72,7 @@ jobs:
 
           ## SHA-256
 
-          Installer: $((Get-FileHash release/UEFN-Transaction-Manager-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant())
+          Installer: $((Get-FileHash release/UEFN-Transaction-Manager-Installer.exe -Algorithm SHA256).Hash.ToLowerInvariant())
 
           Portable: $((Get-FileHash release/UEFN-Transaction-Manager-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant())
           "@
@@ -98,3 +98,4 @@ jobs:
             release/UEFN Transaction Manager.contents.tsv
             release/UEFN-Transaction-Manager-Setup-*.exe
             release/UEFN-Transaction-Manager-*-Portable.zip
+            release/portable-latest.json

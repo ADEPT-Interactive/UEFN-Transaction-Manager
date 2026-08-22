@@ -52,10 +52,14 @@ async function releaseFiles(args) {
   const installerName = `UEFN-Transaction-Manager-Setup-${args.version}.exe`;
   const blockmapName = `${installerName}.blockmap`;
   const manifestName = `${args.version}.yml`;
+  const portableName = `UEFN-Transaction-Manager-${args.version}-Portable.zip`;
+  const portableManifestName = `portable-${args.version}.json`;
   const entries = [
     { local: path.join(root, installerName), name: installerName, type: 'application/vnd.microsoft.portable-executable', cache: 'public, max-age=31536000, immutable' },
     { local: path.join(root, blockmapName), name: blockmapName, type: 'application/octet-stream', cache: 'public, max-age=31536000, immutable' },
     { local: path.join(root, 'latest.yml'), name: `manifests/${manifestName}`, type: 'text/yaml; charset=utf-8', cache: 'public, max-age=31536000, immutable' },
+    { local: path.join(root, portableName), name: portableName, type: 'application/zip', cache: 'public, max-age=31536000, immutable' },
+    { local: path.join(root, 'portable-latest.json'), name: `manifests/${portableManifestName}`, type: 'application/json; charset=utf-8', cache: 'public, max-age=31536000, immutable' },
   ];
   for (const entry of entries) entry.body = await fs.readFile(entry.local);
   return entries;
@@ -63,7 +67,8 @@ async function releaseFiles(args) {
 
 async function remoteVersionedFiles(args) {
   const installerName = `UEFN-Transaction-Manager-Setup-${args.version}.exe`;
-  const names = [installerName, `${installerName}.blockmap`, `manifests/${args.version}.yml`];
+  const portableName = `UEFN-Transaction-Manager-${args.version}-Portable.zip`;
+  const names = [installerName, `${installerName}.blockmap`, `manifests/${args.version}.yml`, portableName, `manifests/portable-${args.version}.json`];
   const entries = [];
   for (const name of names) {
     const response = await fetch(publicObjectUrl(args.publicUrl, objectKey(args.prefix, name)));
@@ -123,6 +128,11 @@ async function verifyVersioned(args, entries) {
   const installer = entries.find(entry => entry.name.endsWith('.exe'));
   if (!manifestText.includes(installer.name)) throw new Error('Immutable manifest does not reference the versioned installer.');
   if (!manifestText.includes('version: ' + args.version)) throw new Error('Immutable manifest does not declare the requested version.');
+  const portableManifest = entries.find(entry => entry.name === `manifests/portable-${args.version}.json`);
+  const portableArchive = entries.find(entry => entry.name === `UEFN-Transaction-Manager-${args.version}-Portable.zip`);
+  if (!portableManifest || !portableArchive) throw new Error('Portable update objects are missing from the staged release.');
+  const portableText = JSON.parse(portableManifest.body.toString('utf8'));
+  if (portableText.version !== args.version || portableText.filename !== portableArchive.name || portableText.sha256 !== sha256(portableArchive.body) || portableText.size !== portableArchive.body.length) throw new Error('Portable update metadata does not match its immutable archive.');
   await verifyUnknown(args.publicUrl, args.prefix);
   return results;
 }
@@ -138,7 +148,9 @@ async function promote(args, entries) {
     console.log(`Verified GitHub human installer byte identity: sha256 ${sha256(githubBody)}`);
   }
   const sourceKey = objectKey(args.prefix, `manifests/${args.version}.yml`);
+  const portableSourceKey = objectKey(args.prefix, `manifests/portable-${args.version}.json`);
   const latestKey = objectKey(args.prefix, 'latest.yml');
+  const portableLatestKey = objectKey(args.prefix, 'portable-latest.json');
   const s3 = client();
   await s3.send(new CopyObjectCommand({
     Bucket: args.bucket,
@@ -149,10 +161,23 @@ async function promote(args, entries) {
     CacheControl: 'no-store, no-cache, must-revalidate',
   }));
   console.log(`Promoted ${sourceKey} to ${latestKey} as the final mutable publication step.`);
+  await s3.send(new CopyObjectCommand({
+    Bucket: args.bucket,
+    CopySource: `${args.bucket}/${portableSourceKey}`,
+    Key: portableLatestKey,
+    MetadataDirective: 'REPLACE',
+    ContentType: 'application/json; charset=utf-8',
+    CacheControl: 'no-store, no-cache, must-revalidate',
+  }));
+  console.log(`Promoted ${portableSourceKey} to ${portableLatestKey} as the final mutable publication step.`);
   const latest = await verifyPublicObject(publicObjectUrl(args.publicUrl, latestKey), entries.find(entry => entry.name.startsWith('manifests/')).body, 'latest.yml');
   const cacheControl = latest.head.headers.get('cache-control') ?? '';
   if (!/no-store|no-cache|must-revalidate/i.test(cacheControl)) throw new Error(`latest.yml is missing no-cache policy: ${cacheControl}`);
   console.log(`Verified latest.yml mutable cache policy: ${cacheControl}`);
+  const portableLatest = await verifyPublicObject(publicObjectUrl(args.publicUrl, portableLatestKey), entries.find(entry => entry.name === `manifests/portable-${args.version}.json`).body, 'portable-latest.json');
+  const portableCacheControl = portableLatest.head.headers.get('cache-control') ?? '';
+  if (!/no-store|no-cache|must-revalidate/i.test(portableCacheControl)) throw new Error(`portable-latest.json is missing no-cache policy: ${portableCacheControl}`);
+  console.log(`Verified portable-latest.json mutable cache policy: ${portableCacheControl}`);
 }
 
 async function deletePrefix(args) {

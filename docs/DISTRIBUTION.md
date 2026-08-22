@@ -1,16 +1,16 @@
 # UEFN Transaction Manager distribution and update infrastructure
 
-Transaction Manager 4.1.0 separates human downloads from machine updates.
+Transaction Manager 4.2.0 separates human downloads from machine updates and keeps portable upgrades in-place.
 
 ## Human downloads
 
 GitHub Releases is the manual distribution surface. The stable aliases are:
 
-- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe)
+- [Windows installer](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Installer.exe)
 - [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip)
 - [Latest release page](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest)
 
-Starting with 4.1.0, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
+Starting with 4.2.0, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, portable metadata, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
 
 ## Machine updates
 
@@ -26,18 +26,28 @@ The reserved future beta path is `uem/beta/`; Transaction Manager 4.1.0 has no b
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Transaction-Manager-Setup-4.1.0.exe
-uem/stable/UEFN-Transaction-Manager-Setup-4.1.0.exe.blockmap
-uem/stable/manifests/4.1.0.yml
+uem/stable/UEFN-Transaction-Manager-Setup-4.2.0.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.2.0.exe.blockmap
+uem/stable/manifests/4.2.0.yml
+uem/stable/portable-latest.json
+uem/stable/UEFN-Transaction-Manager-4.2.0-Portable.zip
 ```
 
-Versioned artifacts and manifest history are immutable and retained. Only `latest.yml` is mutable.
+Versioned artifacts and manifest history are immutable and retained. `latest.yml` and `portable-latest.json` are the two mutable pointers; their referenced versioned artifacts are immutable.
+
+### Portable application updates
+
+The portable ZIP is a `win-unpacked` application directory with a `portable.json` marker at its root. The marker is added only after the installed NSIS package has been built, so the installed build does not identify itself as portable. The application uses that marker to select the portable updater path deterministically.
+
+Portable mode still uses the existing `%LOCALAPPDATA%\UEFN Entitlement Manager` compatibility namespace for settings, logs, discovery cache, and temporary import data. It does not imply a self-contained profile. The portable updater downloads `portable-latest.json`, checks the exact version, byte size, SHA-256, archive readability, required executable/resources, marker, and managed-file list, then extracts to a staging directory. An external PowerShell helper waits for the running process to exit, backs up only marker-declared UTM files, swaps the staged files, preserves neighboring user files, relaunches the same executable, and restores the backup if any swap step fails.
+
+If the directory is read-only, on write-protected media, or blocked by a file lock, the current copy is left in place and the user receives an actionable failure result. The updater never falls back to NSIS. A verified ZIP may be retained for manual installation when automatic replacement is not possible.
 
 The endpoint is intentionally anonymous public-read. It has no Cloudflare Access, application credentials, signed URLs, cookies, or session tokens. Write access is limited to the GitHub Actions R2 credential. The application contains no Cloudflare credentials.
 
 ## Publication order
 
-`scripts/publish-updates.mjs` provides the auditable `stage`, `verify`, `promote`, and test-prefix cleanup operations. A release stages and verifies the versioned installer, blockmap, and immutable manifest through the public custom domain. It never uploads `latest.yml` during staging.
+`scripts/publish-updates.mjs` provides the auditable `stage`, `verify`, `promote`, and test-prefix cleanup operations. A release stages and verifies the versioned installer, blockmap, immutable manifest, portable ZIP, and portable-latest.json through the public custom domain. It never uploads `latest.yml` during staging.
 
 Promotion is a separate `release.published` workflow. It checks the release tag, stable/non-prerelease state, public R2 objects, the GitHub human installer alias, byte identity, manifest references, HTTPS availability, unknown-object 404 behavior, and installer range support. It copies the immutable manifest to `latest.yml` only as the final publication step, then requires `no-store, no-cache, must-revalidate` on the mutable feed.
 
@@ -59,7 +69,7 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Do not delete versioned release history during recovery.
 
-The 4.0.0 and 4.0.1 releases remain historical compatibility releases. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
+The 4.0.0, 4.0.1, and 4.1.0 releases remain historical compatibility releases. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
 ## Release checklist
 
@@ -72,7 +82,7 @@ The 4.0.0 and 4.0.1 releases remain historical compatibility releases. New versi
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The 4.1.0 installer remains unsigned. Signing, MCP integration, dynamic transaction support, and other deferred product work are outside this release.
+The 4.2.0 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing, MCP integration, and Agent Skill work remain outside this release.
 
 ## Rename compatibility boundary
 

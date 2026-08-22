@@ -20,13 +20,19 @@
 
 UEFN Transaction Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It links directly to the UEFN project you have open, turns entitlements, offers, alternate offers, bundles, storefronts, pricing, restrictions, and gameplay hooks into project-ready Verse, then saves and compiles it through that live UEFN session.
 
-![A connected UEFN project with a visual entitlement catalog and custom icons](docs/screenshots/phase28-main-workspace.png)
+![A connected UEFN project with a visual entitlement catalog, custom icons, and a single-line command header](docs/screenshots/phase28-catalog-overview.jpg)
 
 ## Connected directly to UEFN
 
 Transaction Manager is more than a standalone Verse generator. Its launcher finds active and recent `.uefnproject` files, confirms the project you intend to edit, and starts a local project bridge restricted to that project's `Content` directory. **Save**, then **Compile** writes the generated Verse with a backup and requests a real compile from the Verse Workflow Server running with UEFN.
 
 When Python Editor Scripting is enabled, Transaction Manager also installs and attaches its project connector automatically. Confirmed supported raster images enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Existing project Texture2D assets can also be adopted through Unreal's editor export API, then pass through the same normalization/import queue. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Compile** reports UEFN's compile result directly.
+
+<p align="center">
+  <img src="docs/screenshots/phase28-launcher.jpg" alt="Transaction Manager project launcher" width="48%">
+  <img src="docs/screenshots/phase28-verse-split.jpg" alt="Transaction Manager catalog and generated Verse split view" width="48%">
+</p>
+<p align="center"><em>Project selection and the connected catalog-to-Verse workflow.</em></p>
 
 Verse compilation discovers the active UEFN-owned loopback Workflow Server session at runtime. Transaction Manager does not require users to configure a port, does not launch VS Code for compilation, and refuses ambiguous or non-local endpoints. UEFN must be running with the linked project loaded. Developers and automated tests may use the loopback-only `UEM_VERSE_COMPILER_ENDPOINT=host:port` override; normal users should not configure it. See [Verse compiler portability](docs/VERSE_COMPILER_PORTABILITY.md) for the discovery contract and diagnostic states. The reusable standalone interoperability project is [ADEPT-Interactive/uefn-verse-compiler](https://github.com/ADEPT-Interactive/uefn-verse-compiler).
 
@@ -47,7 +53,7 @@ Moderation warnings are review aids. They never block entitlement creation or sa
 
 ## Download and start
 
-1. Download `UEFN-Transaction-Manager-Setup.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Setup.exe).
+1. Download `UEFN-Transaction-Manager-Installer.exe` from the [latest release](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest), or use the [direct installer download](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Installer.exe).
 2. Run the installer. Transaction Manager installs per user without requiring administrator access.
 3. Launch `UEFN Transaction Manager` from Windows Start/Search.
 4. Select the project that is open in UEFN, choose a recent project, or browse to a `.uefnproject` file.
@@ -58,6 +64,8 @@ The launcher shows known projects immediately, then continues looking for projec
 The installer registers Transaction Manager with Windows Start/Search and Add or Remove Programs. Transaction Manager checks for stable ADEPT update-service updates in the background after the launcher is usable. Use Tools, then Check for Updates for a manual check. Updates download through Transaction Manager and can be applied with Restart and Install.
 
 `UEFN-Transaction-Manager-Portable.zip` remains available as a secondary diagnostic and emergency portable artifact. The installer is the normal user download.
+
+Portable updates download and verify a portable-specific manifest and ZIP, then replace the managed application files in the same portable directory after restart. They never invoke the NSIS installer or silently create an installed copy. Settings remain in the existing `%LOCALAPPDATA%\UEFN Entitlement Manager` compatibility namespace; “portable” describes the application update path, not a newly redesigned self-contained profile.
 
 ## Typical creator workflow
 
@@ -154,6 +162,25 @@ Power-of-two PNGs are imported without any modification. Other supported raster 
 ## Phase 28 showcase and capability boundary
 
 The deterministic showcase catalog and original vector icon sources are in [docs/showcase](docs/showcase/README.md). The implementation boundary between local validation, UEFN compile acceptance, and gameplay acceptance is recorded in the [Phase 28 capability matrix](docs/PHASE28_CAPABILITY_MATRIX.md).
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/phase28-offer-general-pricing.jpg" alt="Offer General and Pricing editor" width="100%"><br><sub>General and runtime pricing</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-icon-texture.jpg" alt="Icon and Texture editor" width="100%"><br><sub>Imported and adoptable Texture2D artwork</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/phase28-behavior-moderation.jpg" alt="Behavior and Moderation editor" width="100%"><br><sub>Durability and moderation controls</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-dynamic-pricing.jpg" alt="Dynamic pricing configuration" width="100%"><br><sub>Calculated-by-Verse price behavior</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/phase28-bundles.jpg" alt="Bundle offers" width="100%"><br><sub>Static and runtime bundle offers</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-storefronts.jpg" alt="Storefront membership" width="100%"><br><sub>Explicit storefront membership</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/phase28-validation.jpg" alt="Validation report with local checks passed" width="100%"><br><sub>Pre-save validation report</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-launcher.jpg" alt="Filtered project launcher" width="100%"><br><sub>Launcher with the deterministic showcase project</sub></td>
+  </tr>
+</table>
 
 ## Templates and in-app help
 

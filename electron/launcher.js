@@ -5,7 +5,7 @@ const byId = id => document.getElementById(id);
 // Keep the Discord mark correct even when a cached launcher HTML file carries
 // an older path string. The icon is decorative and has no navigation behavior.
 const discordPath = document.querySelector('#discord path');
-if (discordPath) discordPath.setAttribute('d', 'M19.5 5.3A18 18 0 0 0 15.2 4l-.5 1.1a16.4 16.4 0 0 0-5.4 0L8.7 4a17.7 17.7 0 0 0-4.3 1.3C1.7 9.3 1 13.2 1.4 17a17.5 17.5 0 0 0 5.3 2.7L8 18a11 11 0 0 1-1.7-.8l.4-.3a12.7 12.7 0 0 0 10.6 0l.4.3c-.5.3-1.1.6-1.7.8l1.3 1.7a17.4 17.4 0 0 0 5.3-2.7c.5-4.4-.8-8.3-3.1-11.7ZM8.3 14.7c-1 0-1.9-1-1.9-2.2 0-1.2.8-2.2 1.9-2.2 1 0 1.9 1-1.9 2.2s-.9-2.2-1.9-2.2Zm7.4 0c-1 0-1.9-1-1.9-2.2 0-1.2.8-2.2 1.9-2.2 1 0 1.9 1 1.9 2.2s-.9 2.2-1.9 2.2Z');
+if (discordPath) discordPath.setAttribute('d', 'M19.5 5.3A18 0 0 0 15.2 4l-.5 1.1a16.4 16.4 0 0 0-5.4 0L8.7 4a17.7 17.7 0 0 0-4.3 1.3C1.7 9.3 1 13.2 1.4 17a17.5 17.5 0 0 0 5.3 2.7L8 18a11 11 0 0 1-1.7-.8l.4-.3a12.7 12.7 0 0 0 10.6 0l.4.3c-.5.3-1.1.6-1.7.8l1.3 1.7a17.4 17.4 0 0 0 5.3-2.7c.5-4.4-.8-8.3-3.1-11.7ZM8.3 14.7c-1 0-1.9-1-1.9-2.2 0-1.2.8-2.2 1.9-2.2 1 0 1.9 1 1.9 2.2s-.9 2.2-1.9 2.2Zm7.4 0c-1 0-1.9-1-1.9-2.2 0-1.2.8-2.2 1.9-2.2 1 0 1.9 1 1.9 2.2s-.8-2.2-1.9-2.2Z');
 
 function render() {
   const status = byId('status');
@@ -63,19 +63,23 @@ function applyState(next) {
 function renderUpdate(next) {
   updateState = next;
   const panel = byId('update');
+  const progress = byId('update-progress');
+  const progressBar = progress?.firstElementChild;
   if (!next || next.status === 'idle' || (next.dismissed && next.status !== 'downloaded' && next.status !== 'downloading')) { panel.hidden = true; return; }
   panel.hidden = false;
+  if (progress) progress.hidden = next.status !== 'downloading';
+  if (progressBar) progressBar.style.width = `${next.progress ?? 0}%`;
   const title = byId('update-title');
   const detail = byId('update-detail');
   const action = byId('update-action');
   const later = byId('update-later');
-  if (next.status === 'checking') { title.textContent = 'Checking for updates…'; detail.textContent = `Current version ${next.currentVersion}`; action.hidden = true; later.hidden = true; return; }
-  if (next.status === 'up-to-date') { title.textContent = 'Transaction Manager is up to date'; detail.textContent = next.message ?? `Current version ${next.currentVersion}`; action.hidden = true; later.hidden = false; later.textContent = '×'; later.setAttribute('aria-label', 'Dismiss update status'); return; }
+  if (next.status === 'checking') { title.textContent = 'Checking for updates…'; detail.textContent = 'Current version ' + next.currentVersion; action.hidden = true; later.hidden = true; return; }
+  if (next.status === 'up-to-date') { title.textContent = 'Transaction Manager is up to date'; detail.textContent = next.message ?? ('Current version ' + next.currentVersion); action.hidden = true; later.hidden = false; later.textContent = '×'; later.setAttribute('aria-label', 'Dismiss update status'); return; }
   if (next.status === 'error') { title.textContent = 'Update check unavailable'; detail.textContent = next.message ?? 'Transaction Manager is still ready to use.'; action.hidden = false; action.textContent = 'Try again'; later.hidden = false; later.textContent = '×'; later.setAttribute('aria-label', 'Dismiss update error'); return; }
-  if (next.status === 'downloading') { title.textContent = 'Downloading the Transaction Manager update'; detail.textContent = `${next.progress ?? 0}% complete`; action.hidden = true; later.hidden = true; return; }
-  if (next.status === 'downloaded') { title.textContent = `Transaction Manager ${next.availableVersion} is ready`; detail.textContent = 'Restart Transaction Manager to install the downloaded update.'; action.hidden = false; action.textContent = 'Restart and Install'; later.hidden = false; return; }
-  title.textContent = `Transaction Manager ${next.availableVersion} is available`;
-  detail.textContent = `${next.releaseName ?? next.availableVersion} · Current version ${next.currentVersion}`;
+  if (next.status === 'downloading') { title.textContent = 'Downloading the Transaction Manager update'; detail.textContent = (next.progress ?? 0) + '% complete'; action.hidden = true; later.hidden = true; return; }
+  if (next.status === 'downloaded') { title.textContent = next.distributionMode === 'portable' ? 'Portable update is ready' : ('Transaction Manager ' + next.availableVersion + ' is ready'); detail.textContent = next.distributionMode === 'portable' ? 'Restart to update this portable copy in place.' : 'Restart Transaction Manager to install the downloaded update.'; action.hidden = false; action.textContent = next.distributionMode === 'portable' ? 'Restart & Update' : 'Restart & Install'; later.hidden = false; return; }
+  title.textContent = 'Transaction Manager ' + next.availableVersion + ' is available';
+  detail.textContent = (next.releaseName ?? next.availableVersion) + ' · Current version ' + next.currentVersion;
   action.hidden = false;
   action.textContent = 'Download Update';
   later.hidden = false;

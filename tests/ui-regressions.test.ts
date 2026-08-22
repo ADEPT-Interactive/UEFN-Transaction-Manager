@@ -157,6 +157,8 @@ test('release shell uses stable application identity and versioned artifacts', (
   assert.deepEqual(builder.win.electronLanguages, ['en-US']);
   assert.ok(releaseScript.includes('UEFN-Transaction-Manager-Setup-$appVersion.exe'));
   assert.ok(releaseScript.includes('UEFN-Transaction-Manager-$appVersion-Portable.zip'));
+  assert.ok(releaseScript.includes('UEFN-Transaction-Manager-Installer.exe'));
+  assert.ok(releaseScript.includes('portable.json'));
   assert.equal(packageVersion, version);
   assert.match(version, /^\d+\.\d+\.\d+$/);
 });

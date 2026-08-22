@@ -28,6 +28,7 @@ export type WindowAction = 'request-state' | 'drag' | 'minimize' | 'toggle-maxim
 export interface UpdateState {
   status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
   currentVersion: string;
+  distributionMode?: 'installed' | 'portable';
   availableVersion?: string;
   releaseName?: string;
   releaseNotes?: string;

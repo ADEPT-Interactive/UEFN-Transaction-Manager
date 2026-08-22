@@ -15,15 +15,17 @@
     "build": "node scripts/build-flag-sprite.mjs && tsc && vite build && npm run build:server && npm run build:desktop",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --external:sharp --outfile=dist/server.cjs",
     "verse-compile": "tsx scripts/verse-compiler-cli.ts",
+    "showcase:fixture": "tsx scripts/create-showcase-project.ts",
     "build:desktop": "tsc -p tsconfig.electron.json && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:koffi --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs",
     "server": "node dist/server.cjs",
     "test": "tsx --test tests/fileService.test.ts tests/generator.test.ts tests/dynamic-offers.test.ts tests/marketplace-validation.test.ts tests/generated-api-migration.test.ts tests/editable-bindings.test.ts tests/storefront-membership.test.ts tests/verse-identity.test.ts tests/public-api-contract.test.ts tests/server-security.test.ts tests/textureImporter.test.ts tests/ui-regressions.test.ts tests/manager-ux.test.ts tests/workflowClient.test.ts tests/electron-security.test.ts tests/project-discovery.test.ts tests/updater.test.ts",
     "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
-    "test:updater": "tsx --test tests/updater.test.ts",
+  "test:updater": "tsx --test tests/updater.test.ts",
+  "test:portable-updater": "tsx --test tests/portable-update-helper.test.ts",
     "test:desktop": "npm run install:electron-runtime && npm run build:desktop && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1",
     "test:version": "node scripts/verify-version.mjs",
     "test:distribution": "tsx --test tests/distribution.test.ts",
-    "test:all": "npm run build && npm test && npm run test:python && npm run test:desktop && npm run test:version && npm run test:distribution"
+  "test:all": "npm run build && npm test && npm run test:python && npm run test:desktop && npm run test:version && npm run test:distribution && npm run test:portable-updater"
   },
   "keywords": [
     "uefn",

@@ -18,9 +18,9 @@ test('4.2.0 distribution contract uses the ADEPT generic updater and renamed hum
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);
   assert.deepEqual(builder.publish[0], { provider: 'generic', url: 'https://updates.adeptinteractive.net/uem/stable/' });
-  assert.ok(readme.includes('UEFN-Transaction-Manager-Setup.exe'));
+  assert.ok(readme.includes('UEFN-Transaction-Manager-Installer.exe'));
   assert.ok(readme.includes('UEFN-Transaction-Manager-Portable.zip'));
-  assert.ok(userReadme.includes('UEFN-Transaction-Manager-Setup.exe'));
+  assert.ok(userReadme.includes('UEFN-Transaction-Manager-Installer.exe'));
   assert.ok(userReadme.includes('ADEPT update-service'));
   assert.doesNotMatch(readme, /stable GitHub Releases updates|GrantedEvent\.Subscribe|RemovedEvent\.Subscribe|ReconciledEvent\.Subscribe/);
   assert.doesNotMatch(read('docs/GENERATED_PUBLIC_API_CONTRACT.md'), /GrantedEvent<public>:event|GrantedEvent\.Subscribe/);
@@ -40,9 +40,24 @@ test('release workflows separate draft human release assets from final R2 promot
   const release = read('.github/workflows/release.yml');
   const promotion = read('.github/workflows/promote-update.yml');
   assert.match(release, /publish-updates\.mjs stage/);
-  assert.match(release, /UEFN-Transaction-Manager-Setup\.exe/);
+  assert.match(release, /UEFN-Transaction-Manager-Installer\.exe/);
   assert.match(release, /UEFN-Transaction-Manager-Portable\.zip/);
+  assert.match(release, /portable-latest\.json/);
   assert.doesNotMatch(release, /release\/latest\.yml.*gh release|release\/.*blockmap.*gh release/s);
   assert.match(promotion, /types: \[published\]/);
   assert.match(promotion, /publish-updates\.mjs promote/);
+  assert.match(promotion, /UEFN-Transaction-Manager-Installer\.exe/);
+});
+
+test('portable updater is marker-driven, uses separate metadata, and cannot fall through to NSIS', () => {
+  const manager = read('electron/updateManager.ts');
+  const helper = read('electron/portable-update-helper.ps1');
+  const release = read('scripts/build-release.ps1');
+  assert.match(manager, /detectDistributionMode|distributionMode/);
+  assert.match(manager, /portable-latest\.json/);
+  assert.match(manager, /if \(this\.isPortable\(\)\) return this\.startPortableReplacement\(\);/);
+  assert.match(manager, /autoUpdater\.quitAndInstall\(false, true\);/);
+  assert.match(helper, /rollback|Write-Result|relaunch/i);
+  assert.match(release, /distribution = "portable"/);
+  assert.match(release, /managedFiles/);
 });

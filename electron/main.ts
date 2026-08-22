@@ -7,6 +7,7 @@ import { BridgeSession } from './bridgeSession.js';
 import type { LauncherState, ProjectCandidate, WindowAction } from './contracts.js';
 import { ProjectDiscovery, readProject } from './projectDiscovery.js';
 import { isAllowedNavigation as navigationIsAllowed, isHttpExternal } from './security.js';
+import { detectDistributionMode } from './distributionMode.js';
 import { UpdateManager } from './updateManager.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -44,6 +45,9 @@ let updateManager: UpdateManager | null = null;
 
 const projectArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--project');
 const preferredProjectFile = projectArgumentIndex >= 0 ? process.argv[projectArgumentIndex + 1] : undefined;
+const portableUpdateResultIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--portable-update-result');
+const portableUpdateResultPath = portableUpdateResultIndex >= 0 ? process.argv[portableUpdateResultIndex + 1] : undefined;
+const distributionMode = detectDistributionMode(process.execPath);
 
 function diagnostic(message: string) {
   fs.appendFileSync(diagnosticPath, `${new Date().toISOString()}\n${message}\n`);
@@ -179,7 +183,7 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
     bridgeSession = await BridgeSession.start(appRoot, verified, mainWindow, diagnostic);
     mode = 'dashboard';
     allowedDashboardOrigin = new URL(bridgeSession.appUrl).origin;
-    mainWindow.setMinimumSize(960, 640);
+    mainWindow.setMinimumSize(1240, 640);
     mainWindow.setSize(1400, 900);
     mainWindow.center();
     await mainWindow.loadURL(bridgeSession.appUrl);
@@ -310,9 +314,10 @@ function configureIpc() {
     if (appHasUnsavedChanges && !discard) return { success: false, error: 'Save or discard unsaved changes before installing the update.' };
     const hasUnsavedChanges = appHasUnsavedChanges;
     allowWindowClose = true;
-    shutdownStarted = true;
+    if (!updateManager.isPortable()) shutdownStarted = true;
     appHasUnsavedChanges = false;
     const result = await updateManager.install(discard, hasUnsavedChanges, async () => stopOwnedProcessesForUpdate());
+    if (result.success && updateManager.isPortable()) await shutdownAndQuit();
     if (!result.success) {
       allowWindowClose = false;
       shutdownStarted = false;
@@ -338,7 +343,7 @@ function createMainWindow() {
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
-    minWidth: 1180,
+    minWidth: 1240,
     minHeight: 620,
     show: false,
     frame: false,
@@ -416,12 +421,19 @@ else {
       Menu.setApplicationMenu(null);
       configureIpc();
       mainWindow = createMainWindow();
-      updateManager = new UpdateManager(app.getVersion(), app.isPackaged, process.platform, state => {
+      updateManager = new UpdateManager(app.getVersion(), app.isPackaged, process.platform, distributionMode, appRoot, process.execPath, state => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uem:update:state', state);
       }, diagnostic);
       updateManager.initialize();
-      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}`);
+      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}; distribution=${distributionMode}`);
       await loadLauncher();
+      if (portableUpdateResultPath && fs.existsSync(portableUpdateResultPath)) {
+        try {
+          const result = JSON.parse(fs.readFileSync(portableUpdateResultPath, 'utf8')) as { success?: boolean; message?: string };
+          if (result.success === false) await dialog.showMessageBox(mainWindow, { type: 'error', title: 'Portable update could not be completed', message: 'The previous portable update was rolled back.', detail: `${result.message ?? 'The application was left at its previous version.'}\n\nYou can try the update again or download the verified Portable ZIP manually.` });
+          fs.rmSync(portableUpdateResultPath, { force: true });
+        } catch (error) { diagnostic(`Portable update result could not be read: ${error instanceof Error ? error.message : String(error)}`); }
+      }
       void updateManager.check(false);
     } catch (error) {
       await showFatalError(error instanceof Error ? error : new Error(String(error)));

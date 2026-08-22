@@ -2,7 +2,7 @@ UEFN TRANSACTION MANAGER 4.2.0
 
 GET STARTED
 
-1. Download and run `UEFN-Transaction-Manager-Setup.exe` from the latest GitHub release.
+1. Download and run `UEFN-Transaction-Manager-Installer.exe` from the latest GitHub release.
 2. Launch UEFN Transaction Manager from Windows Start/Search.
 3. Select the project that is open in UEFN, choose a recent project, or browse
    to its .uefnproject file.
@@ -16,8 +16,10 @@ settings remain in your user profile when Transaction Manager is upgraded or uni
 
 Transaction Manager checks for stable ADEPT update-service updates in the background after the launcher is ready.
 Use Tools, then Check for Updates to check manually. Choose Restart and Install
-after an update has finished downloading. The portable ZIP is a secondary
-diagnostic fallback, not the normal installation path.
+after an installed update has finished downloading. Portable copies use a
+separate verified ZIP update path and choose Restart and Update; they stay in
+the same folder and never silently install a second copy. The portable ZIP is
+a secondary diagnostic fallback, not the normal installation path.
 
 CREATOR WORKFLOW
 
