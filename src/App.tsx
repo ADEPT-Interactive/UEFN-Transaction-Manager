@@ -22,6 +22,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
 import { UpdateCard } from './components/UpdateCard';
+import { isDynamicBundle } from './services/dynamicOffers';
 import versionInfo from '../version.json';
 
 const launchContext = typeof window === 'undefined'
@@ -137,7 +138,7 @@ function loadStorefrontMembership(entitlements: EntitlementItem[], bundles: Bund
 
 function legacyStorefrontMembershipFallback(entitlements: EntitlementItem[], bundles: BundleOffer[]): StorefrontMembership {
   const allOffers: StorefrontMembership['allOffers'] = entitlements.flatMap(item => [{ entitlementId: item.id }, ...(item.alternateOffers ?? []).map(offer => ({ entitlementId: item.id, offerVerseKey: offer.verseKey }))] as StorefrontMembership['allOffers'])
-    .concat(bundles.filter(bundle => !bundle.dynamicRemaining).map(bundle => ({ bundleId: bundle.id }) as StorefrontMembership['allOffers'][number]));
+    .concat(bundles.filter(bundle => !isDynamicBundle(bundle)).map(bundle => ({ bundleId: bundle.id }) as StorefrontMembership['allOffers'][number]));
   return { allOffers, focused: [] };
 }
 
@@ -147,6 +148,17 @@ function loadRetiredVerseKeys(): string[] {
     return normalizeRetiredVerseKeys(stored ? JSON.parse(stored) : []);
   } catch {
     localStorage.removeItem(storageKey('retiredVerseKeys'));
+    return [];
+  }
+}
+
+function loadDismissedWarningIds(): string[] {
+  try {
+    const stored = localStorage.getItem(storageKey('dismissedWarnings'));
+    const parsed: unknown = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) && parsed.every(value => typeof value === 'string') ? parsed : [];
+  } catch {
+    localStorage.removeItem(storageKey('dismissedWarnings'));
     return [];
   }
 }
@@ -292,6 +304,7 @@ export const App: React.FC = () => {
   const [bundles, setBundles] = useState(loadBundles);
   const [storefrontMembership, setStorefrontMembership] = useState(() => loadStorefrontMembership(loadEntitlements(), loadBundles()));
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
+  const [dismissedWarningIds, setDismissedWarningIds] = useState(loadDismissedWarningIds);
   const [projectDataDiagnostics, setProjectDataDiagnostics] = useState<string[]>([]);
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => snapshot(loadEntitlements(), loadBundles(), loadStorefrontMembership(loadEntitlements(), loadBundles()), loadRetiredVerseKeys(), loadConfig()));
   const [creationChooserRequest, setCreationChooserRequest] = useState(0);
@@ -315,7 +328,7 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
 
-  const validationIssues = useMemo(() => {
+  const allValidationIssues = useMemo(() => {
     const issues = validateEntireProject(entitlements, bundles, config, storefrontMembership, retiredVerseKeys);
     if (projectDataDiagnostics.length) issues.unshift({
       id: 'project-data-migration', severity: 'warning', ruleName: 'project_data_migration', field: 'verseKey',
@@ -327,6 +340,8 @@ export const App: React.FC = () => {
     });
     return issues;
   }, [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
+  const validationIssues = useMemo(() => allValidationIssues.filter(issue => issue.severity !== 'warning' || !dismissedWarningIds.includes(issue.id)), [allValidationIssues, dismissedWarningIds]);
+  const dismissedWarnings = useMemo(() => allValidationIssues.filter(issue => issue.severity === 'warning' && dismissedWarningIds.includes(issue.id)), [allValidationIssues, dismissedWarningIds]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const verseCode = useMemo(() => hasErrors
     ? '# Generation is blocked until the Validation report has no errors.\n'
@@ -335,6 +350,15 @@ export const App: React.FC = () => {
   const isFirstOfferSetup = entitlements.length === 0 && validationIssues.filter(issue => issue.severity === 'error').length === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
   const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
   const isDirty = currentSnapshot !== lastSavedSnapshot;
+
+  useEffect(() => {
+    const activeWarningIds = new Set(allValidationIssues.filter(issue => issue.severity === 'warning').map(issue => issue.id));
+    setDismissedWarningIds(ids => ids.filter(id => activeWarningIds.has(id)));
+  }, [allValidationIssues]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKey('dismissedWarnings'), JSON.stringify(dismissedWarningIds));
+  }, [dismissedWarningIds]);
 
   useEffect(() => {
     if (!desktopHost || !window.uemDesktop) return;
@@ -557,7 +581,7 @@ export const App: React.FC = () => {
     const saved = await saveToDisk();
     if (!saved) return;
     if (saved.placeholderDeferred) {
-      setStatus({ message: 'Verse was saved, but compilation is waiting for the default Texture2D. Complete the automatic connector guidance shown above, then try Save & Compile again.', error: true });
+      setStatus({ message: 'Verse was saved, but compilation is waiting for the default Texture2D. Complete the automatic connector guidance shown above, then try Compile again.', error: true });
       return;
     }
     setIsCompiling(true);
@@ -696,7 +720,7 @@ export const App: React.FC = () => {
     const validBundleIds = new Set(finalizedBundles.map(bundle => bundle.id));
     setBundles(finalizedBundles);
     const previouslyKnownIds = new Set(bundles.map(bundle => bundle.id));
-    const newlyCreatedStatic = finalizedBundles.filter(bundle => !previouslyKnownIds.has(bundle.id) && !bundle.dynamicRemaining).map(bundle => ({ bundleId: bundle.id }));
+    const newlyCreatedStatic = finalizedBundles.filter(bundle => !previouslyKnownIds.has(bundle.id) && !isDynamicBundle(bundle)).map(bundle => ({ bundleId: bundle.id }));
     setStorefrontMembership(current => ({
       allOffers: [...current.allOffers.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)), ...newlyCreatedStatic],
       focused: current.focused.map(group => ({ ...group, entries: group.entries.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)) })),
@@ -714,7 +738,7 @@ export const App: React.FC = () => {
       restrictions: bundle.restrictions ? { ...bundle.restrictions, blockedCountryCodes: [...bundle.restrictions.blockedCountryCodes], blockedPlatformFamilies: [...bundle.restrictions.blockedPlatformFamilies] } : undefined,
     };
     setBundles(current => [...current, copy]);
-    if (!copy.dynamicRemaining) setStorefrontMembership(current => ({ ...current, allOffers: [...current.allOffers, { bundleId: copy.id }] }));
+    if (!isDynamicBundle(copy)) setStorefrontMembership(current => ({ ...current, allOffers: [...current.allOffers, { bundleId: copy.id }] }));
   };
 
   const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, storefrontMembership, retiredVerseKeys);
@@ -767,7 +791,7 @@ export const App: React.FC = () => {
       </main>
 
       <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
-      <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onClose={() => setIsValidatorOpen(false)} />
+      <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and focused storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />

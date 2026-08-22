@@ -1,4 +1,4 @@
-UEFN TRANSACTION MANAGER 4.1.0
+UEFN TRANSACTION MANAGER 4.2.0
 
 GET STARTED
 
@@ -21,7 +21,7 @@ diagnostic fallback, not the normal installation path.
 
 CREATOR WORKFLOW
 
-Create your entitlements, offers, bundles, and displays, then use Save & Compile
+Create your entitlements, offers, bundles, and displays, then use Save and Compile
 to write managed_transactions.verse and compile it in UEFN. Find the generated
 managed_transactions_device in UEFN's Content Browser, place it in your island,
 and connect its Trigger arrays or canonical public events and functions to your gameplay systems. Transaction Manager uses

@@ -249,6 +249,14 @@ export const FileService = {
     }
   },
 
+  async adoptTexture(assetFolderName: string, assetName: string, sourceAssetPath: string): Promise<UploadTextureResult> {
+    try {
+      return await apiFetch('/texture/adopt', { method: 'POST', body: JSON.stringify({ assetFolderName, assetName, sourceAssetPath }) });
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to queue existing Texture2D adoption.' };
+    }
+  },
+
   async getTextureImport(jobId: string): Promise<UploadTextureResult> {
     try {
       return await apiFetch(`/texture/import/${encodeURIComponent(jobId)}`, { method: 'GET' });

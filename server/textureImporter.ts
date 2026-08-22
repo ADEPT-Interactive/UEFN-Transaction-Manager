@@ -15,12 +15,16 @@ export interface TextureImportJob {
   assetName: string;
   verseAssetPath: string;
   sourcePath: string;
+  sourceKind?: 'local-image' | 'uefn-texture';
+  sourceAssetPath?: string;
   destinationPath?: string;
   assetObjectPath?: string;
   error?: string;
   createdAt: string;
   completedAt?: string;
   claimedAt?: number;
+  finalWidth?: number;
+  finalHeight?: number;
 }
 
 export interface TextureImportJobResponse {
@@ -30,11 +34,15 @@ export interface TextureImportJobResponse {
   assetFolderName: string;
   assetName: string;
   verseAssetPath: string;
+  sourceKind?: 'local-image' | 'uefn-texture';
+  sourceAssetPath?: string;
   destinationPath?: string;
   assetObjectPath?: string;
   error?: string;
   createdAt: string;
   completedAt?: string;
+  finalWidth?: number;
+  finalHeight?: number;
 }
 
 export interface TextureImportJobResult {
@@ -42,6 +50,8 @@ export interface TextureImportJobResult {
   destinationPath?: string;
   assetObjectPath?: string;
   error?: string;
+  finalWidth?: number;
+  finalHeight?: number;
 }
 
 const jobs = new Map<string, TextureImportJob>();
@@ -49,14 +59,15 @@ const stagingRoot = path.join(os.tmpdir(), 'UEFN Entitlement Manager', 'texture-
 const JOB_TTL_MS = 15 * 60 * 1000;
 const CLAIM_TIMEOUT_MS = 120 * 1000;
 const MAX_PENDING_TEXTURE_JOBS = 32;
-export async function normalizePngToPowerOfTwo(pngBuffer: Buffer): Promise<Buffer> {
-  const image = sharp(pngBuffer, { failOn: 'error' });
+export async function normalizeImageToPowerOfTwo(imageBuffer: Buffer): Promise<Buffer> {
+  const image = sharp(imageBuffer, { failOn: 'error', limitInputPixels: 8192 * 8192 });
   const metadata = await image.metadata();
-  if (!metadata.width || !metadata.height || metadata.format !== 'png') {
-    throw new Error('Uploaded image is not a readable PNG.');
+  if (!metadata.width || !metadata.height || !metadata.format || !['png', 'jpeg', 'webp', 'gif', 'avif', 'tiff'].includes(metadata.format)) {
+    throw new Error('The selected image is not a supported readable image.');
   }
   const layout = calculatePowerOfTwoTextureLayout(metadata.width, metadata.height);
-  if (!layout.normalized) return pngBuffer;
+  if (!layout.normalized && metadata.format === 'png') return imageBuffer;
+  if (!layout.normalized) return image.png().toBuffer();
   return image
     .resize(layout.targetWidth, layout.targetHeight, {
       fit: 'contain',
@@ -66,6 +77,9 @@ export async function normalizePngToPowerOfTwo(pngBuffer: Buffer): Promise<Buffe
     .png()
     .toBuffer();
 }
+
+/** Compatibility name retained for the existing manual PNG workflow. */
+export const normalizePngToPowerOfTwo = normalizeImageToPowerOfTwo;
 
 function removeSource(job: TextureImportJob): void {
   if (fs.existsSync(job.sourcePath)) fs.unlinkSync(job.sourcePath);
@@ -100,7 +114,7 @@ export async function queueTextureImport(assetFolderName: string, assetName: str
   cleanupTextureImportJobs();
   const pending = [...jobs.values()].filter(job => job.status === 'queued' || job.status === 'processing').length;
   if (pending >= MAX_PENDING_TEXTURE_JOBS) throw new Error(`Too many texture imports are pending. Finish or retry existing jobs before adding another (limit ${MAX_PENDING_TEXTURE_JOBS}).`);
-  const normalizedPng = await normalizePngToPowerOfTwo(pngBuffer);
+  const normalizedPng = await normalizeImageToPowerOfTwo(pngBuffer);
   fs.mkdirSync(stagingRoot, { recursive: true });
   const jobId = crypto.randomUUID();
   const temporaryPath = path.join(stagingRoot, `.${jobId}.tmp`);
@@ -115,6 +129,31 @@ export async function queueTextureImport(assetFolderName: string, assetName: str
     assetName,
     verseAssetPath: `${assetFolderName}.${assetName}`,
     sourcePath,
+    sourceKind: 'local-image',
+    createdAt: new Date().toISOString(),
+  };
+  jobs.set(jobId, job);
+  return publicJob(job);
+}
+
+export function queueTextureAdoption(assetFolderName: string, assetName: string, sourceAssetPath: string): TextureImportJobResponse {
+  cleanupTextureImportJobs();
+  if (!/^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*\.[A-Za-z_][A-Za-z0-9_]*$/.test(sourceAssetPath)) {
+    throw new Error('The existing Texture2D path must be a project asset object path such as /ProjectMount/OldShopIcons/Vip.Vip.');
+  }
+  const pending = [...jobs.values()].filter(job => job.status === 'queued' || job.status === 'processing').length;
+  if (pending >= MAX_PENDING_TEXTURE_JOBS) throw new Error(`Too many texture imports are pending. Finish or retry existing jobs before adding another (limit ${MAX_PENDING_TEXTURE_JOBS}).`);
+  fs.mkdirSync(stagingRoot, { recursive: true });
+  const jobId = crypto.randomUUID();
+  const job: TextureImportJob = {
+    jobId,
+    status: 'queued',
+    assetFolderName,
+    assetName,
+    verseAssetPath: `${assetFolderName}.${assetName}`,
+    sourcePath: path.join(stagingRoot, `${jobId}.png`),
+    sourceKind: 'uefn-texture',
+    sourceAssetPath,
     createdAt: new Date().toISOString(),
   };
   jobs.set(jobId, job);
@@ -138,6 +177,16 @@ export function getTextureImportJob(jobId: string): TextureImportJobResponse {
   return publicJob(getJobOrThrow(jobId));
 }
 
+export async function normalizeTextureImportJob(jobId: string): Promise<TextureImportJobResponse> {
+  const job = getJobOrThrow(jobId);
+  if (job.status !== 'processing') throw new Error('Only a claimed texture import can be normalized.');
+  const normalized = await normalizeImageToPowerOfTwo(fs.readFileSync(job.sourcePath));
+  const temporaryPath = `${job.sourcePath}.normalized`;
+  fs.writeFileSync(temporaryPath, normalized, { flag: 'wx' });
+  fs.renameSync(temporaryPath, job.sourcePath);
+  return publicJob(job);
+}
+
 export function finishTextureImport(jobId: string, result: TextureImportJobResult, contentRoot?: string): TextureImportJobResponse {
   const job = getJobOrThrow(jobId);
   if (job.status !== 'processing') throw new Error('Only a claimed texture import can be completed.');
@@ -152,6 +201,8 @@ export function finishTextureImport(jobId: string, result: TextureImportJobResul
   job.status = finalResult.success ? 'completed' : 'failed';
   job.destinationPath = finalResult.destinationPath;
   job.assetObjectPath = finalResult.assetObjectPath;
+  job.finalWidth = finalResult.finalWidth;
+  job.finalHeight = finalResult.finalHeight;
   job.error = finalResult.error;
   job.completedAt = new Date().toISOString();
   job.claimedAt = undefined;

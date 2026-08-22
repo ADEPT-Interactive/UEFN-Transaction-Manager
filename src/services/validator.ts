@@ -5,6 +5,7 @@ import { characterCount, generatedOfferDescription, MARKETPLACE_CONSTRAINTS } fr
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
+import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
@@ -355,7 +356,11 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     if (entitlement && entry.offerVerseKey && !(entitlement.alternateOffers ?? []).some(offer => offer.verseKey.toLowerCase() === entry.offerVerseKey!.toLowerCase())) {
       issues.push(issue(`${id}-item-${index}-offer`, 'error', 'Bundle offer variant does not exist on the referenced entitlement.', 'bundle_offer_variant_exists', 'items', undefined, id));
     }
-    if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || (entitlement && entry.quantity > entitlement.maxCount)) {
+    const quantityBehavior = bundleQuantityBehavior(bundle, entry);
+    if (quantityBehavior !== 'fixed' && nestedBundle) {
+      issues.push(issue(`${id}-item-${index}-dynamic-nested`, 'error', 'Runtime quantities currently support configured entitlement entries only. Keep nested bundles fixed.', 'dynamic_bundle_nested', 'items', undefined, id));
+    }
+    if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || (quantityBehavior === 'fixed' && entitlement && entry.quantity > entitlement.maxCount)) {
       const maxText = entitlement ? ` and its MaxCount (${entitlement.maxCount})` : '';
       issues.push(issue(`${id}-item-${index}-quantity`, 'error', `${label} entry ${index + 1} quantity must be a positive safe integer${maxText}. Current value: ${String(entry.quantity)}.`, 'bundle_quantity', 'items', undefined, id));
     }
@@ -368,6 +373,12 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   }
   if (bundle.dynamicRemaining && bundleEntries.length === 1 && bundleEntries[0]?.entitlementId && bundleEntries[0].quantity !== 1) {
     issues.push(issue(`${id}-dynamic-quantity`, 'error', 'A dynamic remaining bundle must use quantity 1; the purchase-time remaining quantity replaces this entry quantity.', 'dynamic_bundle_quantity', 'items', undefined, id));
+  }
+  if (dynamicPriceEnabled(bundle.dynamicOffer) && bundle.priceVBucks < MARKETPLACE_CONSTRAINTS.priceMinVBucks) {
+    issues.push(issue(`${id}-runtime-price-template`, 'error', `${label} needs a valid fallback price while its runtime price is configured.`, 'dynamic_price_template', 'priceVBucks', undefined, id));
+  }
+  if (isDynamicBundle(bundle) && !bundleEntries.some(entry => bundleQuantityBehavior(bundle, entry) !== 'fixed') && !dynamicPriceEnabled(bundle.dynamicOffer)) {
+    issues.push(issue(`${id}-dynamic-empty`, 'error', `${label} is marked for runtime behavior but no quantity or price is configured for Verse to provide.`, 'dynamic_configuration_empty', 'dynamicOffer', undefined, id));
   }
   const depth = (candidate: BundleOffer, path: Set<string>): number | undefined => {
     if (path.has(candidate.id)) return undefined;
@@ -445,8 +456,8 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
       issues.push(issue(`${groupId}-entry-${index}-missing`, 'error', 'Offer display entries must reference exactly one existing entitlement offer or bundle.', 'offer_display_reference_exists', 'entries'));
       continue;
     }
-    if (bundle?.dynamicRemaining) {
-      issues.push(issue(`${groupId}-entry-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only because a storefront cannot calculate player-specific remaining quantity.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, groupId));
+    if (bundle && isDynamicBundle(bundle)) {
+      issues.push(issue(`${groupId}-entry-${index}-dynamic`, 'error', 'Runtime-configured bundles are direct-purchase-only because a fixed storefront cannot supply per-player values.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, groupId));
     }
     if (item && entry.offerVerseKey && entry.offerVerseKey.toLowerCase() !== item.verseKey.toLowerCase() && !(item.alternateOffers ?? []).some(offer => offer.verseKey.toLowerCase() === entry.offerVerseKey!.toLowerCase() || offer.id.toLowerCase() === entry.offerVerseKey!.toLowerCase())) {
       issues.push(issue(`${groupId}-entry-${index}-variant`, 'error', 'Offer display variant does not exist on the referenced entitlement.', 'offer_display_variant_exists', 'entries'));
@@ -472,8 +483,8 @@ function validateStorefrontEntries(
       issues.push(issue(`storefront-${label}-${index}-missing`, 'error', `${label} references an offer that does not exist or is ambiguous.`, 'storefront_offer_reference_exists', 'entries'));
       return;
     }
-    if (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining) {
-      issues.push(issue(`storefront-${label}-${index}-dynamic`, 'error', 'Dynamic remaining bundles are direct-purchase-only and cannot be included in a storefront.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, resolved.bundle.id));
+    if (resolved.kind === 'bundle' && isDynamicBundle(resolved.bundle)) {
+      issues.push(issue(`storefront-${label}-${index}-dynamic`, 'error', 'Runtime-configured bundles are direct-purchase-only and cannot be included in a fixed storefront.', 'dynamic_bundle_storefront_unsupported', 'entries', undefined, resolved.bundle.id));
     }
     const key = offerDisplayEntryKey(resolved.entry);
     if (seen.has(key)) issues.push(issue(`storefront-${label}-${index}-duplicate`, 'error', `${label} contains the same offer more than once.`, 'storefront_offer_reference_unique', 'entries'));

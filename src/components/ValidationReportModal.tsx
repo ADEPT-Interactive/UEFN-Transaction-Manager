@@ -6,22 +6,30 @@ import { useModalFocus } from '../hooks/useModalFocus';
 interface ValidationReportModalProps {
   isOpen: boolean;
   issues: ValidationIssue[];
+  dismissedWarnings: ValidationIssue[];
   entitlements: EntitlementItem[];
   isSetupIncomplete: boolean;
   onCreateEntitlement: () => void;
   onOpenSettings: () => void;
   onSelectEntitlement: (item: EntitlementItem) => void;
+  onDismissWarning: (issue: ValidationIssue) => void;
+  onRestoreWarning: (issue: ValidationIssue) => void;
+  onRestoreAllWarnings: () => void;
   onClose: () => void;
 }
 
 export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
   isOpen,
   issues,
+  dismissedWarnings,
   entitlements,
   isSetupIncomplete,
   onCreateEntitlement,
   onOpenSettings,
   onSelectEntitlement,
+  onDismissWarning,
+  onRestoreWarning,
+  onRestoreAllWarnings,
   onClose,
   }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -121,7 +129,9 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
                           </div>
                         </div>
 
-                        {matchedEnt ? (
+                        {issue.severity === 'warning' ? (
+                          <button type="button" onClick={() => onDismissWarning(issue)} className="shrink-0 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20">Dismiss</button>
+                        ) : matchedEnt ? (
                           <button onClick={() => { onClose(); onSelectEntitlement(matchedEnt); }} className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-lg border border-cyan-500/20 shrink-0 transition-colors"><span>Fix Item</span><ArrowRight className="w-3 h-3" /></button>
                         ) : issue.ruleName === 'entitlements_min' ? (
                           <button onClick={() => { onClose(); onCreateEntitlement(); }} className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-lg border border-cyan-500/20 shrink-0 transition-colors"><span>Create offer</span><ArrowRight className="w-3 h-3" /></button>
@@ -143,6 +153,7 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
               </p>
             </div>
           )}
+          {dismissedWarnings.length > 0 && <section aria-labelledby="dismissed-warnings" className="mt-6 border-t border-slate-800 pt-4"><div className="flex items-center justify-between gap-3"><h3 id="dismissed-warnings" className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Dismissed warnings ({dismissedWarnings.length})</h3><button type="button" onClick={onRestoreAllWarnings} className="text-[11px] font-bold text-cyan-300 hover:text-cyan-200">Restore all</button></div><div className="mt-3 space-y-2">{dismissedWarnings.map(issue => <div key={issue.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs"><span className="text-slate-400">{issue.message}</span><button type="button" onClick={() => onRestoreWarning(issue)} className="shrink-0 font-bold text-cyan-300 hover:text-cyan-200">Restore</button></div>)}</div></section>}
         </div>
 
         {/* Modal Footer */}

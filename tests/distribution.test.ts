@@ -6,14 +6,14 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '..');
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8');
 
-test('4.1.0 distribution contract uses the ADEPT generic updater and renamed human aliases', () => {
+test('4.2.0 distribution contract uses the ADEPT generic updater and renamed human aliases', () => {
   const version = JSON.parse(read('version.json')).version as string;
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const builder = JSON.parse(read('electron-builder.json'));
   const readme = read('README.md');
   const userReadme = read('README-USER.txt');
-  assert.equal(version, '4.1.0');
+  assert.equal(version, '4.2.0');
   assert.equal(pkg.version, version);
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);

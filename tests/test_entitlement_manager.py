@@ -190,6 +190,84 @@ class EntitlementManagerPathTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_existing_texture_adoption_exports_through_unreal_before_import(self):
+        import entitlement_manager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = os.path.join(temp_dir, "adopted.png")
+            imported_paths = []
+
+            class TextureClass:
+                @staticmethod
+                def get_name():
+                    return "Texture2D"
+
+            class Texture:
+                @staticmethod
+                def get_class():
+                    return TextureClass()
+
+            class AssetImportTask:
+                imported_object_paths = []
+
+            class EditorAssetLibrary:
+                @staticmethod
+                def get_project_root_asset_directory():
+                    return "/ProjectMount/"
+
+                @staticmethod
+                def load_asset(path):
+                    return Texture() if path in {
+                        "/ProjectMount/OldShopIcons/Vip.Vip",
+                        "/ProjectMount/EntitlementIcons/VipPass.VipPass",
+                    } else None
+
+                @staticmethod
+                def make_directory(_path):
+                    pass
+
+                @staticmethod
+                def does_asset_exist(path):
+                    return path.endswith("VipPass.VipPass")
+
+                @staticmethod
+                def save_asset(_path):
+                    return True
+
+                @staticmethod
+                def sync_browser_to_objects(_paths):
+                    pass
+
+            class AssetTools:
+                @staticmethod
+                def import_asset_tasks(tasks):
+                    tasks[0].imported_object_paths = ["/ProjectMount/EntitlementIcons/VipPass.VipPass"]
+                    imported_paths.append(tasks[0].filename)
+
+            class RenderingLibrary:
+                @staticmethod
+                def export_texture2d(_world, _texture, directory, filename):
+                    with open(os.path.join(directory, filename + ".png"), "wb") as exported:
+                        exported.write(b"png")
+
+            unreal = types.SimpleNamespace(
+                EditorAssetLibrary=EditorAssetLibrary,
+                RenderingLibrary=RenderingLibrary,
+                AssetImportTask=AssetImportTask,
+                AssetToolsHelpers=types.SimpleNamespace(get_asset_tools=lambda: AssetTools()),
+                log=lambda _message: None,
+            )
+            with mock.patch.dict(sys.modules, {"unreal": unreal}):
+                result = entitlement_manager.import_texture_job({
+                    "assetFolderName": "EntitlementIcons",
+                    "assetName": "VipPass",
+                    "sourcePath": source_path,
+                    "sourceKind": "uefn-texture",
+                    "sourceAssetPath": "/ProjectMount/OldShopIcons/Vip.Vip",
+                })
+            self.assertEqual(result["assetObjectPath"], "/ProjectMount/EntitlementIcons/VipPass.VipPass")
+            self.assertEqual(imported_paths, [source_path])
+
     def test_editor_bridge_requests_use_the_editor_session_header(self):
         import entitlement_manager
 

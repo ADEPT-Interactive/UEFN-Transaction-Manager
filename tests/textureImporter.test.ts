@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import sharp from 'sharp';
-import { claimNextTextureImport, cleanupTextureImportJobs, finishTextureImport, getTextureImportJob, normalizePngToPowerOfTwo, queueTextureImport, resetTextureImportJob } from '../server/textureImporter';
+import { claimNextTextureImport, cleanupTextureImportJobs, finishTextureImport, getTextureImportJob, normalizeImageToPowerOfTwo, normalizePngToPowerOfTwo, queueTextureAdoption, queueTextureImport, resetTextureImportJob } from '../server/textureImporter';
 import { listProjectIconPreviews, resolveProjectIconPreview } from '../server/iconPreviews';
 import { calculatePowerOfTwoTextureLayout } from '../src/services/textureDimensions';
 
@@ -31,6 +31,14 @@ test('power-of-two images bypass normalization byte-for-byte', async () => {
   const largePowerOfTwo = calculatePowerOfTwoTextureLayout(8192, 4096);
   assert.equal(largePowerOfTwo.normalized, false);
   assert.deepEqual([largePowerOfTwo.targetWidth, largePowerOfTwo.targetHeight], [8192, 4096]);
+});
+
+test('accepted non-PNG images are converted to canonical PNG', async () => {
+  const jpeg = await sharp({ create: { width: 300, height: 500, channels: 3, background: { r: 24, g: 180, b: 220 } } }).jpeg().toBuffer();
+  const normalized = await normalizeImageToPowerOfTwo(jpeg);
+  const metadata = await sharp(normalized).metadata();
+  assert.equal(metadata.format, 'png');
+  assert.deepEqual([metadata.width, metadata.height], [256, 512]);
 });
 
 test('non-power-of-two images use the closest shape and preserve their aspect ratio', async () => {
@@ -108,6 +116,22 @@ test('failed texture imports can be retried without exposing the source to the b
   assert.equal(failed.status, 'failed');
   assert.equal('sourcePath' in failed, false);
   assert.equal(resetTextureImportJob(queued.jobId).status, 'queued');
+});
+
+test('existing Texture2D adoption is a validated editor job and never accepts filesystem paths', () => {
+  assert.throws(() => queueTextureAdoption('EntitlementIcons', 'VipPass', 'C:\\Project\\Vip.uasset'), /project asset object path/);
+  const queued = queueTextureAdoption('EntitlementIcons', 'VipPass', '/ProjectMount/OldShopIcons/Vip.Vip');
+  assert.equal(queued.status, 'queued');
+  assert.equal(queued.sourceKind, 'uefn-texture');
+  assert.equal(queued.sourceAssetPath, '/ProjectMount/OldShopIcons/Vip.Vip');
+  let claimed = claimNextTextureImport();
+  while (claimed && claimed.jobId !== queued.jobId) {
+    finishTextureImport(claimed.jobId, { success: false, error: 'test cleanup' });
+    claimed = claimNextTextureImport();
+  }
+  assert.equal(claimed?.sourceKind, 'uefn-texture');
+  assert.equal(claimed?.sourceAssetPath, '/ProjectMount/OldShopIcons/Vip.Vip');
+  finishTextureImport(queued.jobId, { success: false, error: 'test cleanup' });
 });
 
 test('stale texture jobs expire and release their staged source', async () => {

@@ -4,8 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import childProcess from 'child_process';
-import { claimNextTextureImport, finishTextureImport, getTextureImportJob, queueTextureImport, resetTextureImportJob } from './textureImporter';
-import { assertExistingPathInsideRoot, isPng, tokensEqual, validateIdentifier, validateVerseFileName } from './security';
+import { claimNextTextureImport, finishTextureImport, getTextureImportJob, normalizeTextureImportJob, queueTextureAdoption, queueTextureImport, resetTextureImportJob } from './textureImporter';
+import { assertExistingPathInsideRoot, tokensEqual, validateIdentifier, validateVerseFileName } from './security';
 import { compileVerseProject } from './workflowClient';
 import { listProjectIconPreviews, resolveProjectIconPreview } from './iconPreviews';
 import versionInfo from '../version.json';
@@ -326,7 +326,7 @@ app.post('/api/verse/save', (req, res) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 3 },
-  fileFilter: (_req, file, callback) => callback(null, file.mimetype === 'image/png'),
+  fileFilter: (_req, file, callback) => callback(null, /^image\/(png|jpeg|webp|gif|avif|tiff)$/i.test(file.mimetype)),
 });
 
 app.post('/api/texture/import', upload.single('image'), async (req, res) => {
@@ -341,13 +341,24 @@ app.post('/api/texture/import', upload.single('image'), async (req, res) => {
           : 'Native texture import needs Python Editor Scripting. Enable it for this UEFN project; Transaction Manager detects it immediately and attaches automatically.',
       });
     }
-    if (!req.file) throw new Error('A PNG image is required.');
-    if (!isPng(req.file.buffer)) throw new Error('Uploaded file does not have a valid PNG signature.');
+    if (!req.file) throw new Error('A supported image file is required.');
     const assetFolderName = validateIdentifier(req.body.assetFolderName, 'Asset folder');
     const assetName = validateIdentifier(req.body.assetName, 'Asset name');
     res.status(202).json(await queueTextureImport(assetFolderName, assetName, req.file.buffer));
   } catch (error) {
-    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Failed to queue PNG texture import.' });
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Failed to queue texture import.' });
+  }
+});
+
+app.post('/api/texture/adopt', async (req, res) => {
+  try {
+    if (!editorSessionIsFresh()) return res.status(409).json({ success: false, error: 'The verified UEFN editor session is not connected.' });
+    const assetFolderName = validateIdentifier(req.body.assetFolderName, 'Asset folder');
+    const assetName = validateIdentifier(req.body.assetName, 'Asset name');
+    if (typeof req.body.sourceAssetPath !== 'string') throw new Error('An existing UEFN Texture2D object path is required.');
+    res.status(202).json(queueTextureAdoption(assetFolderName, assetName, req.body.sourceAssetPath));
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Failed to queue Texture2D adoption.' });
   }
 });
 
@@ -363,6 +374,15 @@ app.get('/api/texture/import/:jobId', (req, res) => {
     res.json(getTextureImportJob(jobId));
   } catch (error) {
     res.status(404).json({ success: false, error: error instanceof Error ? error.message : 'Texture import job was not found.' });
+  }
+});
+
+app.post('/api/texture/import/:jobId/normalize', requireEditorToken, async (req, res) => {
+  try {
+    const jobId = typeof req.params.jobId === 'string' ? req.params.jobId : '';
+    res.json(await normalizeTextureImportJob(jobId));
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Failed to normalize the adopted texture.' });
   }
 });
 
@@ -422,7 +442,7 @@ app.get('*', (_req, res) => {
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (error instanceof multer.MulterError) return res.status(400).json({ success: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'PNG must be 5 MB or smaller.' : error.message });
+  if (error instanceof multer.MulterError) return res.status(400).json({ success: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Images must be 5 MB or smaller.' : error.message });
   return res.status(500).json({ success: false, error: 'Unexpected bridge error.' });
 });
 

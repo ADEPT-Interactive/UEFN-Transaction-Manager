@@ -177,7 +177,38 @@ def _bridge_request(port, token, route, method="GET", payload=None):
         return json.loads(response.read().decode("utf-8"))
 
 
-def import_texture_job(job):
+def _export_existing_texture(job, unreal):
+    """Export a verified Texture2D through Unreal's editor API, never by reading .uasset bytes."""
+    source_asset_path = str(job.get("sourceAssetPath", ""))
+    if not source_asset_path.startswith("/") or "." not in source_asset_path.rsplit("/", 1)[-1]:
+        raise RuntimeError("The existing source must be a project Texture2D object path.")
+    editor_asset_library = getattr(unreal, "EditorAssetLibrary", None)
+    load_asset = getattr(editor_asset_library, "load_asset", None) if editor_asset_library else None
+    if not load_asset:
+        raise RuntimeError("UEFN does not expose the verified editor asset loader required for Texture2D adoption.")
+    texture = load_asset(source_asset_path)
+    if texture is None:
+        raise RuntimeError(f"UEFN could not load the existing texture asset {source_asset_path}.")
+    texture_class = str(getattr(getattr(texture, "get_class", lambda: "")(), "get_name", lambda: "")())
+    if texture_class and texture_class.lower() != "texture2d":
+        raise RuntimeError(f"The selected asset is {texture_class}, not a Texture2D.")
+    rendering_library = getattr(unreal, "RenderingLibrary", None)
+    export_texture = getattr(rendering_library, "export_texture2d", None) if rendering_library else None
+    if not export_texture:
+        raise RuntimeError("UEFN does not expose RenderingLibrary.export_texture2d for this editor session.")
+    destination = str(job.get("sourcePath", ""))
+    directory = os.path.dirname(destination)
+    filename = os.path.splitext(os.path.basename(destination))[0]
+    export_texture(None, texture, directory, filename)
+    candidates = [destination, os.path.join(directory, filename + ".png"), os.path.join(directory, filename + ".hdr")]
+    exported = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+    if not exported:
+        raise RuntimeError(f"UEFN did not export Texture2D {source_asset_path} to the adoption staging path.")
+    if exported != destination:
+        os.replace(exported, destination)
+
+
+def import_texture_job(job, normalize_adopted_texture=None):
     """Import one queued PNG through UEFN's editor APIs on the editor thread."""
     import unreal
 
@@ -186,6 +217,12 @@ def import_texture_job(job):
     source_path = str(job.get("sourcePath", ""))
     if not VERSE_IDENTIFIER_PATTERN.fullmatch(asset_folder) or not VERSE_IDENTIFIER_PATTERN.fullmatch(asset_name):
         raise RuntimeError("The texture job contains an invalid UEFN asset identifier.")
+    if job.get("sourceKind") == "uefn-texture":
+        _export_existing_texture(job, unreal)
+        if normalize_adopted_texture is not None:
+            normalized = normalize_adopted_texture(job.get("jobId"))
+            if not normalized or normalized.get("success") is False:
+                raise RuntimeError((normalized or {}).get("error", "The adopted texture could not be normalized before import."))
     if not os.path.isfile(source_path):
         raise RuntimeError("The confirmed PNG is no longer available to the UEFN editor bridge.")
 
@@ -351,7 +388,16 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             return
 
         try:
-            results.put(import_texture_job(job))
+            results.put(import_texture_job(
+                job,
+                lambda job_id: _bridge_request(
+                    port,
+                    editor_token,
+                    f"/api/texture/import/{job_id}/normalize",
+                    method="POST",
+                    payload={},
+                ),
+            ))
         except Exception as error:
             results.put({"success": False, "error": str(error)})
 

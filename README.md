@@ -3,7 +3,7 @@
   <h1>UEFN Transaction Manager</h1>
   <p><strong>Build and manage an in-island transaction catalog without hand-writing the full Verse implementation.</strong></p>
   <p>
-    <img alt="Version 4.1.0" src="https://img.shields.io/badge/version-4.1.0-24c7dd?style=flat-square">
+    <img alt="Version 4.2.0" src="https://img.shields.io/badge/version-4.2.0-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="https://discord.gg/playadept"><img alt="ADEPT Discord" src="https://img.shields.io/discord/790712680482603038?label=Discord&logo=discord&logoColor=white&color=5865F2&style=flat-square"></a>
@@ -20,13 +20,13 @@
 
 UEFN Transaction Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It links directly to the UEFN project you have open, turns entitlements, offers, alternate offers, bundles, storefronts, pricing, restrictions, and gameplay hooks into project-ready Verse, then saves and compiles it through that live UEFN session.
 
-![A connected UEFN project with a visual entitlement catalog and custom icons](docs/screenshots/catalog-overview.png)
+![A connected UEFN project with a visual entitlement catalog and custom icons](docs/screenshots/phase28-main-workspace.png)
 
 ## Connected directly to UEFN
 
-Transaction Manager is more than a standalone Verse generator. Its launcher finds active and recent `.uefnproject` files, confirms the project you intend to edit, and starts a local project bridge restricted to that project's `Content` directory. **Save & Compile** writes the generated Verse with a backup, then requests a real compile from the Verse Workflow Server running with UEFN.
+Transaction Manager is more than a standalone Verse generator. Its launcher finds active and recent `.uefnproject` files, confirms the project you intend to edit, and starts a local project bridge restricted to that project's `Content` directory. **Save**, then **Compile** writes the generated Verse with a backup and requests a real compile from the Verse Workflow Server running with UEFN.
 
-When Python Editor Scripting is enabled, Transaction Manager also installs and attaches its project connector automatically. Confirmed PNGs enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Save & Compile** reports UEFN's compile result directly.
+When Python Editor Scripting is enabled, Transaction Manager also installs and attaches its project connector automatically. Confirmed supported raster images enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Existing project Texture2D assets can also be adopted through Unreal's editor export API, then pass through the same normalization/import queue. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Compile** reports UEFN's compile result directly.
 
 Verse compilation discovers the active UEFN-owned loopback Workflow Server session at runtime. Transaction Manager does not require users to configure a port, does not launch VS Code for compilation, and refuses ambiguous or non-local endpoints. UEFN must be running with the linked project loaded. Developers and automated tests may use the loopback-only `UEM_VERSE_COMPILER_ENDPOINT=host:port` override; normal users should not configure it. See [Verse compiler portability](docs/VERSE_COMPILER_PORTABILITY.md) for the discovery contract and diagnostic states. The reusable standalone interoperability project is [ADEPT-Interactive/uefn-verse-compiler](https://github.com/ADEPT-Interactive/uefn-verse-compiler).
 
@@ -35,7 +35,8 @@ Verse compilation discovers the active UEFN-owned loopback Workflow Server sessi
 - Create durable, consumable, time-limited, access, and paid-random entitlements.
 - Build individual offers, alternate variants, nested bundles, and focused storefront displays with explicit offer membership.
 - Configure V-Bucks prices, age requirements, country restrictions, and platform restrictions.
-- Import PNG artwork as native Texture2D assets and use it in generated offers.
+- Configure runtime-priced direct, alternate, and bundle offers with typed Verse options and preflight validation.
+- Import supported raster artwork as native Texture2D assets, or adopt an existing UEFN Texture2D through the editor bridge.
 - Generate canonical stable-key-based grant, removal, and reconciliation events for your gameplay code.
 - Use deliberate Trigger bindings by default, with optional Purchase Button bindings under Advanced settings. Passive zone entry is not a purchase binding.
 - Save and reopen each project's catalog without rebuilding it from scratch.
@@ -63,7 +64,7 @@ The installer registers Transaction Manager with Windows Start/Search and Add or
 1. Add entitlements and configure their prices, limits, descriptions, icons, and gameplay options.
 2. Add bundles or focused storefronts when your catalog needs them, then edit Storefront membership to choose the concrete offers shown in All Offers and each focused store.
 3. Resolve any validation errors and review advisory warnings.
-4. Select **Save & Compile** to update `managed_transactions.verse` and compile it in UEFN.
+4. Select **Save**, then **Compile** to update `managed_transactions.verse` and compile it in UEFN.
 5. Find the generated `managed_transactions_device` in UEFN's Content Browser and place it in your island.
 6. Connect the generated Trigger arrays or public events and functions to your gameplay systems.
 7. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session.
@@ -74,7 +75,7 @@ Transaction Manager creates the transaction interface, but your project remains 
 
 Transaction Manager validates known Marketplace and generator constraints before it writes generated Verse. Errors block generated-file save and compilation, while warnings keep the project usable and call out responsibilities Transaction Manager cannot verify, such as external paid-random odds disclosure. The manager does not round prices, truncate text, or require odds to be entered in its optional paid-random field.
 
-The current checks follow Epic's [Creating Items and Offers](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite) and [In-Island Transactions Restrictions](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-restrictions-in-fortnite) guidance for price, text, MaxCount, bundle depth, entitlement identifiers, restrictions, and paid-random classification. Transaction Manager-specific validation also protects stable Verse identifiers, generated symbols, explicit storefront membership, and the supported dynamic bundle shape: one entitlement at quantity 1, direct purchase only, with no nested contents.
+The current checks follow Epic's [Creating Items and Offers](https://dev.epicgames.com/documentation/en-us/fortnite/creating-items-and-offers-in-fortnite) and [In-Island Transactions Restrictions](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-restrictions-in-fortnite) guidance for price, text, MaxCount, bundle depth, entitlement identifiers, restrictions, and paid-random classification. Transaction Manager-specific validation also protects stable Verse identifiers, generated symbols, explicit storefront membership, and runtime offer values. Runtime-configured bundles remain direct purchase only; the compatibility-preserving fill-to-max shape is one entitlement at quantity 1, while runtime quantity bundles expose typed values and reject zero or over-limit entries before opening Marketplace.
 
 ## Generated Verse API
 
@@ -148,7 +149,11 @@ To import PNGs directly into the UEFN Content Browser:
 
 No restart is needed. Transaction Manager installs and connects the project helper automatically when the project is linked.
 
-Power-of-two PNGs are imported without any modification. Other sizes are scaled uniformly to the closest suitable power-of-two shape. Transparent edge space is added only when it is necessary to preserve the original aspect ratio, so artwork is never stretched or squashed.
+Power-of-two PNGs are imported without any modification. Other supported raster images are normalized to canonical PNG, then scaled uniformly to the closest suitable power-of-two shape. Transparent edge space is added only when it is necessary to preserve the original aspect ratio, so artwork is never stretched or squashed. The Icon tab also accepts a verified project Texture2D object path such as `/MyProject/Icons/VipPass.VipPass`; filesystem paths and `.uasset` byte parsing are rejected.
+
+## Phase 28 showcase and capability boundary
+
+The deterministic showcase catalog and original vector icon sources are in [docs/showcase](docs/showcase/README.md). The implementation boundary between local validation, UEFN compile acceptance, and gameplay acceptance is recorded in the [Phase 28 capability matrix](docs/PHASE28_CAPABILITY_MATRIX.md).
 
 ## Templates and in-app help
 

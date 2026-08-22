@@ -64,8 +64,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className={`sticky ${desktopHost ? 'top-8' : 'top-0'} z-40 border-b border-slate-800/80 bg-[#080d19]/96 px-4 py-3 shadow-xl shadow-black/10 backdrop-blur-md lg:px-8`}>
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
+      <div className="flex min-w-0 flex-nowrap items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-nowrap items-center gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="relative shrink-0">
               <img src="/uem-mark.svg" alt="UEFN Transaction Manager" className="h-11 w-11 rounded-xl" />
@@ -82,21 +82,21 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 border-slate-800 lg:border-l lg:pl-3">
-            <a href="https://adeptinteractive.net" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://adeptinteractive.net')} aria-label="Visit ADEPT Interactive" className="group flex items-center gap-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.07] px-3 py-1.5 transition hover:border-cyan-400/70 hover:bg-cyan-500/10">
+          <div className="flex shrink-0 flex-nowrap items-center gap-2 border-slate-800 lg:border-l lg:pl-3">
+            <a href="https://adeptinteractive.net" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://adeptinteractive.net')} aria-label="Visit ADEPT Interactive" className="group flex h-[48px] items-center gap-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.07] px-3 transition hover:border-cyan-400/70 hover:bg-cyan-500/10">
               <span className="flex h-[26px] w-[42px] shrink-0 items-center justify-center overflow-hidden" aria-hidden="true"><img src="/adept-icon-white.webp" alt="" className="h-7 w-7 object-contain [transform:scale(1.5)]" /></span>
               <span><span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Created by</span><span className="flex items-center gap-1 text-sm font-black tracking-wide text-white group-hover:text-cyan-200">ADEPT INTERACTIVE <ExternalLink className="h-3 w-3 text-cyan-400" /></span></span>
             </a>
-            <a href="https://discord.gg/playadept" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://discord.gg/playadept')} aria-label="Join the ADEPT Interactive Discord server" title="Join the ADEPT Interactive Discord server" className="flex items-center gap-2 rounded-xl border border-[#7785f7]/50 bg-[#5865F2] px-3 py-2 text-xs font-extrabold text-white shadow-md shadow-[#5865F2]/15 transition hover:bg-[#6875f5]">
+            <a href="https://discord.gg/playadept" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://discord.gg/playadept')} aria-label="Join the ADEPT Interactive Discord server" title="Join the ADEPT Interactive Discord server" className="flex h-[48px] items-center gap-2 rounded-xl border border-[#7785f7]/50 bg-[#5865F2] px-3 text-xs font-extrabold text-white shadow-md shadow-[#5865F2]/15 transition hover:bg-[#6875f5] whitespace-nowrap">
               <DiscordIcon className="h-5 w-5 shrink-0" /><span>Join Discord</span>
             </a>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-nowrap items-center gap-2">
           <button type="button" onClick={onOpenValidator} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold ${isFirstOfferStep ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : errors ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : warnings ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}><ShieldCheck className="h-3.5 w-3.5" />{isFirstOfferStep ? 'Create an offer' : errors ? `${errors} issues to fix` : warnings ? `${warnings} warnings` : 'Locally valid'}</button>
-          <button type="button" onClick={onSaveToDisk} disabled={isSaving || blocked} title={hasValidationErrors ? 'Resolve the listed issues before saving.' : 'Save the manager data to this UEFN project.'} className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-700 disabled:opacity-40"><Save className="h-3.5 w-3.5 text-cyan-300" />{isSaving ? 'Saving...' : 'Save to project'}</button>
-          <button type="button" onClick={onCompileVerse} disabled={isCompiling || blocked} title={blocked ? 'Connect UEFN and resolve the listed issues first.' : 'Save, then run an authoritative UEFN Verse compile.'} className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2 text-xs font-extrabold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-blue-400 disabled:opacity-40"><Terminal className={`h-3.5 w-3.5 ${isCompiling ? 'animate-spin' : ''}`} />{isCompiling ? 'Compiling...' : 'Save & Compile'}</button>
+          <button type="button" onClick={onSaveToDisk} disabled={isSaving || blocked} aria-label="Save project" title={hasValidationErrors ? 'Resolve the listed issues before saving.' : 'Save the manager data to this UEFN project.'} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 text-xs font-bold text-white transition hover:bg-slate-700 disabled:opacity-40"><Save className="h-3.5 w-3.5 text-cyan-300" /></button>
+          <button type="button" onClick={onCompileVerse} disabled={isCompiling || blocked} title={blocked ? 'Connect UEFN and resolve the listed issues first.' : 'Save, then run an authoritative UEFN Verse compile.'} className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-4 text-xs font-extrabold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-blue-400 disabled:opacity-40"><Terminal className={`h-3.5 w-3.5 ${isCompiling ? 'animate-spin' : ''}`} />{isCompiling ? 'Compiling...' : 'Compile'}</button>
           <div ref={toolsRef} className="relative">
             <button type="button" aria-haspopup="menu" aria-expanded={isToolsOpen} onClick={() => setIsToolsOpen(open => !open)} className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-700"><Wrench className="h-3.5 w-3.5 text-slate-400" />Tools<ChevronDown className={`h-3.5 w-3.5 transition ${isToolsOpen ? 'rotate-180' : ''}`} /></button>
             {isToolsOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-slate-700 bg-[#10182c] p-1.5 text-xs shadow-2xl">

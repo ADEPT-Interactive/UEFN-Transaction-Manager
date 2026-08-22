@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, BundleQuantityBehavior, DynamicOfferConfig, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import {
   createVerseKeyAllocator,
   isValidVerseIdentifier,
@@ -10,6 +10,7 @@ import {
   storefrontEditableName,
 } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
+import { isDynamicBundle } from './dynamicOffers';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,6 +29,11 @@ const stringArray = (value: unknown): string[] =>
 
 const normalizeStringArray = (value: unknown, uppercase = false): string[] =>
   stringArray(value).map(entry => entry.trim()).filter(Boolean).map(entry => uppercase ? entry.toUpperCase() : entry);
+
+function normalizeDynamicOffer(value: unknown): DynamicOfferConfig | undefined {
+  if (!isRecord(value) || value.priceBehavior !== 'runtime') return undefined;
+  return { priceBehavior: 'runtime' };
+}
 
 export function normalizeOfferRestrictions(value: unknown): OfferRestrictions {
   const record = isRecord(value) ? value : {};
@@ -56,6 +62,7 @@ function normalizeAlternateOffer(value: unknown, parentKey: string, index: numbe
     priceVBucks: numberValue(value.priceVBucks, 100),
     iconTexture: stringValue(value.iconTexture, `EntitlementIcons.${verseKey}`),
     restrictions: normalizeOfferRestrictions(value.restrictions),
+    dynamicOffer: normalizeDynamicOffer(value.dynamicOffer),
   };
 }
 
@@ -107,19 +114,26 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       generateTriggerBinding: booleanValue(triggers.generateTriggerBinding, true),
       generateButtonBinding: booleanValue(triggers.generateButtonBinding),
     },
+    dynamicOffer: normalizeDynamicOffer(value.dynamicOffer),
   };
 }
 
 export function normalizeBundle(value: unknown, index: number): BundleOffer {
   if (!isRecord(value)) throw new Error(`Bundle ${index + 1} must be an object.`);
+  const legacyDynamicRemaining = booleanValue(value.dynamicRemaining);
+  const dynamicOffer = normalizeDynamicOffer(value.dynamicOffer) ?? (legacyDynamicRemaining ? { priceBehavior: undefined } : undefined);
   const items = Array.isArray(value.items)
     ? value.items.map((entry, itemIndex) => {
         if (!isRecord(entry)) throw new Error(`Bundle ${index + 1}, item ${itemIndex + 1} must be an object.`);
+        const quantityBehavior = entry.quantityBehavior === 'fill-to-max' || entry.quantityBehavior === 'runtime'
+          ? entry.quantityBehavior as BundleQuantityBehavior
+          : legacyDynamicRemaining ? 'fill-to-max' : undefined;
         return {
           entitlementId: stringValue(entry.entitlementId) || undefined,
           bundleId: stringValue(entry.bundleId) || undefined,
           offerVerseKey: stringValue(entry.offerVerseKey) || undefined,
           quantity: numberValue(entry.quantity, 1),
+          ...(quantityBehavior ? { quantityBehavior } : {}),
         };
       })
     : [];
@@ -137,7 +151,10 @@ export function normalizeBundle(value: unknown, index: number): BundleOffer {
     iconImageData: stringValue(value.iconImageData) || undefined,
     ...(value.durationDescription !== undefined ? { durationDescription: stringValue(value.durationDescription) } : {}),
     ...(value.restrictions !== undefined ? { restrictions: normalizeOfferRestrictions(value.restrictions) } : {}),
-    ...(value.dynamicRemaining !== undefined ? { dynamicRemaining: booleanValue(value.dynamicRemaining) } : {}),
+    ...(dynamicOffer ? { dynamicOffer } : {}),
+    // Keep the legacy flag in the in-memory shape so older callers remain safe.
+    // cleanManagedData strips it after migration to the canonical model.
+    ...(value.dynamicRemaining !== undefined ? { dynamicRemaining: legacyDynamicRemaining } : {}),
     items,
   };
 }
@@ -199,8 +216,8 @@ function normalizeStorefrontEntry(
     diagnostics.push(`${ownerLabel} referenced an offer that no longer exists or was ambiguous; the reference was removed.`);
     return undefined;
   }
-  if (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining) {
-    diagnostics.push(`Dynamic bundle "${resolved.bundle.name || resolved.bundle.verseKey}" was removed from ${ownerLabel} because dynamic remaining-quantity bundles are direct-purchase-only.`);
+  if (resolved.kind === 'bundle' && isDynamicBundle(resolved.bundle)) {
+    diagnostics.push(`Dynamic bundle "${resolved.bundle.name || resolved.bundle.verseKey}" was removed from ${ownerLabel} because dynamic remaining-quantity bundles and other runtime-configured bundles are direct-purchase-only.`);
     return undefined;
   }
   if (resolved.kind === 'alternate' && raw.offerVerseKey !== resolved.offer.verseKey) {
@@ -476,6 +493,21 @@ export function cleanManagedData(
   const storefront = Array.isArray(storefrontInput)
     ? normalizeStorefrontMembership(undefined, entitlements, bundles, storefrontInput).membership
     : normalizeStorefrontMembership(storefrontInput, entitlements, bundles).membership;
+  const canonicalBundle = (bundle: BundleOffer, index: number): BundleOffer => {
+    const normalized = normalizeBundle(bundle, index);
+    const { dynamicRemaining: _legacyDynamicRemaining, ...withoutLegacyFlag } = normalized;
+    const items = withoutLegacyFlag.items.map(item => {
+      const { quantityBehavior, ...rest } = item;
+      return quantityBehavior ? { ...rest, quantityBehavior } : rest;
+    });
+    const hasDynamicBehavior = Boolean(withoutLegacyFlag.dynamicOffer?.priceBehavior === 'runtime'
+      || items.some(item => 'quantityBehavior' in item));
+    return {
+      ...withoutLegacyFlag,
+      items,
+      ...(hasDynamicBehavior ? { dynamicOffer: withoutLegacyFlag.dynamicOffer ?? {} } : {}),
+    };
+  };
   const clean: {
     schemaVersion: 4;
     entitlements: EntitlementItem[];
@@ -487,7 +519,7 @@ export function cleanManagedData(
     // Normalize before embedding the manifest so a parse -> regenerate cycle
     // cannot change omitted defaults into newly persisted fields.
     entitlements: entitlements.map((item, index) => stripTransientImages(normalizeEntitlement(item, index))),
-    bundles: bundles.map((bundle, index) => stripTransientImages(normalizeBundle(bundle, index))),
+    bundles: bundles.map((bundle, index) => stripTransientImages(canonicalBundle(bundle, index))),
     storefrontMembership: {
       allOffers: storefront.allOffers.map(entry => ({ ...entry })),
       focused: storefront.focused.map(group => normalizeOfferDisplayGroup(group, 0)),

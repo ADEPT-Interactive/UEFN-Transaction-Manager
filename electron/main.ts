@@ -336,9 +336,9 @@ function configureIpc() {
 
 function createMainWindow() {
   const window = new BrowserWindow({
-    width: 960,
+    width: 1280,
     height: 720,
-    minWidth: 820,
+    minWidth: 1180,
     minHeight: 620,
     show: false,
     frame: false,

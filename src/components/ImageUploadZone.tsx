@@ -84,6 +84,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [sourceAssetPath, setSourceAssetPath] = useState('');
   const activeImportRef = useRef<Promise<ConfirmedTextureImport | null> | null>(null);
 
   const folderName = assetFolderName || 'EntitlementIcons';
@@ -184,6 +185,30 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
       return await operation;
     } finally {
       activeImportRef.current = null;
+    }
+  };
+
+  const adoptExistingTexture = async () => {
+    const source = sourceAssetPath.trim();
+    if (!source || !nativeTextureImportAvailable) return;
+    setIsUploading(true);
+    setUploadStatus({ message: 'Asking UEFN to export and adopt the existing Texture2D...' });
+    try {
+      let job = await FileService.adoptTexture(folderName, cleanName, source);
+      if (!job.success || !job.jobId) throw new Error(job.error || 'The existing Texture2D could not be queued for adoption.');
+      const jobId = job.jobId;
+      for (let attempt = 0; attempt < 240 && job.status !== 'completed' && job.status !== 'failed'; attempt += 1) {
+        await wait(500);
+        job = await FileService.getTextureImport(jobId);
+      }
+      if (job.status !== 'completed') throw new Error(job.error || 'UEFN did not confirm the Texture2D adoption within two minutes.');
+      onTextureRefChange(job.verseAssetPath || defaultVerseRef);
+      setUploadStatus({ success: true, message: `Adopted ${source} into ${job.assetObjectPath || `${folderName}/${cleanName}`}.` });
+      setSourceAssetPath('');
+    } catch (error) {
+      setUploadStatus({ success: false, message: error instanceof Error ? error.message : 'Existing Texture2D adoption failed.' });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -292,6 +317,15 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
           <span>{uploadStatus.message}</span>
         </div>
       )}
+
+      <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">Adopt an existing UEFN Texture2D</label>
+        <div className="mt-2 flex gap-2">
+          <input aria-label="Existing UEFN Texture2D object path" value={sourceAssetPath} onChange={event => setSourceAssetPath(event.target.value)} placeholder="/ProjectMount/OldShopIcons/Vip.Vip" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-mono text-cyan-200" />
+          <button type="button" onClick={() => void adoptExistingTexture()} disabled={!nativeTextureImportAvailable || !sourceAssetPath.trim() || isUploading} className="shrink-0 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40">Adopt</button>
+        </div>
+        <p className="mt-1 text-[11px] leading-4 text-slate-500">UTM asks the verified editor bridge to export the asset, then saves a managed copy and preview under this folder.</p>
+      </div>
 
       <div>
         <label className="text-[11px] font-medium text-slate-400 flex items-center justify-between mb-1">

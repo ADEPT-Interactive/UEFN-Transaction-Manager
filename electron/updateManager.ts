@@ -99,7 +99,7 @@ export class UpdateManager {
         this.publish(state);
         return state;
       }
-      return this.setAvailable(result.updateInfo, manual);
+      return this.setAvailable(result.updateInfo, manual, manual);
     }).catch(error => {
       this.writeDiagnostic(`Update check failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
       if (!manual) {
@@ -144,10 +144,10 @@ export class UpdateManager {
     }
   }
 
-  private setAvailable(info: UpdateInfo, notify = true): UpdateState {
+  private setAvailable(info: UpdateInfo, notify = true, manual = false): UpdateState {
     const candidate = candidateFromInfo(info);
     this.candidate = candidate;
-    const dismissed = this.dismissedVersion === candidate.version;
+    const dismissed = !manual && this.dismissedVersion === candidate.version;
     const state = {
       status: 'available',
       currentVersion: this.currentVersion,

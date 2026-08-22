@@ -410,6 +410,18 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 </div>
               </div>
 
+              <fieldset className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.04] p-4 space-y-2">
+                <legend className="px-1 text-xs font-extrabold text-cyan-200">Runtime behavior</legend>
+                <label className="flex items-center justify-between gap-3 text-xs text-slate-300">
+                  <span><span className="block font-bold text-white">Price</span><span className="text-slate-400">Keep the template price, or let project Verse provide it at purchase time.</span></span>
+                  <select aria-label="Offer price behavior" value={formData.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(prev => ({ ...prev, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined }))} className="w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs">
+                    <option value="fixed">Fixed in UTM</option>
+                    <option value="runtime">Calculated by Verse</option>
+                  </select>
+                </label>
+                <p className="text-[11px] leading-5 text-slate-400">Runtime offers expose a typed options value and factory in generated Verse. The saved price remains a fallback for generated interaction callbacks.</p>
+              </fieldset>
+
               {showAdvanced && <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <OfferRestrictionsEditor restrictions={{ blockedCountryCodes: [], blockedPlatformFamilies: [], ...formData.offerRestrictions }} onChange={restrictions => setFormData(previous => ({ ...previous, offerRestrictions: restrictions }))} />
               </div>}
@@ -428,6 +440,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price behavior</span><span className="text-slate-500">Verse may provide this variant's price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed in UTM</option><option value="runtime">Calculated by Verse</option></select></label>
                     <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
                   </div>
                 ))}

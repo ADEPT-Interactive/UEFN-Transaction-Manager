@@ -4,6 +4,7 @@ import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
 import { generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
+import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
 import {
   EDITABLE_CATEGORY_LABELS,
   EDITABLE_METADATA_SYMBOLS,
@@ -244,6 +245,65 @@ function offerClass(
   ].filter(Boolean).join('\n');
 }
 
+function dynamicOfferClass(
+  key: string,
+  metadataKey: string,
+  entitlementKey: string,
+  priceModule: string,
+  priceKey: string,
+  iconTexture: string,
+  restrictions: OfferRestrictions | undefined,
+): string {
+  return [
+    `    ${key}_dynamic_offer<public> := class(entitlement_offer):`,
+    `        var Name<override>:message = ${metadataKey}.Name`,
+    `        var Description<override>:message = ${metadataKey}.Description`,
+    `        var ShortDescription<override>:message = ${metadataKey}.ShortDescription`,
+    `        var Icon<override>:texture = ${iconTexture}`,
+    `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementKey}_entitlement`,
+    `        var RuntimePrice:float = ${priceModule}.${priceKey}`,
+    `        Price<override>:price_dimension = MakePriceVBucks(RuntimePrice)`,
+    restrictionLines(restrictions),
+    '',
+  ].filter(Boolean).join('\n');
+}
+
+function runtimePriceChoices(): string {
+  return Array.from(
+    { length: (MARKETPLACE_CONSTRAINTS.priceMaxVBucks - MARKETPLACE_CONSTRAINTS.priceMinVBucks) / MARKETPLACE_CONSTRAINTS.priceStepVBucks + 1 },
+    (_, index) => `${MARKETPLACE_CONSTRAINTS.priceMinVBucks + index * MARKETPLACE_CONSTRAINTS.priceStepVBucks}.0`,
+  ).map(value => `PriceVBucks = ${value}`).join(' or ');
+}
+
+function runtimePriceValidationLines(functionName: string): string[] {
+  return [
+    `    ${functionName}(PriceVBucks:float):logic =`,
+    `        if (${runtimePriceChoices()}):`,
+    '            return true',
+    '        false',
+    '',
+  ];
+}
+
+function directRuntimeOfferLines(
+  itemKey: string,
+  offersModule: string,
+): string[] {
+  const pascal = toVerseApiStem(itemKey);
+  const optionType = `${pascal}RuntimeOptions`;
+  return [
+    `    ${optionType}<public> := struct:`,
+    '        PriceVBucks:float',
+    '',
+    ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
+    `    Make${pascal}DynamicOffer<public>(Options:${optionType}):?offer =`,
+    `        if (not IsValid${pascal}RuntimePrice(Options.PriceVBucks)):`,
+    '            return false',
+    `        option{${offersModule}.${itemKey}_dynamic_offer{RuntimePrice := Options.PriceVBucks}}`,
+    '',
+  ];
+}
+
 type GeneratedBundleOffer = {
   key: string;
   metadataKey: string;
@@ -285,11 +345,35 @@ function bundleOfferClass(
   ].filter(Boolean).join('\n');
 }
 
+function dynamicBundleOfferClass(source: GeneratedBundleOffer, runtimePrice: boolean): string {
+  const classKey = `${source.key}_dynamic`;
+  return [
+    `    ${classKey}_offer<public> := class(bundle_offer):`,
+    `        var Name<override>:message = ${source.metadataKey}.Name`,
+    `        var Description<override>:message = ${source.metadataKey}.Description`,
+    `        var ShortDescription<override>:message = ${source.metadataKey}.ShortDescription`,
+    `        var Icon<override>:texture = ${source.iconTexture}`,
+    `        var RuntimePrice:float = ${runtimePrice ? `${source.priceReference}` : `${source.priceReference}`}`,
+    `        Offers<override>:[]tuple(offer, int) = array{}`,
+    `        Price<override>:price_dimension = MakePriceVBucks(RuntimePrice)`,
+    restrictionLines(source.restrictions),
+    '',
+  ].filter(Boolean).join('\n');
+}
+
 function dynamicRemainingEntry(bundle: BundleOffer): BundleOfferItem | undefined {
-  if (!bundle.dynamicRemaining || bundle.items.length !== 1) return undefined;
+  if (!(bundle.dynamicRemaining || bundle.items.some(entry => bundleQuantityBehavior(bundle, entry) === 'fill-to-max')) || bundle.items.length !== 1) return undefined;
   const entry = bundle.items[0];
-  if (!entry?.entitlementId || entry.bundleId || entry.quantity !== 1) return undefined;
+  if (!entry?.entitlementId || entry.bundleId || entry.quantity !== 1 || bundleQuantityBehavior(bundle, entry) !== 'fill-to-max') return undefined;
   return entry;
+}
+
+function runtimeBundleEntries(bundle: BundleOffer): BundleOfferItem[] {
+  return bundle.items.filter(entry => bundleQuantityBehavior(bundle, entry) === 'runtime');
+}
+
+function hasRuntimeBundleValues(bundle: BundleOffer): boolean {
+  return dynamicPriceEnabled(bundle.dynamicOffer) || runtimeBundleEntries(bundle).length > 0;
 }
 
 function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles: BundleOffer[]): void {
@@ -316,14 +400,14 @@ function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles:
     throw new Error('Cannot generate Verse: project records contain duplicate stable identifiers. Fix the duplicate records in Validation.');
   }
   for (const bundle of bundles) {
-    if (bundle.dynamicRemaining && !dynamicRemainingEntry(bundle)) continue;
+    if (isDynamicBundle(bundle) && !dynamicRemainingEntry(bundle) && !hasRuntimeBundleValues(bundle)) continue;
     for (const [index, entry] of bundle.items.entries()) {
       const hasEntitlement = Boolean(entry.entitlementId && entitlementById.has(entry.entitlementId));
       const nestedBundle = entry.bundleId ? bundleById.get(entry.bundleId) : undefined;
       if (hasEntitlement === Boolean(nestedBundle) || (!hasEntitlement && !nestedBundle)) {
         throw new Error(`Cannot generate Verse: ${bundle.name || bundle.verseKey} has an unresolved bundle reference at entry ${index + 1}. Fix the bundle contents in Validation.`);
       }
-      if (nestedBundle?.dynamicRemaining && !dynamicRemainingEntry(nestedBundle)) {
+      if (nestedBundle && isDynamicBundle(nestedBundle) && !dynamicRemainingEntry(nestedBundle) && !hasRuntimeBundleValues(nestedBundle)) {
         throw new Error(`Cannot generate Verse: ${bundle.name || bundle.verseKey} references the invalid dynamic bundle ${nestedBundle.name || nestedBundle.verseKey}. Fix the dynamic bundle in Validation.`);
       }
       if (entry.offerVerseKey && hasEntitlement) {
@@ -335,6 +419,7 @@ function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles:
       }
     }
   }
+
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (bundle: BundleOffer): void => {
@@ -368,7 +453,7 @@ function storefrontReferences(entries: OfferDisplayEntry[], entitlements: Entitl
   const references: string[] = [];
   for (const entry of entries) {
     const resolved = resolveStorefrontEntry(entry, entitlements, bundles);
-    if (!resolved || (resolved.kind === 'bundle' && resolved.bundle.dynamicRemaining)) continue;
+    if (!resolved || (resolved.kind === 'bundle' && isDynamicBundle(resolved.bundle))) continue;
     references.push(`${offersModule}.${resolved.offerVerseKey}_offer{}`);
   }
   return references;
@@ -479,20 +564,85 @@ export function generateVerseCode(
   push(`${offersModule}<public> := module:`, `    using { ${infoModule} }`, `    using { ${entModule} }`, `    using { ${priceModule} }`, '');
   for (const item of entitlements) {
     push(offerClass(item.verseKey, `${infoModule}.${toVerseApiStem(item.verseKey)}`, item.verseKey, priceModule, `${item.verseKey}_price`, item.iconTexture, item.offerRestrictions));
+    if (dynamicPriceEnabled(item.dynamicOffer)) {
+      push(dynamicOfferClass(item.verseKey, `${infoModule}.${toVerseApiStem(item.verseKey)}`, item.verseKey, priceModule, `${item.verseKey}_price`, item.iconTexture, item.offerRestrictions));
+    }
     for (const alternate of item.alternateOffers ?? []) {
       push(offerClass(alternate.verseKey, `${infoModule}.${toVerseApiStem(alternate.verseKey)}`, item.verseKey, priceModule, `${alternate.verseKey}_price`, alternate.iconTexture, alternate.restrictions));
+      if (dynamicPriceEnabled(alternate.dynamicOffer)) {
+        push(dynamicOfferClass(alternate.verseKey, `${infoModule}.${toVerseApiStem(alternate.verseKey)}`, item.verseKey, priceModule, `${alternate.verseKey}_price`, alternate.iconTexture, alternate.restrictions));
+      }
+    }
+  }
+
+  for (const item of entitlements) {
+    if (dynamicPriceEnabled(item.dynamicOffer)) push(...directRuntimeOfferLines(item.verseKey, offersModule));
+    for (const alternate of item.alternateOffers ?? []) {
+      if (dynamicPriceEnabled(alternate.dynamicOffer)) push(...directRuntimeOfferLines(alternate.verseKey, offersModule));
     }
   }
   for (const bundle of bundles) {
-    if (bundle.dynamicRemaining && !dynamicRemainingEntry(bundle)) continue;
+    if (isDynamicBundle(bundle) && !dynamicRemainingEntry(bundle) && !hasRuntimeBundleValues(bundle)) continue;
     const bundleSource = generatedBundleOffer(bundle, infoModule, priceModule);
     const entries = bundle.items.map(entry => `(${resolveBundleEntry(entry, entitlements, bundles)}, ${entry.quantity})`).join(', ');
-    push(bundleOfferClass(bundleSource, `array{${entries}}`));
-    if (dynamicRemainingEntry(bundle)) {
+    if (!isDynamicBundle(bundle)) push(bundleOfferClass(bundleSource, `array{${entries}}`));
+    else if (dynamicRemainingEntry(bundle)) push(bundleOfferClass(bundleSource, `array{${entries}}`));
+    if (dynamicRemainingEntry(bundle) && !hasRuntimeBundleValues(bundle)) {
       push(
         bundleOfferClass(bundleSource, 'array{}', '_dynamic'),
       );
+    } else if (hasRuntimeBundleValues(bundle)) {
+      push(dynamicBundleOfferClass(bundleSource, dynamicPriceEnabled(bundle.dynamicOffer)));
     }
+  }
+
+  // Runtime-configured bundles deliberately expose only the configured
+  // entitlement shape. Project Verse supplies values; UTM owns construction
+  // and preflight validation of the Marketplace offer.
+  for (const bundle of bundles.filter(hasRuntimeBundleValues)) {
+    const pascal = toVerseApiStem(bundle.verseKey);
+    const optionType = `${pascal}RuntimeOptions`;
+    const dynamicEntries = bundle.items.filter(entry => bundleQuantityBehavior(bundle, entry) === 'runtime');
+    push(`    ${optionType}<public> := struct:`);
+    if (dynamicPriceEnabled(bundle.dynamicOffer)) push('        PriceVBucks:float');
+    for (const entry of dynamicEntries) {
+      const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+      push(`        ${toVerseApiStem(key)}Quantity:int`);
+    }
+    push('',
+      ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
+      '',
+      `    Make${pascal}DynamicOffer<public>(Options:${optionType}):?offer =`,
+      '        if (not IsValid' + pascal + 'RuntimePrice(' + (dynamicPriceEnabled(bundle.dynamicOffer) ? 'Options.PriceVBucks' : `${bundle.priceVBucks.toFixed(1)}`) + ')):',
+      '            return false',
+    );
+    for (const entry of dynamicEntries) {
+      const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+      const maximum = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId)?.maxCount ?? 0 : MARKETPLACE_CONSTRAINTS.maxCount;
+      const field = `${toVerseApiStem(key)}Quantity`;
+      push(
+        `        if (Options.${field} < 0 or Options.${field} > ${maximum}):`,
+        '            return false',
+      );
+    }
+    push('        var RuntimeOffers:[]tuple(offer, int) = array{}');
+    for (const entry of bundle.items) {
+      const behavior = bundleQuantityBehavior(bundle, entry);
+      const reference = resolveBundleEntry(entry, entitlements, bundles);
+      if (behavior === 'runtime') {
+        const key = entry.entitlementId ?? entry.bundleId ?? 'entry';
+        const field = `${toVerseApiStem(key)}Quantity`;
+        push(`        if (Options.${field} > 0):`, `            set RuntimeOffers += array{(${reference}, Options.${field})}`);
+      } else {
+        push(`        set RuntimeOffers += array{(${reference}, ${entry.quantity})}`);
+      }
+    }
+    push(
+      '        if (RuntimeOffers.Length = 0):',
+      '            return false',
+      `        option{${offersModule}.${bundle.verseKey}_dynamic_offer{${dynamicPriceEnabled(bundle.dynamicOffer) ? 'RuntimePrice := Options.PriceVBucks, ' : ''}Offers := RuntimeOffers}}`,
+      '',
+    );
   }
 
   const editableFields = editableDescriptors(entitlements, config, offerDisplayGroups);
@@ -724,13 +874,18 @@ export function generateVerseCode(
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
     const purchaseEntryName = `Open${pascal}Purchase`;
+    const runtimePrice = dynamicPriceEnabled(item.dynamicOffer);
+    const defaultRuntimeOptions = runtimePrice
+      ? `${offersModule}.${pascal}RuntimeOptions{PriceVBucks := ${priceModule}.${item.verseKey}_price}`
+      : '';
+    const purchaseCall = `${purchaseEntryName}(Player${runtimePrice ? `, ${defaultRuntimeOptions}` : ''})`;
     if (item.triggers.generateTriggerBinding) {
       push(
         `    On${pascal}TriggerActivated(MaybeAgent:?agent):void =`,
         `        LogDebug("${pascal} purchase trigger callback received.")`,
         `        if (Agent := MaybeAgent?):`,
         `            if (Player := player[Agent]):`,
-        `                ${purchaseEntryName}(Player)`,
+        `                ${purchaseCall}`,
         '            else:',
         `                LogDebug("${pascal} purchase trigger did not resolve to a player.")`,
         '        else:',
@@ -743,28 +898,62 @@ export function generateVerseCode(
         `    On${pascal}ButtonInteracted(Agent:agent):void =`,
         `        LogDebug("${pascal} purchase button interaction received.")`,
         `        if (Player := player[Agent]):`,
-        `            ${purchaseEntryName}(Player)`,
+        `            ${purchaseCall}`,
         '        else:',
         `            LogDebug("${pascal} purchase button did not resolve to a player.")`,
         '',
       );
     }
-    push(
-      `    ${purchaseEntryName}<public>(Player:player):void =`,
-      '        Acquired := TryAcquireMarketplaceUI(Player)',
-      '        if (Acquired?):',
-      `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,
-      '',
-    );
-    for (const alternate of item.alternateOffers ?? []) {
-      const altPascal = toVerseApiStem(alternate.verseKey);
+    if (runtimePrice) {
       push(
-        `    Open${altPascal}Purchase<public>(Player:player):void =`,
+        `    ${purchaseEntryName}<public>(Player:player, Options:${pascal}RuntimeOptions):void =`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
-        `            spawn{ExecutePurchase(Player, ${offersModule}.${alternate.verseKey}_offer{}, "${escapeVerseString(alternate.name)}")}`,
+        `            spawn{ExecuteDynamicPurchase${pascal}(Player, Options)}`,
+        '',
+        `    ExecuteDynamicPurchase${pascal}(Player:player, Options:${pascal}RuntimeOptions)<suspends>:void =`,
+        `        if (DynamicOffer := ${offersModule}.Make${pascal}DynamicOffer(Options)?):`,
+        `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
+        '        else:',
+        `            LogWarning("${printableName} was not opened because its runtime price was invalid.")`,
+        '            ReleaseMarketplaceUI(Player)',
         '',
       );
+    } else {
+      push(
+        `    ${purchaseEntryName}<public>(Player:player):void =`,
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
+        `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,
+        '',
+      );
+    }
+    for (const alternate of item.alternateOffers ?? []) {
+      const altPascal = toVerseApiStem(alternate.verseKey);
+      if (dynamicPriceEnabled(alternate.dynamicOffer)) {
+        push(
+          `    Open${altPascal}Purchase<public>(Player:player, Options:${altPascal}RuntimeOptions):void =`,
+          '        Acquired := TryAcquireMarketplaceUI(Player)',
+          '        if (Acquired?):',
+          `            spawn{ExecuteDynamicPurchase${altPascal}(Player, Options)}`,
+          '',
+          `    ExecuteDynamicPurchase${altPascal}(Player:player, Options:${altPascal}RuntimeOptions)<suspends>:void =`,
+          `        if (DynamicOffer := ${offersModule}.Make${altPascal}DynamicOffer(Options)?):`,
+          `            ExecutePurchase(Player, DynamicOffer, "${escapeVerseString(alternate.name)}")`,
+          '        else:',
+          `            LogWarning("${escapeVerseString(alternate.name)} was not opened because its runtime price was invalid.")`,
+          '            ReleaseMarketplaceUI(Player)',
+          '',
+        );
+      } else {
+        push(
+          `    Open${altPascal}Purchase<public>(Player:player):void =`,
+          '        Acquired := TryAcquireMarketplaceUI(Player)',
+          '        if (Acquired?):',
+          `            spawn{ExecutePurchase(Player, ${offersModule}.${alternate.verseKey}_offer{}, "${escapeVerseString(alternate.name)}")}`,
+          '',
+        );
+      }
     }
   }
 
@@ -774,7 +963,23 @@ export function generateVerseCode(
     const dynamicEntry = dynamicRemainingEntry(bundle);
     const purchaseEntryName = `Open${pascal}Purchase`;
     const dynamicItem = dynamicEntry ? entitlements.find(candidate => candidate.id === dynamicEntry.entitlementId) : undefined;
-    if (dynamicEntry && dynamicItem) {
+    if (hasRuntimeBundleValues(bundle)) {
+      const optionType = `${pascal}RuntimeOptions`;
+      push(
+        `    ${purchaseEntryName}<public>(Player:player, Options:${optionType}):void =`,
+        '        Acquired := TryAcquireMarketplaceUI(Player)',
+        '        if (Acquired?):',
+        `            spawn{ExecuteDynamicPurchase${pascal}(Player, Options)}`,
+        '',
+        `    ExecuteDynamicPurchase${pascal}(Player:player, Options:${optionType})<suspends>:void =`,
+        `        if (DynamicOffer := Make${pascal}DynamicOffer(Options)?):`,
+        `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
+        '        else:',
+        `            LogWarning("${printableName} was not opened because its runtime values were invalid.")`,
+        '            ReleaseMarketplaceUI(Player)',
+        '',
+      );
+    } else if (dynamicEntry && dynamicItem) {
       const entry = dynamicEntry;
       const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles)}`;
       push(

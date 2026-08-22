@@ -1,4 +1,5 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, StorefrontMembership } from '../types/entitlement';
+import { isDynamicBundle } from './dynamicOffers';
 
 export const emptyStorefrontMembership = (): StorefrontMembership => ({ allOffers: [], focused: [] });
 
@@ -31,7 +32,7 @@ export function resolveStorefrontEntry(
 }
 
 export function isStorefrontEligible(entry: ResolvedStorefrontOffer): boolean {
-  return entry.kind !== 'bundle' || !entry.bundle.dynamicRemaining;
+  return entry.kind !== 'bundle' || !isDynamicBundle(entry.bundle);
 }
 
 export function storefrontEntryLabel(entry: ResolvedStorefrontOffer): string {
@@ -56,7 +57,7 @@ export function legacyStorefrontMembership(
     allOffers.push({ entitlementId: item.id });
     for (const alternate of item.alternateOffers ?? []) allOffers.push({ entitlementId: item.id, offerVerseKey: alternate.verseKey });
   }
-  for (const bundle of bundles) if (!bundle.dynamicRemaining) allOffers.push({ bundleId: bundle.id });
+  for (const bundle of bundles) if (!isDynamicBundle(bundle)) allOffers.push({ bundleId: bundle.id });
   return { allOffers, focused };
 }
 
@@ -76,7 +77,7 @@ export function storefrontOfferOptions(entitlements: EntitlementItem[], bundles:
     }
   }
   for (const bundle of bundles) {
-    if (bundle.dynamicRemaining) continue;
+    if (isDynamicBundle(bundle)) continue;
     const resolved = resolveStorefrontEntry({ bundleId: bundle.id }, entitlements, bundles);
     if (resolved) options.push({ key: offerDisplayEntryKey(resolved.entry), label: storefrontEntryLabel(resolved), detail: storefrontEntryDetail(resolved), entry: resolved.entry });
   }

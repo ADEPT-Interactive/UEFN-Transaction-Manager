@@ -1,5 +1,13 @@
 export type EntitlementType = 'durable' | 'consumable';
 
+/** Runtime values are supplied by the project's Verse, never by UTM formulas. */
+export type DynamicPriceBehavior = 'runtime';
+export type BundleQuantityBehavior = 'fill-to-max' | 'runtime';
+
+export interface DynamicOfferConfig {
+  priceBehavior?: DynamicPriceBehavior;
+}
+
 export interface OfferRestrictions {
   minimumPurchaseAge?: number;
   blockedCountryCodes: string[];
@@ -16,6 +24,7 @@ export interface AlternateOffer {
   priceVBucks: number;
   iconTexture: string;
   restrictions: OfferRestrictions;
+  dynamicOffer?: DynamicOfferConfig;
 }
 
 export interface EntitlementItem {
@@ -40,6 +49,7 @@ export interface EntitlementItem {
   durationDescription?: string;
   offerRestrictions?: OfferRestrictions;
   alternateOffers?: AlternateOffer[];
+  dynamicOffer?: DynamicOfferConfig;
   triggers: {
     generateTriggerBinding: boolean;
     generateButtonBinding: boolean;
@@ -51,6 +61,8 @@ export interface BundleOfferItem {
   bundleId?: string;
   offerVerseKey?: string;
   quantity: number;
+  /** Omitted means the existing fixed quantity behavior. */
+  quantityBehavior?: BundleQuantityBehavior;
 }
 
 export interface BundleOffer {
@@ -64,6 +76,8 @@ export interface BundleOffer {
   iconImageData?: string;
   durationDescription?: string;
   restrictions?: OfferRestrictions;
+  dynamicOffer?: DynamicOfferConfig;
+  /** @deprecated Read-only compatibility for pre-4.2 manifests. */
   dynamicRemaining?: boolean;
   items: BundleOfferItem[];
 }
