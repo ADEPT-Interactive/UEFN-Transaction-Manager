@@ -47,7 +47,17 @@ The packaged `uefn-transaction-manager` Agent Skill gives a compatible agent the
 - migrating existing Marketplace transaction code;
 - compiling, auditing, and stopping when transaction meaning is ambiguous.
 
-In a source checkout the skill is under `skills/uefn-transaction-manager/`. Installer and portable builds include the same folder at `resources/agent-skills/uefn-transaction-manager/`. In UTM, use **Copy skill path** or **Copy setup instructions** in Agent Integration to make the packaged location available to your client setup.
+MCP compatibility and Agent Skill support are separate capabilities: an MCP client can connect to UTM MCP without automatically discovering an Agent Skill. Installer and portable builds include the complete `uefn-transaction-manager` folder at `resources/agent-skills/uefn-transaction-manager/`; use **Copy skill path** or **Copy setup instructions** in Agent Integration to locate that packaged folder.
+
+Copy the entire folder, including `SKILL.md` and `references`, into the client location you use:
+
+| Client | User skill location | Verify discovery |
+| --- | --- | --- |
+| Codex | `%USERPROFILE%\.agents\skills\uefn-transaction-manager\` (or the project `.agents\skills\` folder) | Run `/skills`, or mention `$uefn-transaction-manager`. |
+| Claude Code | `%USERPROFILE%\.claude\skills\uefn-transaction-manager\` (or the project `.claude\skills\` folder) | Run `/skills`, then invoke `/uefn-transaction-manager`. |
+| Cursor | `%USERPROFILE%\.cursor\skills\uefn-transaction-manager\` (or the project `.cursor\skills\` folder) | In Agent chat, type `/` and choose the skill. |
+
+These are user-facing examples for the named clients; client support for MCP does not by itself guarantee support for Agent Skills. Keep the skill folder together and connect the client to both UTM MCP and UEFN MCP for the same project.
 
 Keep `SKILL.md` and its `references` folder together. The skill is guidance for an MCP-compatible agent, not a replacement for the live tool schemas or the UEFN editor.
 

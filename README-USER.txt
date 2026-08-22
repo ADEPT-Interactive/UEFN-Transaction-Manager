@@ -27,8 +27,8 @@ UTM 4.3 can work with UEFN's separate Unreal MCP through an MCP-compatible codin
 1. Enable Python Editor Scripting and UEFN MCP Toolsets in the UEFN project.
 2. Open Tools -> Agent Integration in Transaction Manager.
 3. Enable UTM MCP and choose Copy MCP configuration.
-4. Install the packaged Agent Skill from resources\agent-skills\uefn-transaction-manager.
-5. Connect the agent to both UTM MCP and UEFN MCP, and verify they target the same project.
+4. Copy the complete packaged Agent Skill folder from resources\agent-skills\uefn-transaction-manager\ into the skill location for your client: `%USERPROFILE%\.agents\skills\uefn-transaction-manager\` for Codex, `%USERPROFILE%\.claude\skills\uefn-transaction-manager\` for Claude Code, or `%USERPROFILE%\.cursor\skills\uefn-transaction-manager\` for Cursor.
+5. Connect the agent to both UTM MCP and UEFN MCP, and verify they target the same project. MCP access does not automatically install or discover the Agent Skill.
 
 Keep copied bearer configuration private. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated contract inspection, compile verification, and ambiguity stops.
 

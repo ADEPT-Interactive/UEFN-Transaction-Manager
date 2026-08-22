@@ -19,6 +19,31 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
   useEffect(() => { if (status) setPort(status.port); }, [status?.port]);
   if (!isOpen) return null;
 
+  const copyText = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await Promise.race([
+          navigator.clipboard.writeText(text),
+          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Clipboard access timed out.')), 1500)),
+        ]);
+        return;
+      }
+    } catch {
+      // Electron builds can expose a clipboard promise that never resolves. Fall back to the DOM path.
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Clipboard access is unavailable.');
+  };
+
   const update = async (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }, successMessage?: string) => {
     setBusy(true);
     const result = await onUpdate(input);
@@ -29,24 +54,37 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
 
   const copyConfig = async () => {
     setBusy(true);
-    const result = await onCopyConfig();
-    if (result.success && result.config) {
-      await navigator.clipboard?.writeText(JSON.stringify(result.config, null, 2));
-      setMessage('MCP client configuration copied. Keep it private because it contains the bearer token.');
-    } else setMessage(result.error ?? 'Configuration could not be copied.');
-    setBusy(false);
+    try {
+      const result = await onCopyConfig();
+      if (result.success && result.config) {
+        await copyText(JSON.stringify(result.config, null, 2));
+        setMessage('MCP client configuration copied. Keep it private because it contains the bearer token.');
+      } else setMessage(result.error ?? 'Configuration could not be copied.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Configuration could not be copied.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const copySkillPath = async () => {
     const skillPath = status?.skillPath ?? 'skills/uefn-transaction-manager';
-    await navigator.clipboard?.writeText(skillPath);
-    setMessage('Agent Skill location copied.');
+    try {
+      await copyText(skillPath);
+      setMessage('Agent Skill location copied.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Agent Skill location could not be copied.');
+    }
   };
 
   const copySkillInstructions = async () => {
     const skillPath = status?.skillPath ?? 'skills/uefn-transaction-manager';
-    await navigator.clipboard?.writeText(`UEFN Transaction Manager Agent Skill\n\n1. Copy this folder into the skill location used by your MCP-compatible coding agent.\n2. Keep SKILL.md and the references folder together.\n3. Connect the agent to both UTM MCP and UEFN MCP for the same project.\n\nSkill folder: ${skillPath}`);
-    setMessage('Agent Skill setup instructions copied.');
+    try {
+      await copyText(`UEFN Transaction Manager Agent Skill\n\nMCP compatibility and Agent Skill support are separate. Add the copied UTM MCP entry to your client, then copy this entire folder with SKILL.md and references together into one of these client locations:\n\nCodex (user): %USERPROFILE%\\.agents\\skills\\uefn-transaction-manager\\\nClaude Code (user): %USERPROFILE%\\.claude\\skills\\uefn-transaction-manager\\\nCursor (user): %USERPROFILE%\\.cursor\\skills\\uefn-transaction-manager\\\n\nConnect the agent to both UTM MCP and UEFN MCP for the same project.\n\nSkill folder: ${skillPath}`);
+      setMessage('Agent Skill setup instructions copied.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Agent Skill instructions could not be copied.');
+    }
   };
 
   const displayedSkillPath = showcaseMode ? 'Included with this development build' : (status?.skillPath ?? 'skills/uefn-transaction-manager');
