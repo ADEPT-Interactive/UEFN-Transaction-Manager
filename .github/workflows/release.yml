@@ -60,11 +60,13 @@ jobs:
 
           ## What's changed
 
-          - UEFN Entitlement Manager is now UEFN Transaction Manager.
-          - The broader name reflects management of UEFN in-island transactions, offers, bundles, storefronts, generated Verse APIs, and ownership helpers.
-          - Existing project data remains compatible; no managed project conversion is required.
-          - Existing installations can upgrade normally, and updater/backend compatibility remains on the established ADEPT update path.
-          - The application icon and distribution identity now use the Transaction Manager branding.
+          - Build runtime-priced offers and runtime-quantity bundles with generated Verse options and validation.
+          - Create clearer offer, bundle, storefront, icon, and moderation workflows from the catalog editor.
+          - Use the polished project launcher and connected catalog-to-Verse workflow with improved validation and update notifications.
+          - Import supported artwork as native UEFN Texture2D assets or adopt an existing project Texture2D.
+          - Portable updates now stay portable and replace the application in the same folder after verification.
+
+          Existing portable copies from before 4.2.0 may need to download the new Portable ZIP manually once because those older binaries predate the in-place portable updater. Portable copies updated to 4.2.0 and later remain portable.
 
           ## Windows SmartScreen
 

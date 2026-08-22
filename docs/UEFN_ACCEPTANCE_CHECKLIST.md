@@ -8,7 +8,7 @@ This checklist records the Phase 21 release candidate results. `PASS` means the 
 
 | Area | Result | Evidence |
 | --- | --- | --- |
-| Selected project | PASS | `UEM_Demo` at `<project-root>\UEM_Demo` was preferred and used. |
+| Selected project | PASS | The `UEM_Demo` project in the local UEFN Projects directory was preferred and used. |
 | Existing managed output cleanup | PASS | No UEM-managed generated transaction Verse file was present in UEM_Demo before generation. Unrelated Verse and project content were preserved. |
 | Python initialization | PASS | Python Editor Scripting was enabled in UEFN Project Settings and `Content/Python/init_unreal.py` was run through UEFN Tools. No restart was needed for the bridge to become available. |
 | Workflow Server | PASS | `127.0.0.1:1962` became reachable and the bundled compile-audit path completed against the open UEM_Demo editor. |
