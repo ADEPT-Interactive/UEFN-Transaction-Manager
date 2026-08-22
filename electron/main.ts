@@ -22,6 +22,7 @@ const launcherAssets = new Map([
   ['/adept-insignia.png', { path: path.join(appRoot, 'electron', 'assets', 'adept-insignia.png'), type: 'image/png' }],
 ]);
 const launcherUrl = 'uem-launcher://app/index.html';
+const showcaseMode = !app.isPackaged && process.env.UEM_SHOWCASE_MODE === '1';
 // Compatibility: retain the 4.0.1 user-data namespace so upgrades do not fragment logs or state.
 const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager', 'logs');
 fs.mkdirSync(logRoot, { recursive: true });
@@ -86,7 +87,19 @@ function launcherState(status?: string): LauncherState {
       : projects.size === 0 ? 'No UEFN projects were found. Browse to a .uefnproject file.' : `Found ${projects.size} available UEFN project${projects.size === 1 ? '' : 's'}.`),
     busy: launcherBusy,
     scanning: discoveryActive,
+    showcaseMode: showcaseMode || undefined,
   };
+}
+
+function loadShowcaseProjects(): ProjectCandidate[] {
+  const fixtureRoot = path.join(appRoot, 'docs', 'showcase', 'runtime', 'ADEPT-Transaction-Gallery');
+  const paths = [
+    path.join(fixtureRoot, 'Showcase.uefnproject'),
+    path.join(fixtureRoot, 'launcher-projects', 'CommerceLab', 'CommerceLab.uefnproject'),
+    path.join(fixtureRoot, 'launcher-projects', 'SeasonalStore', 'SeasonalStore.uefnproject'),
+    path.join(fixtureRoot, 'launcher-projects', 'CreatorSandbox', 'CreatorSandbox.uefnproject'),
+  ];
+  return paths.map(projectFile => readProject(projectFile, 'cached', false, undefined, diagnostic)).filter((project): project is ProjectCandidate => Boolean(project));
 }
 
 function sendLauncherState(status?: string) {
@@ -101,6 +114,18 @@ function stopProjectDiscovery() {
 
 async function loadProjectCandidates() {
   stopProjectDiscovery();
+  if (showcaseMode) {
+    const fixtureProjects = loadShowcaseProjects();
+    if (fixtureProjects.length > 0) {
+      projects = new Map(fixtureProjects.map(project => [project.id, project]));
+      selectedProjectId = fixtureProjects[0].id;
+      discoveryActive = false;
+      diagnostic(`Showcase project fixture loaded: projects=${fixtureProjects.length}`);
+      sendLauncherState('Showcase projects ready. Select a project to continue.');
+      return;
+    }
+    diagnostic('Showcase mode was requested, but its generated fixture was not found; using normal project discovery.');
+  }
   const session = new ProjectDiscovery({
     writeDiagnostic: diagnostic,
     backgroundScanEnabled: process.env.UEM_TEST_MODE !== '1',
@@ -155,7 +180,7 @@ async function loadLauncher(status?: string) {
   appHasUnsavedChanges = false;
   launcherBusy = false;
   mainWindow.setMinimumSize(820, 620);
-  mainWindow.setSize(960, 720);
+  mainWindow.setSize(showcaseMode ? 1100 : 960, showcaseMode ? 820 : 720);
   mainWindow.center();
   await mainWindow.loadURL(launcherUrl);
   diagnostic('Project launcher navigation completed: success=True');
@@ -180,11 +205,11 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
   sendLauncherState('Starting the authenticated project bridge…');
   try {
     if (!mainWindow) throw new Error('The manager window is unavailable.');
-    bridgeSession = await BridgeSession.start(appRoot, verified, mainWindow, diagnostic);
+    bridgeSession = await BridgeSession.start(appRoot, verified, mainWindow, diagnostic, showcaseMode);
     mode = 'dashboard';
     allowedDashboardOrigin = new URL(bridgeSession.appUrl).origin;
     mainWindow.setMinimumSize(1240, 640);
-    mainWindow.setSize(1400, 900);
+    mainWindow.setSize(1400, showcaseMode ? 1200 : 900);
     mainWindow.center();
     await mainWindow.loadURL(bridgeSession.appUrl);
     diagnostic('Dashboard navigation completed: success=True');
@@ -434,7 +459,7 @@ else {
           fs.rmSync(portableUpdateResultPath, { force: true });
         } catch (error) { diagnostic(`Portable update result could not be read: ${error instanceof Error ? error.message : String(error)}`); }
       }
-      void updateManager.check(false);
+      if (!showcaseMode) void updateManager.check(false);
     } catch (error) {
       await showFatalError(error instanceof Error ? error : new Error(String(error)));
     }

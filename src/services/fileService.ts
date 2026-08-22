@@ -21,6 +21,8 @@ export interface LaunchContext {
   contentFolderPath: string;
   assetFolderName?: string;
   targetVerseFileName?: string;
+  projectFile?: string;
+  showcaseMode?: boolean;
 }
 
 export interface SaveResult {
@@ -138,6 +140,8 @@ export const FileService = {
       contentFolderPath: contentFolderPath ?? sessionStorage.getItem(ROOT_KEY) ?? '',
       assetFolderName: hash.get('assetFolder') ?? undefined,
       targetVerseFileName: hash.get('verseFile') ?? undefined,
+      projectFile: hash.get('projectFile') ?? undefined,
+      showcaseMode: hash.get('showcase') === '1',
     };
   },
 

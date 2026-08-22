@@ -1,4 +1,4 @@
-const state = { projects: [], selectedId: null, status: 'Finding active and recent UEFN projects…', busy: false };
+const state = { projects: [], selectedId: null, status: 'Finding active and recent UEFN projects…', busy: false, showcaseMode: false };
 let updateState = null;
 const byId = id => document.getElementById(id);
 
@@ -29,7 +29,7 @@ function render() {
     name.textContent = project.name;
     const projectPath = document.createElement('div');
     projectPath.className = 'project-path';
-    projectPath.textContent = project.projectFile;
+    projectPath.textContent = state.showcaseMode ? 'ADEPT Showcase workspace' : project.projectFile;
     const metadata = document.createElement('div');
     metadata.className = 'project-meta';
     metadata.textContent = `${project.sourceLabel} · ${project.pythonEnabled ? 'Python enabled' : 'Native imports need Python'}`;
@@ -49,7 +49,7 @@ function render() {
   byId('continue').disabled = !selected || state.busy;
   byId('browse').disabled = state.busy;
   byId('selected-name').textContent = selected ? (selected.isActive ? `${selected.name} — active in UEFN` : selected.name) : 'Select a project to continue';
-  byId('selected-path').textContent = selected?.projectFile ?? 'Choose an active, recent, discovered, or browsed UEFN project.';
+  byId('selected-path').textContent = selected ? (state.showcaseMode ? 'ADEPT Showcase workspace' : selected.projectFile) : 'Choose an active, recent, discovered, or browsed UEFN project.';
   byId('python').textContent = selected ? (selected.pythonEnabled ? 'Python Editor Scripting is enabled. Transaction Manager will install and attach native texture importing automatically.' : 'Python Editor Scripting is disabled. Transaction Manager can still manage Verse; enable it for native texture importing.') : '';
   byId('continue').textContent = state.busy ? 'Opening project…' : 'Open project in Transaction Manager';
 }

@@ -153,7 +153,7 @@ export class BridgeSession {
     this.processId = child.pid ?? 0;
   }
 
-  static async start(appRoot: string, project: ProjectCandidate, managerWindow: BrowserWindow, writeDiagnostic: DiagnosticWriter): Promise<BridgeSession> {
+  static async start(appRoot: string, project: ProjectCandidate, managerWindow: BrowserWindow, writeDiagnostic: DiagnosticWriter, showcaseMode = false): Promise<BridgeSession> {
     const serverPath = path.join(appRoot, 'dist', 'server.cjs');
     if (!fs.existsSync(serverPath)) throw new Error(`The manager bridge build is missing: ${serverPath}`);
     let connector: ConnectorInstallResult = { installed: false, addedThisLaunch: false };
@@ -220,6 +220,8 @@ export class BridgeSession {
         assetFolder: 'EntitlementIcons',
         verseFile: 'managed_transactions.verse',
         pythonEnabled: String(project.pythonEnabled),
+        projectFile: project.projectFile,
+        ...(showcaseMode ? { showcase: '1' } : {}),
       });
       const connectorScript = path.join(appRoot, 'entitlement_manager.py');
       statePath = writeActiveSession(port, editorToken, project, connectorScript);

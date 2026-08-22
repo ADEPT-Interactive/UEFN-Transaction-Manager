@@ -20,7 +20,7 @@
 
 UEFN Transaction Manager is a Windows desktop companion for Fortnite creators using In-Island Transactions. It links directly to the UEFN project you have open, turns entitlements, offers, alternate offers, bundles, storefronts, pricing, restrictions, and gameplay hooks into project-ready Verse, then saves and compiles it through that live UEFN session.
 
-![A connected UEFN project with a visual entitlement catalog, custom icons, and a single-line command header](docs/screenshots/phase28-catalog-overview.jpg)
+![A connected UEFN project with a visual entitlement catalog, custom icons, and a single-line command header](docs/screenshots/phase28-catalog-overview.png)
 
 ## Connected directly to UEFN
 
@@ -29,8 +29,8 @@ Transaction Manager is more than a standalone Verse generator. Its launcher find
 When Python Editor Scripting is enabled, Transaction Manager also installs and attaches its project connector automatically. Confirmed supported raster images enter UEFN's editor import queue and are created as native Texture2D assets in the Content Browser. Existing project Texture2D assets can also be adopted through Unreal's editor export API, then pass through the same normalization/import queue. Connection status in the app shows whether the selected project is open and the editor connector is attached, while **Compile** reports UEFN's compile result directly.
 
 <p align="center">
-  <img src="docs/screenshots/phase28-launcher.jpg" alt="Transaction Manager project launcher" width="48%">
-  <img src="docs/screenshots/phase28-verse-split.jpg" alt="Transaction Manager catalog and generated Verse split view" width="48%">
+  <img src="docs/screenshots/phase28-launcher.png" alt="Transaction Manager project launcher" width="48%">
+  <img src="docs/screenshots/phase28-verse-split.png" alt="Transaction Manager catalog and generated Verse split view" width="48%">
 </p>
 <p align="center"><em>Project selection and the connected catalog-to-Verse workflow.</em></p>
 
@@ -165,30 +165,26 @@ The deterministic showcase catalog and original vector icon sources are in [docs
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/phase28-offer-general-pricing.jpg" alt="Offer General and Pricing editor" width="100%"><br><sub>General and runtime pricing</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-icon-texture.jpg" alt="Icon and Texture editor" width="100%"><br><sub>Imported and adoptable Texture2D artwork</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-offer-general-pricing.png" alt="Offer General and Pricing editor" width="100%"><br><sub>General and runtime pricing</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-icon-texture.png" alt="Icon and Texture editor" width="100%"><br><sub>Imported and adoptable Texture2D artwork</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/phase28-behavior-moderation.jpg" alt="Behavior and Moderation editor" width="100%"><br><sub>Durability and moderation controls</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-dynamic-pricing.jpg" alt="Dynamic pricing configuration" width="100%"><br><sub>Calculated-by-Verse price behavior</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-behavior-moderation.png" alt="Behavior and Moderation editor" width="100%"><br><sub>Durability and moderation controls</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-dynamic-pricing.png" alt="Dynamic pricing configuration" width="100%"><br><sub>Calculated-by-Verse price behavior</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/phase28-bundles.jpg" alt="Bundle offers" width="100%"><br><sub>Static and runtime bundle offers</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-storefronts.jpg" alt="Storefront membership" width="100%"><br><sub>Explicit storefront membership</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-bundles.png" alt="Bundle offers" width="100%"><br><sub>Static and runtime bundle offers</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-storefronts.png" alt="Storefront membership" width="100%"><br><sub>Explicit storefront membership</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/phase28-validation.jpg" alt="Validation report with local checks passed" width="100%"><br><sub>Pre-save validation report</sub></td>
-    <td align="center"><img src="docs/screenshots/phase28-launcher.jpg" alt="Filtered project launcher" width="100%"><br><sub>Launcher with the deterministic showcase project</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-validation.png" alt="Validation report with local checks passed" width="100%"><br><sub>Pre-save validation report</sub></td>
+    <td align="center"><img src="docs/screenshots/phase28-launcher.png" alt="Filtered project launcher" width="100%"><br><sub>Launcher with the deterministic showcase project</sub></td>
   </tr>
 </table>
 
 ## Templates and in-app help
 
 The included templates provide focused starting points for common entitlement categories. The **Need Help?** panel covers setup, compiling, placing the generated device, and connecting it to your own Verse.
-
-![Expanded entitlement templates](docs/screenshots/template-chooser.png)
-
-![Compact UEFN setup help](docs/screenshots/python-help.png)
 
 ## Important boundaries
 

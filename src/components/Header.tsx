@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
-import { DiscordIcon } from './BrandControls';
+import { DISCORD_CONTROL_SIZE, DISCORD_ICON_SIZE, DiscordIcon } from './BrandControls';
 
 interface HeaderProps {
   config: ProjectConfig;
@@ -82,8 +82,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="flex h-[26px] w-[42px] shrink-0 items-center justify-center overflow-hidden" aria-hidden="true"><img src="/adept-icon-white.webp" alt="" className="h-7 w-7 object-contain [transform:scale(1.5)]" /></span>
               <span><span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Created by</span><span className="flex items-center gap-1 text-sm font-black tracking-wide text-white group-hover:text-cyan-200">ADEPT INTERACTIVE <ExternalLink className="h-3 w-3 text-cyan-400" /></span></span>
             </a>
-            <a href="https://discord.gg/playadept" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://discord.gg/playadept')} aria-label="Join the ADEPT Interactive Discord server" title="Join Discord" className="group inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#7785f7]/50 bg-[#5865F2] text-white shadow-[0_4px_12px_rgba(88,101,242,.15)] transition-[background-color,transform,box-shadow] duration-[120ms] ease-out hover:bg-[#6875f5] active:scale-[.96] focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#aab3ff]">
-              <DiscordIcon className="h-5 w-5" /><span className="sr-only">Join Discord</span>
+            <a href="https://discord.gg/playadept" target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, 'https://discord.gg/playadept')} aria-label="Join the ADEPT Interactive Discord server" title="Join Discord" style={{ width: DISCORD_CONTROL_SIZE, height: DISCORD_CONTROL_SIZE }} className="group inline-flex shrink-0 items-center justify-center rounded-xl border border-[#7785f7]/50 bg-[#5865F2] text-white shadow-[0_4px_12px_rgba(88,101,242,.15)] transition-[background-color,transform,box-shadow] duration-[120ms] ease-out hover:bg-[#6875f5] active:scale-[.96] focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#aab3ff]">
+              <DiscordIcon style={{ width: DISCORD_ICON_SIZE, height: DISCORD_ICON_SIZE }} /><span className="sr-only">Join Discord</span>
             </a>
           </div>
         </div>

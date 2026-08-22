@@ -23,11 +23,13 @@ import { SetupModal } from './components/SetupPanel';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
 import { UpdateCard } from './components/UpdateCard';
 import { isDynamicBundle } from './services/dynamicOffers';
+import { createHealthyShowcaseConnection } from './services/showcaseMode';
 import versionInfo from '../version.json';
 
 const launchContext = typeof window === 'undefined'
   ? { contentFolderPath: '' }
   : FileService.consumeLaunchContext();
+const showcaseMode = launchContext.showcaseMode === true;
 
 const DEFAULT_CONFIG: ProjectConfig = {
   contentFolderPath: launchContext.contentFolderPath,
@@ -387,14 +389,17 @@ export const App: React.FC = () => {
     let active = true;
     const stopSessionLease = FileService.startSessionLease();
     const initialize = async () => {
-      const healthy = await FileService.checkHealth();
+      const showcaseConnection = showcaseMode
+        ? createHealthyShowcaseConnection(launchContext.projectFile ?? `${launchContext.contentFolderPath}/Showcase.uefnproject`)
+        : null;
+      const healthy = showcaseConnection?.serverOnline ?? await FileService.checkHealth();
       if (!active) return;
       setServerOnline(healthy);
       if (!healthy) {
         setStatus({ message: 'Secure project bridge is unavailable. Use Switch active project to return to the launcher and link the project again.', error: true });
         return;
       }
-      setEditorStatus(await FileService.getEditorStatus());
+      setEditorStatus(showcaseConnection?.editorStatus ?? await FileService.getEditorStatus());
       let loadedEntitlements = entitlements;
       let loadedBundles = bundles;
       let loadedStorefrontMembership = storefrontMembership;
@@ -424,6 +429,10 @@ export const App: React.FC = () => {
       }
       const hydrated = await hydrateProjectImages(loadedEntitlements, loadedBundles, config.assetFolderName);
       if (!active) return;
+      // Image hydration only adds transient previews. Mark the hydrated data
+      // clean so a showcase/opened project does not present a false Unsaved
+      // state before the creator edits anything.
+      setLastSavedSnapshot(snapshot(hydrated.entitlements, hydrated.bundles, loadedStorefrontMembership, loadedRetiredVerseKeys, config));
       setEntitlements(hydrated.entitlements);
       setBundles(hydrated.bundles);
       setStorefrontMembership(loadedStorefrontMembership);
@@ -435,8 +444,12 @@ export const App: React.FC = () => {
         : hydrated.loadedCount ? `Loaded ${hydrated.loadedCount} project icon${hydrated.loadedCount === 1 ? '' : 's'} from ${config.assetFolderName}.` : 'No managed Verse file is present yet. Create an offer to begin.' });
     };
     void initialize();
-    const heartbeat = window.setInterval(() => void FileService.heartbeat().catch(() => setServerOnline(false)), 20000);
-    const editorHeartbeat = window.setInterval(() => void FileService.getEditorStatus().then(result => { if (active) setEditorStatus(result); }), 2000);
+    const heartbeat = window.setInterval(() => {
+      if (!showcaseMode) void FileService.heartbeat().catch(() => setServerOnline(false));
+    }, 20000);
+    const editorHeartbeat = window.setInterval(() => {
+      if (!showcaseMode) void FileService.getEditorStatus().then(result => { if (active) setEditorStatus(result); });
+    }, 2000);
     return () => { active = false; window.clearInterval(heartbeat); window.clearInterval(editorHeartbeat); stopSessionLease(); };
   }, []);
 

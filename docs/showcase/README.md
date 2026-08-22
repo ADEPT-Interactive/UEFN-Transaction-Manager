@@ -11,4 +11,4 @@ The showcase fixture is deterministic and intentionally uses original, abstract 
 
 Use `showcase-project.json` as a review fixture or run `npm run showcase:fixture -- --output <temporary-folder>` to create a disposable UEFN project with generated Verse and crisp PNG previews from the original SVG source icons. The generated project is disposable and is not committed. Native Content Browser acceptance still requires the icon adoption/import workflow.
 
-The refreshed main-workspace capture is [phase28-main-workspace.png](../screenshots/phase28-main-workspace.png). It was captured from the local 4.2.0 development UI after the header, command-row, and warning/update polish pass.
+The canonical 4.2.0 capture set is stored in [docs/screenshots](../screenshots/). Run `npm run showcase:capture` to regenerate the ten renderer-level PNGs from the disposable fixture. The capture uses an explicitly development-only healthy connection state and is not enabled in packaged/customer execution.

@@ -21,6 +21,7 @@ export interface LauncherState {
   status: string;
   busy: boolean;
   scanning: boolean;
+  showcaseMode?: boolean;
 }
 
 export type WindowAction = 'request-state' | 'drag' | 'minimize' | 'toggle-maximize' | 'switch-project' | 'close';
