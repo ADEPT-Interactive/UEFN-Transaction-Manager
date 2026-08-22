@@ -1,0 +1,197 @@
+{
+  "capturedAt": "2026-08-22",
+  "project": {
+    "name": "UEM_Demo",
+    "mount": "/UEM_Demo",
+    "level": "/UEM_Demo/UEM_Demo"
+  },
+  "endpoint": "http://127.0.0.1:8000/mcp",
+  "transport": "Streamable HTTP",
+  "initialize": {
+    "status": 200,
+    "protocolVersion": "2025-06-18",
+    "capabilities": {
+      "resources": {},
+      "tools": {"listChanged": true}
+    },
+    "serverInfo": {"name": "", "title": "", "version": ""}
+  },
+  "toolSearch": {
+    "toolsListReturnsOnlyMetaTools": true,
+    "tools": {
+      "list_toolsets": {"inputSchema": {"type": "object", "properties": {}}},
+      "describe_toolset": {
+        "inputSchema": {
+          "type": "object",
+          "properties": {"toolset_name": {"type": "string"}},
+          "required": ["toolset_name"]
+        }
+      },
+      "call_tool": {
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "toolset_name": {"type": "string"},
+            "tool_name": {"type": "string"},
+            "arguments": {"type": "object"}
+          },
+          "required": ["tool_name"]
+        }
+      }
+    }
+  },
+  "toolsets": [
+    "GameplayTagsToolset.GameplayTagsToolset",
+    "EditorToolset.EditorAppToolset",
+    "EditorToolset.LogsToolset",
+    "MVVMToolset.MVVMToolset",
+    "NiagaraToolsets.NiagaraToolset_Info",
+    "NiagaraToolsets.NiagaraToolset_Component",
+    "NiagaraToolsets.NiagaraToolset_System",
+    "NiagaraToolsets.NiagaraToolset_Assets",
+    "PhysicsToolsets.PhysicsAssetToolset",
+    "VerseFieldsToolset.VerseFieldsToolset",
+    "WidgetAnimationToolset.WidgetAnimationToolset",
+    "UMGToolSet.UMGToolSet",
+    "ValkyrieToolset.ValkyriePythonToolset",
+    "ValkyrieToolset.VerseToolset",
+    "ValkyrieToolset.SessionToolset",
+    "ValkyrieToolset.DeviceToolset",
+    "ValkyrieToolset.EntityToolset",
+    "editor_toolset.toolsets.actor.ActorTools",
+    "editor_toolset.toolsets.asset.AssetTools",
+    "editor_toolset.toolsets.curve_table.CurveTableTools",
+    "editor_toolset.toolsets.data_table.DataTableTools",
+    "editor_toolset.toolsets.material.MaterialTools",
+    "editor_toolset.toolsets.material_instance.MaterialInstanceTools",
+    "editor_toolset.toolsets.object.ObjectTools",
+    "editor_toolset.toolsets.primitive.PrimitiveTools",
+    "editor_toolset.toolsets.scene.SceneTools",
+    "editor_toolset.toolsets.skeletal_mesh.SkeletalMeshTools",
+    "editor_toolset.toolsets.static_mesh.StaticMeshTools",
+    "editor_toolset.toolsets.texture.TextureTools"
+  ],
+  "relevantSchemas": {
+    "ValkyrieToolset.VerseToolset": {
+      "WriteFile": {"required": ["path", "content", "bCreateIfMissing"], "optional": ["span"]},
+      "Replace": {"required": ["path", "oldString", "newString"], "optional": ["bReplaceAll"]},
+      "ReadFile": {"required": ["path"], "optional": ["span"]},
+      "Move": {"required": ["sourcePath", "destPath"]},
+      "ListFiles": {"required": ["path", "bRecursive"]},
+      "Grep": {"required": ["pattern", "pathGlob"], "optional": ["maxResults"]},
+      "Delete": {"required": ["path", "bRecursive"]},
+      "CreateDirectory": {"required": ["path"]},
+      "Copy": {"required": ["sourcePath", "destPath", "bRecursive"]},
+      "BuildAll": {"required": []}
+    },
+    "ValkyrieToolset.SessionToolset": {
+      "StartSession": {"required": [], "optional": ["location", "rotation"]},
+      "StopSession": {"required": []},
+      "StartGame": {"required": []},
+      "StopGame": {"required": []},
+      "GetSessionStatus": {"required": []},
+      "GetGameState": {"required": []},
+      "PushChanges": {"required": [], "optional": ["bVerseOnly"]},
+      "GetClientLogEntries": {"required": ["pattern"], "optional": ["maxResults", "startLine"]}
+    },
+    "ValkyrieToolset.DeviceToolset": {
+      "ListDeviceAssets": {"required": [], "optional": ["nameFilter"]},
+      "PlaceDevice": {"required": ["assetPath", "transform"]},
+      "ListDeviceProperties": {"required": ["device"]},
+      "GetDeviceProperties": {"required": ["device", "propertyNames"]},
+      "SetDeviceProperty": {"required": ["device", "propertyName", "value"]},
+      "ListEventBindings": {"required": ["devicePath"]},
+      "GetBindingOptions": {"required": ["devicePath"]},
+      "AddEventBinding": {"required": ["sourceDevicePath", "sourceEvent", "targetDevicePath", "targetFunction"]},
+      "RemoveEventBinding": {"required": ["sourceDevicePath", "sourceEvent", "targetDevicePath", "targetFunction"]}
+    },
+    "ValkyrieToolset.EntityToolset": {
+      "ListEntityClasses": {"required": []},
+      "CreateEntity": {"required": ["entityClass", "transform"], "optional": ["name", "parentEntity"]},
+      "FindEntities": {"required": [], "optional": ["rootEntity", "bRecursive", "nameFilter"]},
+      "GetEntityTransform": {"required": ["entity"]},
+      "SetEntityTransform": {"required": ["entity", "transform"]},
+      "GetComponents": {"required": ["entity"]},
+      "ListComponentClasses": {"required": []},
+      "ListComponentProperties": {"required": ["component"]},
+      "GetComponentProperty": {"required": ["component", "propertyName"]},
+      "SetComponentProperty": {"required": ["component", "propertyName", "value"]},
+      "AddComponent": {"required": ["entity", "componentClass"]},
+      "RemoveComponent": {"required": ["entity", "componentClass"]},
+      "DeleteEntity": {"required": ["entity"]}
+    },
+    "editor_toolset.toolsets.asset.AssetTools": {
+      "find_assets": {"required": [], "optional": ["folder_path", "name", "asset_type", "recursive", "tags"]},
+      "get_asset_class": {"required": ["asset_path"]},
+      "load_asset": {"required": ["asset_path"]},
+      "get_dependencies": {"required": ["asset_path"]},
+      "get_referencers": {"required": ["asset_path"]},
+      "is_dirty": {"required": ["asset_path"]},
+      "save_assets": {"required": ["asset_paths"]},
+      "get_metadata_tags": {"required": ["asset_path"]},
+      "get_asset_tags": {"required": ["asset_path"]},
+      "list_folders": {"required": ["root_path"]},
+      "exists": {"required": ["path"]},
+      "move": {"required": ["path", "new_path"]},
+      "duplicate": {"required": ["path", "new_path"]},
+      "delete": {"required": ["path"]}
+    },
+    "editor_toolset.toolsets.texture.TextureTools": {
+      "get_size": {"required": ["texture"]},
+      "read_texture": {"required": ["texture"]},
+      "export_png": {"required": ["texture", "file_path"]},
+      "import_file": {"required": ["folder_path", "asset_name", "source_file"]}
+    },
+    "editor_toolset.toolsets.object.ObjectTools": {
+      "list_properties": {"required": ["instance"]},
+      "get_properties": {"required": ["instance", "properties"]},
+      "set_properties": {"required": ["instance", "values"]},
+      "reset_properties": {"required": ["instance", "properties"]},
+      "get_class": {"required": ["instance"]},
+      "search_subclasses": {"required": ["base_class"]}
+    },
+    "editor_toolset.toolsets.scene.SceneTools": {
+      "get_current_level": {"required": []},
+      "find_actors": {"required": ["collision_channels"], "optional": ["root", "name", "actor_type", "tag", "bounds", "data_layer"]},
+      "add_to_scene_from_asset": {"required": ["asset_path", "name", "xform"]},
+      "add_to_scene_from_class": {"required": ["actor_type", "name", "xform"]},
+      "remove_from_scene": {"required": ["actor"]},
+      "get_actor_asset_path": {"required": ["actor"]}
+    },
+    "EditorToolset.EditorAppToolset": {
+      "GetContentBrowserPath": {"required": []},
+      "GetSelectedActors": {"required": []},
+      "GetSelectedAssets": {"required": []},
+      "GetOpenAssets": {"required": []},
+      "GetAssetThumbnails": {"required": ["assetPaths"]},
+      "CaptureAssetImage": {"required": ["assetPath"]},
+      "CaptureEditorImage": {"required": []},
+      "GetCameraTransform": {"required": []}
+    },
+    "EditorToolset.LogsToolset": {
+      "GetLogEntries": {"required": [], "optional": ["category", "pattern", "maxEntries"]},
+      "GetLogCategories": {"required": [], "optional": ["filter"]},
+      "GetVerbosity": {"required": []},
+      "SetVerbosity": {"required": ["verbosity"]}
+    },
+    "UMGToolSet.UMGToolSet": {
+      "ListWidgetBlueprints": {"required": ["folderPath"]},
+      "ListWidgetClasses": {"required": [], "optional": ["filter"]},
+      "GetWidgets": {"required": ["widgetBlueprint"]},
+      "GetWidgetDescription": {"required": ["widgetBlueprint"]},
+      "GetWidgetTreeDepth": {"required": ["widgetBlueprint"]},
+      "CreateWidgetBlueprint": {"required": ["folderPath", "assetName", "parentClass"]},
+      "AddWidget": {"required": ["widgetBlueprint", "widgetClass", "widgetDisplayName"]},
+      "RemoveWidget": {"required": ["widgetBlueprint", "widget"]},
+      "MoveWidget": {"required": ["widgetBlueprint", "widget", "newParent"]},
+      "RenameWidget": {"required": ["widgetBlueprint", "widget", "newDisplayName"]},
+      "CompileWidgetBlueprint": {"required": ["widgetBlueprint"]}
+    }
+  },
+  "notes": [
+    "The complete raw describe_toolset responses were captured outside the repository during reconnaissance; this checked-in snapshot is intentionally scoped to relevant schemas.",
+    "Toolset calls are made through the top-level call_tool meta-tool and use the toolset_name plus unprefixed tool_name.",
+    "Object references are represented as objects such as {\"refPath\": \"/UEM_Demo/...\"}.",
+    "Exact optional fields and output schemas remain available in the live server and should be rediscovered at runtime rather than hardcoded by an Agent Skill."
+  ]
+}
