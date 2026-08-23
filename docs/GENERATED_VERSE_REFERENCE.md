@@ -33,7 +33,7 @@ Transactions.HasAccessPass(Player)
 
 The helper stem comes from the saved stable key. Changing only the display name does not rename the generated helper. Entitlement ownership helpers are generated for entitlements, including alternate offers through their parent entitlement. Bundles and storefronts do not have ownership helpers.
 
-Generated Trigger and Button bindings call the same purchase helpers. Use them for deliberate player interactions. A storefront helper is generated for All Offers when enabled, and focused storefronts receive their own open helper.
+Generated Trigger and Button bindings call the same purchase helpers. Use them for deliberate player interactions. A storefront helper is generated for All Offers when enabled, and configured storefronts receive their own open helper.
 
 ## Runtime prices and quantities
 

@@ -71,3 +71,34 @@ test('Manager editors use lifecycle-stable focus, shared dirty confirmation, and
   assert.match(countrySource, /onKeyDownCapture/);
   assert.match(countrySource, /countryTriggerRef\.current\?\.focus/);
 });
+
+test('4.3 creator workflow keeps keys and native assets managed while exposing concise controls', () => {
+  const appSource = read('src/App.tsx');
+  const modalSource = read('src/components/EntitlementModal.tsx');
+  const bundleSource = read('src/components/BundleManager.tsx');
+  const cardSource = read('src/components/EntitlementCard.tsx');
+  const headerSource = read('src/components/Header.tsx');
+  const verseSource = read('src/components/VersePreview.tsx');
+  const numericSource = read('src/components/NumericInput.tsx');
+  const placeholderSource = read('src/constants/placeholderIcon.ts');
+  const placeholderSvg = read('electron/assets/utm-placeholder-icon.svg');
+  const mainSource = read('electron/main.ts');
+  assert.match(modalSource, /Step \$\{creationStep \+ 1\} of 3/);
+  assert.match(modalSource, /Save Offer/);
+  assert.doesNotMatch(modalSource, /offer-verse-key/);
+  assert.match(modalSource, /Transaction Events/);
+  assert.match(bundleSource, /role="button"/);
+  assert.doesNotMatch(bundleSource, />Edit<\/button>/);
+  assert.match(cardSource, /PlaceholderIcon/);
+  assert.match(cardSource, /role="button"/);
+  assert.match(headerSource, /No Issues/);
+  assert.doesNotMatch(verseSource, /Write to Content/);
+  assert.match(numericSource, /Decrease \$\{ariaLabel\}/);
+  assert.match(numericSource, /utm-number-input/);
+  assert.match(placeholderSource, /UTM_PlaceholderIcon/);
+  assert.match(placeholderSource, /data:image\/png;base64/);
+  assert.match(placeholderSvg, /PLACE/);
+  assert.match(placeholderSvg, /HOLDER/);
+  assert.match(appSource, /Open project in UEFN/);
+  assert.match(mainSource, /shell\.openPath\(verified\.projectFile\)/);
+});

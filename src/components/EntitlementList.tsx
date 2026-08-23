@@ -119,7 +119,7 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
         <div className="bg-[#0f1629]/80 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">All Offer Value</p>
-            <p className="mt-0.5 flex items-center gap-1.5 font-mono text-xl font-extrabold text-sky-400"><VBucksIcon className="h-5 w-5" /><span>{totalOfferVBucks.toLocaleString()}</span><span className="text-xs font-bold text-sky-300">V-Bucks</span></p>
+            <p aria-label={`${totalOfferVBucks.toLocaleString()} V-Bucks`} className="mt-0.5 flex items-center gap-1.5 font-mono text-xl font-extrabold text-sky-400"><VBucksIcon className="h-5 w-5" /><span>{totalOfferVBucks.toLocaleString()}</span><span className="sr-only">V-Bucks</span></p>
           </div>
           <div className="w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-400/20 flex items-center justify-center text-sky-400">
             <VBucksIcon className="h-4 w-4" />

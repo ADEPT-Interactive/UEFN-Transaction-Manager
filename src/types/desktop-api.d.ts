@@ -31,6 +31,7 @@ declare global {
         onConfirmClose: (listener: () => void) => () => void;
       };
       readonly openExternal: (url: string) => Promise<boolean>;
+      readonly openProjectInUefn: () => Promise<{ success: boolean; error?: string }>;
       readonly update: {
         getState: () => Promise<DesktopUpdateState>;
         check: () => Promise<DesktopUpdateState>;

@@ -9,6 +9,7 @@ interface ImageUploadZoneProps {
   assetName: string;
   currentTextureRef: string;
   currentImageData?: string;
+  isPlaceholder?: boolean;
   nativeTextureImportAvailable: boolean;
   onTextureRefChange: (ref: string) => void;
   onImageDataChange: (base64: string, fileName?: string) => void;
@@ -73,6 +74,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   assetName,
   currentTextureRef,
   currentImageData,
+  isPlaceholder = false,
   nativeTextureImportAvailable,
   onTextureRefChange,
   onImageDataChange,
@@ -274,12 +276,12 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
               <div className="text-left flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-white truncate">{pendingFile ? 'New image selected' : 'Texture imported'}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${pendingFile ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>
-                    {pendingFile ? 'Awaiting confirmation' : 'In Content Browser'}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${pendingFile ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : isPlaceholder ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>
+                    {pendingFile ? 'Awaiting confirmation' : isPlaceholder ? 'UTM placeholder' : 'In Content Browser'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5 font-mono truncate">Ref: <span className="text-cyan-300 font-semibold">{currentTextureRef || defaultVerseRef}</span></p>
-                <p className="text-[11px] text-slate-500 mt-1">Click or drag a new PNG to replace</p>
+                <p className="text-[11px] text-slate-500 mt-1">{isPlaceholder ? 'Import a custom PNG to replace the built-in placeholder' : 'Click or drag a new PNG to replace'}</p>
               </div>
             </div>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, ImageIcon, Layers, PlugZap } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, FolderOpen, ImageIcon, Layers, PlugZap } from 'lucide-react';
 import { Header } from './components/Header';
 import { EntitlementList } from './components/EntitlementList';
 import { EntitlementModal } from './components/EntitlementModal';
@@ -270,7 +270,7 @@ const SetupGuide: React.FC<{ bridgeConnected: boolean; onCreateEntitlement: () =
   );
 };
 
-const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null }> = ({ status }) => {
+const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; onOpenProject?: () => void; isOpeningProject?: boolean }> = ({ status, onOpenProject, isOpeningProject = false }) => {
   if (!status?.success) return null;
   const connected = status.editorConnected;
   const active = status.projectActive;
@@ -314,6 +314,7 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null }> = ({ sta
           <p className="font-extrabold text-white">{heading}</p>
           <p>{summary}</p>
           <p className={`mt-1 font-semibold ${tone === 'emerald' ? 'text-emerald-200' : tone === 'cyan' ? 'text-cyan-200' : 'text-amber-200'}`}>{detail}</p>
+          {!connected && onOpenProject && <button type="button" onClick={onOpenProject} disabled={isOpeningProject} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-3.5 py-2 text-xs font-extrabold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-60"><FolderOpen className="h-3.5 w-3.5" />{isOpeningProject ? 'Opening project in UEFN…' : 'Open project in UEFN'}</button>}
         </div>
       </div>
     </section>
@@ -348,6 +349,7 @@ export const App: React.FC = () => {
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
   const [serverOnline, setServerOnline] = useState(false);
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
+  const [isOpeningProject, setIsOpeningProject] = useState(false);
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
   const [catalogReady, setCatalogReady] = useState(false);
@@ -434,7 +436,7 @@ export const App: React.FC = () => {
     const stopSessionLease = FileService.startSessionLease();
     const initialize = async () => {
       const showcaseConnection = showcaseMode
-        ? createHealthyShowcaseConnection(launchContext.projectFile ?? `${launchContext.contentFolderPath}/Showcase.uefnproject`)
+        ? createHealthyShowcaseConnection(launchContext.projectFile ?? `${launchContext.contentFolderPath}/Creator Commerce Demo.uefnproject`)
         : null;
       const healthy = showcaseConnection?.serverOnline ?? await FileService.checkHealth();
       if (!active) return;
@@ -548,6 +550,20 @@ export const App: React.FC = () => {
   const dismissUpdate = () => {
     if (!window.uemDesktop) { setUpdateState(null); return; }
     void window.uemDesktop.update.dismiss().then(next => setUpdateState(next)).catch(() => setUpdateState(null));
+  };
+
+  const openLinkedProject = () => {
+    if (!desktopHost || !window.uemDesktop || isOpeningProject) return;
+    setIsOpeningProject(true);
+    setStatus({ message: 'Opening the linked project in UEFN…' });
+    void window.uemDesktop.openProjectInUefn().then(result => {
+      if (!result.success) {
+        setStatus({ message: result.error ?? 'UEFN could not open the linked project.', error: true });
+        return;
+      }
+      setStatus({ message: 'UEFN is launching the linked project. Connection status will update automatically.' });
+      window.setTimeout(() => { void FileService.getEditorStatus().then(setEditorStatus); }, 1500);
+    }).catch(() => setStatus({ message: 'UEFN could not be launched for the linked project.', error: true })).finally(() => setIsOpeningProject(false));
   };
 
   const installUpdate = (discardChanges = false) => {
@@ -728,7 +744,7 @@ export const App: React.FC = () => {
         setRetiredVerseKeys(data.retiredVerseKeys);
         setProjectDataDiagnostics([...new Set([...data.projectDataDiagnostics, ...legacyProjectConfigDiagnostics(raw)])]);
         setConfig(nextConfig);
-        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.storefrontMembership.focused.length} focused storefronts. Review validation before saving.` });
+        setStatus({ message: `Imported ${data.entitlements.length} entitlements, ${data.bundles.length} bundles, and ${data.storefrontMembership.focused.length} storefronts. Review validation before saving.` });
       } catch (error) {
         setStatus({ message: error instanceof Error ? `Preset rejected: ${error.message}` : 'Preset JSON is invalid.', error: true });
       }
@@ -750,9 +766,7 @@ export const App: React.FC = () => {
   const saveModalItem = async (item: EntitlementItem) => {
     const isDraft = item.id.startsWith('new-');
     const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
-    const shouldAllocateDraftKey = isDraft && item.verseKey === sanitizeVerseIdentifier(item.name);
-    const draftVerseKey = shouldAllocateDraftKey ? allocator.allocate(item.name) : item.verseKey;
-    if (!shouldAllocateDraftKey && isDraft) allocator.reserveExisting(item.verseKey);
+    const draftVerseKey = isDraft ? allocator.allocate(item.name) : item.verseKey;
     const persistedId = isDraft ? `ent-${crypto.randomUUID()}` : item.id;
     const persistedItem = {
       ...item,
@@ -868,11 +882,11 @@ export const App: React.FC = () => {
       </div>
 
       <main className="flex-1 px-4 lg:px-8 py-6">
-        <EditorCapabilityNotice status={editorStatus} />
+        <EditorCapabilityNotice status={editorStatus} onOpenProject={desktopHost ? openLinkedProject : undefined} isOpeningProject={isOpeningProject} />
         {entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} onCreateEntitlement={requestOfferCreation} />}
-        {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div></div>
+          {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
           : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
-          : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} onSaveToDisk={() => void saveToDisk()} isSaving={isSaving} hasErrors={hasErrors} /></div>}
+          : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div>}
       </main>
 
       <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
@@ -880,7 +894,7 @@ export const App: React.FC = () => {
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
       <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} showcaseMode={showcaseMode} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
-      <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and focused storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
+      <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />
       <ConfirmDialog open={switchProjectConfirmationOpen} tone="warning" title="Switch projects with unsaved changes?" description={<>Your current changes have not been written to this UEFN project. Returning to the launcher now discards this unsaved manager session.</>} confirmLabel="Discard changes and switch" onCancel={() => setSwitchProjectConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('switch-project')} />

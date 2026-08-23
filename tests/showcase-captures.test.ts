@@ -71,6 +71,12 @@ test('showcase mode supplies the complete healthy connection contract without ch
   assert.doesNotMatch(mainSource, /app\.isPackaged\s*\|\|\s*process\.env\.UEM_SHOWCASE_MODE/);
 });
 
+test('showcase capture selects the deterministic creator project before opening the manager', () => {
+  const captureSource = read('scripts/capture-showcase.mjs');
+  assert.match(captureSource, /clickText\(cdp, 'Creator Commerce Demo', '#projects \.project'\)/);
+  assert.match(captureSource, /fs\.rmSync\(showcaseRuntimeRoot, \{ recursive: true, force: true \}\)/);
+});
+
 function pngDimensions(filePath: string) {
   const bytes = fs.readFileSync(filePath);
   assert.ok(bytes.length > 24, `${path.basename(filePath)} is empty or truncated`);
@@ -85,8 +91,8 @@ test('canonical showcase captures are complete, lossless, and free of stale imag
   const expectedDimensions: Record<string, { width: number; height: number }> = {
     'launcher.png': { width: 1100, height: 820 },
     'catalog-overview.png': { width: 1440, height: 980 },
-    'offer-editor.png': { width: 1032, height: 959 },
-    'dynamic-transactions.png': { width: 1032, height: 959 },
+    'offer-editor.png': { width: 1032, height: 963 },
+    'dynamic-transactions.png': { width: 1032, height: 963 },
     'icon-texture.png': { width: 744, height: 623 },
     'bundles-storefronts.png': { width: 1440, height: 980 },
     'validation.png': { width: 648, height: 519 },

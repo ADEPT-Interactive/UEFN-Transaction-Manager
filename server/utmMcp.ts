@@ -210,7 +210,7 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
 
   server.registerTool('create_storefront', {
     title: 'Create storefront',
-    description: 'Creates a focused storefront in the shared draft and allocates its ID and stable Verse key. It does not save or compile. Requires expectedRevision.',
+    description: 'Creates a storefront in the shared draft and allocates its ID and stable Verse key. It does not save or compile. Requires expectedRevision.',
     inputSchema: { expectedRevision, data },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => mutate({ type: 'create_storefront', data: args.data ?? {} }, args.expectedRevision));
@@ -224,7 +224,7 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
 
   server.registerTool('delete_storefront', {
     title: 'Delete storefront',
-    description: 'Destructive shared-draft mutation. Removes one focused storefront. It does not save or compile. Requires expectedRevision; use dryRun to inspect the result.',
+    description: 'Destructive shared-draft mutation. Removes one storefront. It does not save or compile. Requires expectedRevision; use dryRun to inspect the result.',
     inputSchema: { expectedRevision, storefrontId: targetId, dryRun: z.boolean().default(false) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   }, async args => mutate({ type: 'delete_storefront', storefrontId: args.storefrontId }, args.expectedRevision, args.dryRun));

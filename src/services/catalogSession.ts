@@ -182,8 +182,11 @@ function applyEntitlementCreate(document: CatalogDocument, payload: Record<strin
   const ids = new Set(document.entitlements.map(item => item.id).concat(document.bundles.map(item => item.id)).concat(document.storefrontMembership.focused.map(item => item.id)).concat(document.entitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => offer.id))));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
   const name = text(payload.name) ?? 'Entitlement';
-  const verseKey = text(identity?.verseKey) ?? text(payload.verseKey) ?? allocator.allocate(name);
-  const item = normalizeEntitlement({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'ent', ids), verseKey, name }, document.entitlements.length);
+  // Verse keys are UTM-managed identity. Create operations may carry a stale
+  // client hint, but it must never override the canonical allocator.
+  const verseKey = allocator.allocate(name);
+  const managedPayload = withManagedAlternateKeys(payload, verseKey, allocator);
+  const item = normalizeEntitlement({ ...managedPayload, id: uniqueId(identity?.id ?? payload.id, 'ent', ids), verseKey, name }, document.entitlements.length);
   document.entitlements.push(item);
   if (!document.storefrontMembership.allOffers.some(entry => entry.entitlementId === item.id)) document.storefrontMembership.allOffers.push({ entitlementId: item.id });
   return item;
@@ -196,7 +199,7 @@ function applyAlternateCreate(document: CatalogDocument, payload: Record<string,
   const ids = new Set(document.entitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => offer.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
   const name = text(payload.name) ?? `${parent.name} Alternate`;
-  const verseKey = text(identity?.verseKey) ?? text(payload.verseKey) ?? allocator.allocateAlternate(parent.verseKey);
+  const verseKey = allocator.allocateAlternate(parent.verseKey);
   const alternate = {
     ...payload,
     id: uniqueId(identity?.id ?? payload.id, 'offer', ids),
@@ -213,7 +216,7 @@ function applyBundleCreate(document: CatalogDocument, payload: Record<string, un
   const ids = new Set(document.bundles.map(item => item.id).concat(document.entitlements.map(item => item.id)).concat(document.storefrontMembership.focused.map(item => item.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
   const name = text(payload.name) ?? 'Bundle';
-  const bundle = normalizeBundle({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: text(identity?.verseKey) ?? text(payload.verseKey) ?? allocator.allocate(name), name }, document.bundles.length);
+  const bundle = normalizeBundle({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: allocator.allocate(name), name }, document.bundles.length);
   document.bundles.push(bundle);
   if (!bundle.dynamicOffer && !bundle.dynamicRemaining && !document.storefrontMembership.allOffers.some(entry => entry.bundleId === bundle.id)) document.storefrontMembership.allOffers.push({ bundleId: bundle.id });
   return bundle;
@@ -223,15 +226,37 @@ function applyStorefrontCreate(document: CatalogDocument, payload: Record<string
   const ids = new Set(document.storefrontMembership.focused.map(group => group.id).concat(document.entitlements.map(item => item.id)).concat(document.bundles.map(item => item.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
   const name = text(payload.name) ?? 'Storefront';
-  const group = normalizeOfferDisplayGroup({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'store', ids), verseKey: text(identity?.verseKey) ?? text(payload.verseKey) ?? allocator.allocate(name), name }, document.storefrontMembership.focused.length);
+  const group = normalizeOfferDisplayGroup({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'store', ids), verseKey: allocator.allocate(name), name }, document.storefrontMembership.focused.length);
   document.storefrontMembership.focused.push(group);
   return group;
 }
 
 function patchObject<T extends Record<string, unknown>>(current: T, patch: Record<string, unknown>): T {
   const next = { ...current } as T;
-  for (const [key, value] of Object.entries(patch)) if (!['id', 'entitlementId', 'alternateOfferId', 'bundleId', 'storefrontId', 'type'].includes(key)) (next as Record<string, unknown>)[key] = value;
+  for (const [key, value] of Object.entries(patch)) if (!['id', 'verseKey', 'entitlementId', 'alternateOfferId', 'bundleId', 'storefrontId', 'type'].includes(key)) (next as Record<string, unknown>)[key] = value;
   return next;
+}
+
+function withManagedAlternateKeys(
+  payload: Record<string, unknown>,
+  parentVerseKey: string,
+  allocator: ReturnType<typeof createVerseKeyAllocator>,
+  existing: EntitlementItem['alternateOffers'] = [],
+): Record<string, unknown> {
+  if (!Array.isArray(payload.alternateOffers)) return payload;
+  const existingById = new Map((existing ?? []).map(offer => [offer.id, offer]));
+  return {
+    ...payload,
+    alternateOffers: payload.alternateOffers.map(value => {
+      const candidate = record(value);
+      const candidateId = text(candidate.id);
+      const prior = candidateId ? existingById.get(candidateId) : undefined;
+      return {
+        ...candidate,
+        ...(prior ? { id: prior.id, verseKey: prior.verseKey } : { verseKey: allocator.allocateAlternate(parentVerseKey) }),
+      };
+    }),
+  };
 }
 
 function applyOperation(document: CatalogDocument, operation: CatalogPatchOperation, identity?: { id?: string; verseKey?: string }): { affected?: unknown; cascades: string[] } {
@@ -246,7 +271,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       if (!current) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Entitlement ${id ?? '(missing)'} does not exist.`, {}, 400);
       const previousKey = current.verseKey;
       const previousAlternates = current.alternateOffers ?? [];
-      const next = normalizeEntitlement(patchObject(current as unknown as Record<string, unknown>, payload), document.entitlements.indexOf(current));
+      const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
+      const nextPayload = withManagedAlternateKeys(patchObject(current as unknown as Record<string, unknown>, payload), current.verseKey, allocator, previousAlternates);
+      const next = normalizeEntitlement(nextPayload, document.entitlements.indexOf(current));
       const retired = next.verseKey !== previousKey ? [previousKey] : [];
       for (const previousOffer of previousAlternates) {
         const nextOffer = next.alternateOffers?.find(offer => offer.id === previousOffer.id);

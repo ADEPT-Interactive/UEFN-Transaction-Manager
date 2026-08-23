@@ -39,7 +39,7 @@ const iconSources: Record<string, string> = {
 
 await fs.rm(root, { recursive: true, force: true });
 await fs.mkdir(iconRoot, { recursive: true });
-await fs.writeFile(path.join(root, 'Showcase.uefnproject'), JSON.stringify({ title: 'ADEPT Showcase Dataset', plugins: [{ name: 'Showcase', bIsRoot: true }], bEnablePythonForProject: true }, null, 2));
+await fs.writeFile(path.join(root, 'Creator Commerce Demo.uefnproject'), JSON.stringify({ title: 'Creator Commerce Demo', plugins: [{ name: 'Showcase', bIsRoot: true }], bEnablePythonForProject: true }, null, 2));
 const launcherProjects = [
   ['CommerceLab', 'ADEPT Commerce Lab', 'CommerceLab'],
   ['SeasonalStore', 'Seasonal Storefront', 'SeasonalStore'],
@@ -56,4 +56,4 @@ for (const [assetName, sourceName] of Object.entries(iconSources)) {
   const source = await fs.readFile(path.join('docs', 'showcase', 'icons', sourceName));
   await sharp(source).png().resize(256, 256, { fit: 'contain' }).toFile(path.join(iconRoot, `${assetName}.png`));
 }
-console.log(path.join(root, 'Showcase.uefnproject'));
+console.log(path.join(root, 'Creator Commerce Demo.uefnproject'));

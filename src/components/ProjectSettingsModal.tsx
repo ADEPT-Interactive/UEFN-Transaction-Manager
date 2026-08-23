@@ -180,7 +180,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           </div>
 
           <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-3">
-            <div><p className="text-xs font-bold text-cyan-300">Storefront and purchase interaction</p><p className="text-[11px] text-slate-400">Marketplace UI opens from a player-interaction button or an intentionally activated trigger. Passive zone entry is not a supported purchase binding.</p></div>
+            <div><p className="text-xs font-bold text-cyan-300">Storefront and purchase interaction</p><p className="text-[11px] text-slate-400">Marketplace UI opens from a player-interaction button or an intentionally activated trigger. Automatic zone entry is not a supported purchase binding.</p></div>
             <label className="flex items-center justify-between gap-3 text-xs text-slate-300"><span><strong className="block text-white">Generate all-offers Button device array</strong><span className="text-[11px] text-slate-500">Optional. Interacting with an assigned Button device opens the all-offers storefront.</span></span><input type="checkbox" checked={formData.generateStorefrontBinding ?? false} onChange={e => setFormData(prev => ({ ...prev, generateStorefrontBinding: e.target.checked }))} className="w-4 h-4 accent-cyan-500 rounded" /></label>
             {(formData.generateStorefrontBinding ?? false) && <p className="text-[11px] text-slate-500">The all-offers storefront uses the generated <code className="text-cyan-300">AllOffersStore_OpenButtons</code> editable. Its name is derived automatically and is not user-configurable.</p>}
           </div>

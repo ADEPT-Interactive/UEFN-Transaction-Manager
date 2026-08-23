@@ -23,6 +23,24 @@ test('CatalogSession owns one revisioned draft and separates revision from saved
   assert.equal(saved.savedFileHash, 'a'.repeat(64));
 });
 
+test('UTM allocates and preserves managed Verse keys across MCP-shaped nested alternate edits', () => {
+  const catalog = session();
+  const created = catalog.mutate({ type: 'create_entitlement', data: {
+    name: 'Starter', verseKey: 'agent_supplied_key',
+    alternateOffers: [{ id: 'mobile', name: 'Mobile price', verseKey: 'agent_supplied_alt', priceVBucks: 150 }],
+  } }, '1');
+  const item = created.snapshot.entitlements[0];
+  assert.notEqual(item.verseKey, 'agent_supplied_key');
+  assert.notEqual(item.alternateOffers?.[0]?.verseKey, 'agent_supplied_alt');
+  const alternateKey = item.alternateOffers?.[0]?.verseKey;
+  const updated = catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: {
+    name: 'Renamed Starter',
+    alternateOffers: [{ id: 'mobile', name: 'Mobile price updated', verseKey: 'another_agent_key' }],
+  } }, '2');
+  assert.equal(updated.snapshot.entitlements[0].verseKey, item.verseKey);
+  assert.equal(updated.snapshot.entitlements[0].alternateOffers?.[0]?.verseKey, alternateKey);
+});
+
 test('stale revision rejects without partial mutation', () => {
   const catalog = session();
   catalog.mutate({ type: 'create_entitlement', data: { name: 'One' } }, '1');
@@ -74,9 +92,10 @@ test('entitlement updates use the same domain cleanup for removed alternate refe
   const catalog = session();
   const created = catalog.mutate({ type: 'create_entitlement', data: { name: 'Variants', alternateOffers: [{ id: 'alt-1', verseKey: 'variants_alt', name: 'Alt' }] } }, '1');
   const item = created.snapshot.entitlements[0];
-  catalog.mutate({ type: 'set_storefront_membership', storefrontId: 'all', data: { entries: [{ entitlementId: item.id, offerVerseKey: 'variants_alt' }] } }, '2');
+  const alternateKey = item.alternateOffers?.[0]?.verseKey;
+  catalog.mutate({ type: 'set_storefront_membership', storefrontId: 'all', data: { entries: [{ entitlementId: item.id, offerVerseKey: alternateKey }] } }, '2');
   const updated = catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: { alternateOffers: [] } }, '3');
   assert.equal(updated.snapshot.storefrontMembership.allOffers.length, 0);
   assert.ok(updated.cascades.some(value => value.includes('storefront')));
-  assert.ok(updated.snapshot.retiredVerseKeys.includes('variants_alt'));
+  assert.ok(alternateKey && updated.snapshot.retiredVerseKeys.includes(alternateKey));
 });

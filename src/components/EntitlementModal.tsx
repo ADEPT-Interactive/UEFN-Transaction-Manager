@@ -17,8 +17,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { AlternateOffer, EntitlementItem, OfferRestrictions } from '../types/entitlement';
-import { sanitizeVerseIdentifier, validateEntitlement } from '../services/validator';
-import { createVerseKeyAllocator, draftVerseKeyForName } from '../services/verseIdentity';
+import { validateEntitlement } from '../services/validator';
+import { createVerseKeyAllocator } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { EditorStatus } from '../services/fileService';
 import { entitlementDraftSnapshot } from '../services/draftSnapshots';
@@ -29,6 +29,8 @@ import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
 import { VBucksIcon } from './VBucksIcon';
 import { DraftConfirmDialog } from './DraftConfirmDialog';
 import { useModalFocus } from '../hooks/useModalFocus';
+import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
+import { NumericInput } from './NumericInput';
 
 interface EntitlementModalProps {
   isOpen: boolean;
@@ -62,6 +64,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<EntitlementItem>(() => item ?? EMPTY_ENTITLEMENT);
   const [activeTab, setActiveTab] = useState<'general' | 'icon' | 'behavior' | 'hooks'>('general');
+  const [creationStep, setCreationStep] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pendingIconDialogRef = useRef<HTMLDivElement>(null);
@@ -101,6 +104,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
       setFormData(nextItem);
       initialFormRef.current = nextItem;
       setActiveTab('general');
+      setCreationStep(0);
       setShowAdvanced(false);
       setPendingIconUpload(false);
       setPendingAction(null);
@@ -121,17 +125,10 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
     setFormData(prev => ({ ...prev, priceVBucks: amount }));
   };
 
-  // Drafts may follow their display name. Persisted keys never do.
+  const isCreating = item.id.startsWith('new-');
+
   const handleNameChange = (newName: string) => {
-    setFormData(prev => {
-      const isExisting = !item.id.startsWith('new-');
-      const nextKey = draftVerseKeyForName(prev.verseKey, prev.name, newName, isExisting);
-      return {
-        ...prev,
-        name: newName,
-        verseKey: nextKey,
-      };
-    });
+    setFormData(prev => ({ ...prev, name: newName }));
   };
 
   const updateRestrictions = (patch: Partial<OfferRestrictions>) => {
@@ -161,6 +158,21 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   const validationIssues = validateEntitlement(formData, allEntitlements);
   const errors = validationIssues.filter(i => i.severity === 'error');
+  const creationTabs = ['general', 'icon', 'behavior'] as const;
+  const currentStepIssues = validationIssues.filter(issue => {
+    if (!isCreating) return true;
+    const field = issue.field ?? '';
+    if (creationStep === 0) return ['id', 'verseKey', 'name', 'shortDescription', 'description', 'durationDescription', 'priceVBucks'].some(prefix => field === prefix || field.startsWith(`${prefix}.`));
+    if (creationStep === 1) return field === 'iconTexture';
+    return !['id', 'verseKey', 'name', 'shortDescription', 'description', 'durationDescription', 'priceVBucks', 'iconTexture'].some(prefix => field === prefix || field.startsWith(`${prefix}.`));
+  });
+  const currentStepErrors = currentStepIssues.filter(issue => issue.severity === 'error');
+
+  const selectTab = (tab: 'general' | 'icon' | 'behavior' | 'hooks') => {
+    if (!isCreating) { setActiveTab(tab); return; }
+    const nextStep = creationTabs.indexOf(tab as typeof creationTabs[number]);
+    if (nextStep >= 0 && nextStep <= creationStep) setActiveTab(tab);
+  };
 
   const commitForm = () => {
     if (errors.length > 0) return;
@@ -173,6 +185,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCreating && creationStep < creationTabs.length - 1) {
+      if (currentStepErrors.length > 0) return;
+      const nextStep = creationStep + 1;
+      setCreationStep(nextStep);
+      setActiveTab(creationTabs[nextStep]);
+      return;
+    }
     commitForm();
   };
 
@@ -191,7 +210,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 {item.id.includes('new') ? 'Create Offer' : `Edit offer: ${formData.name || formData.verseKey}`}
               </h2>
               <p className={`text-xs text-slate-400 ${showAdvanced ? 'font-mono' : ''}`}>
-                {showAdvanced ? `${formData.verseKey}_entitlement` : 'Add the storefront details players will see.'}
+                {isCreating ? `Step ${creationStep + 1} of 3 · Review the details before saving.` : 'Add the storefront details players will see.'}
               </p>
             </div>
           </div>
@@ -206,15 +225,15 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div role="tablist" aria-label="Offer editor sections" className="flex border-b border-slate-800 bg-[#090e1a] px-6 gap-1">
+        <div role="tablist" aria-label="Offer editor sections" className="flex overflow-x-auto border-b border-slate-800 bg-[#090e1a] px-6 gap-1">
           <button
             type="button"
             id="offer-tab-general"
             role="tab"
             aria-selected={activeTab === 'general'}
             aria-controls="offer-editor-panel"
-            onClick={() => setActiveTab('general')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            onClick={() => selectTab('general')}
+            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'general'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -230,8 +249,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             role="tab"
             aria-selected={activeTab === 'icon'}
             aria-controls="offer-editor-panel"
-            onClick={() => setActiveTab('icon')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            onClick={() => selectTab('icon')}
+            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'icon'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -247,8 +266,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             role="tab"
             aria-selected={activeTab === 'behavior'}
             aria-controls="offer-editor-panel"
-            onClick={() => setActiveTab('behavior')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            onClick={() => selectTab('behavior')}
+            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'behavior'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -258,14 +277,14 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             <span>Behavior & Moderation</span>
           </button>
 
-          {showAdvanced && <button
+          {showAdvanced && !isCreating && <button
             type="button"
             id="offer-tab-hooks"
             role="tab"
             aria-selected={activeTab === 'hooks'}
             aria-controls="offer-editor-panel"
-            onClick={() => setActiveTab('hooks')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            onClick={() => selectTab('hooks')}
+            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'hooks'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -275,6 +294,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             <span>Triggers & Hooks</span>
           </button>}
         </div>
+
+        {isCreating && <div className="border-b border-slate-800 bg-[#0b1220] px-6 py-3" aria-label="Offer creation progress">
+          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500"><span>New offer setup</span><span className="text-cyan-300">Step {creationStep + 1} of 3</span></div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {['General & Pricing', 'Icon & Texture', 'Behavior & Moderation'].map((label, index) => <div key={label} className={`h-1 rounded-full ${index <= creationStep ? 'bg-cyan-400' : 'bg-slate-800'}`} aria-label={`${label}: ${index < creationStep ? 'complete' : index === creationStep ? 'current' : 'upcoming'}`} />)}
+          </div>
+        </div>}
 
         {/* Modal Scrollable Body */}
         <form id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} onSubmit={handleSave} className="p-6 overflow-y-auto space-y-5 flex-1">
@@ -298,25 +324,6 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-400 font-medium"
                 />
               </div>
-
-              {/* Verse Identifier Symbol */}
-              {showAdvanced && <div>
-                <label htmlFor="offer-verse-key" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>Verse Identifier Key *</span>
-                  <span className="text-[10px] text-slate-500 lowercase">letters, numbers, underscore only</span>
-                </label>
-                <div className="relative">
-                  <input
-                    id="offer-verse-key"
-                    type="text"
-                    required
-                  value={formData.verseKey}
-                    onChange={(e) => setFormData(prev => ({ ...prev, verseKey: sanitizeVerseIdentifier(e.target.value) }))}
-                    placeholder="e.g. vip_pass or strength_boost_10"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 font-semibold"
-                  />
-                </div>
-              </div>}
 
               {/* Descriptions */}
               <div className="grid grid-cols-1 gap-3">
@@ -363,22 +370,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <span>Price in V-Bucks ({MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to {MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} VB, step {MARKETPLACE_CONSTRAINTS.priceStepVBucks})</span>
                   </label>
                   <span className="font-mono text-base font-extrabold text-sky-400">
-                    <span className="inline-flex items-center gap-1.5"><VBucksIcon className="h-4 w-4" />{formData.priceVBucks} V-Bucks</span>
+                    <span className="inline-flex items-center gap-1.5" aria-label={`${formData.priceVBucks.toLocaleString()} V-Bucks`}><VBucksIcon className="h-4 w-4" />{formData.priceVBucks.toLocaleString()}</span>
                   </span>
                 </div>
 
                 {/* Price input & slider */}
                 <div className="flex items-center gap-3">
-                  <input
-                    id="offer-price"
-                    type="number"
-                    min={MARKETPLACE_CONSTRAINTS.priceMinVBucks}
-                    max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks}
-                    step={MARKETPLACE_CONSTRAINTS.priceStepVBucks}
-                    value={formData.priceVBucks}
-                    onChange={(e) => setFormData(prev => ({ ...prev, priceVBucks: Number(e.target.value) }))}
-                    className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-sky-400 text-center"
-                  />
+                  <NumericInput id="offer-price" value={formData.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel="Offer price in V-Bucks" onChange={value => setFormData(prev => ({ ...prev, priceVBucks: value }))} className="w-16" />
                   <input
                     aria-label="Offer price in V-Bucks"
                     type="range"
@@ -411,15 +409,15 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               </div>
 
               <fieldset className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.04] p-4 space-y-2">
-                <legend className="px-1 text-xs font-extrabold text-cyan-200">Runtime behavior</legend>
+                <legend className="px-1 text-xs font-extrabold text-cyan-200">Price source</legend>
                 <label className="flex items-center justify-between gap-3 text-xs text-slate-300">
-                  <span><span className="block font-bold text-white">Price</span><span className="text-slate-400">Keep the template price, or let project Verse provide it at purchase time.</span></span>
+                  <span><span className="block font-bold text-white">How is this price set?</span><span className="text-slate-400">Choose a fixed catalog price or let your project supply it at purchase time.</span></span>
                   <select aria-label="Offer price behavior" value={formData.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(prev => ({ ...prev, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined }))} className="w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs">
                     <option value="fixed">Fixed in UTM</option>
-                    <option value="runtime">Calculated by Verse</option>
+                    <option value="runtime">Set by Verse at runtime</option>
                   </select>
                 </label>
-                <p className="text-[11px] leading-5 text-slate-400">Runtime offers expose a typed options value and factory in generated Verse. The saved price remains a fallback for generated interaction callbacks.</p>
+                <p className="text-[11px] leading-5 text-slate-400">For runtime pricing, project Verse supplies the player-specific price when the purchase opens. UTM keeps the saved price as a validation and display fallback.</p>
               </fieldset>
 
               {showAdvanced && <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
@@ -433,14 +431,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">Variant {index + 1}</span><button type="button" onClick={() => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).filter(candidate => candidate.id !== offer.id) }))} className="text-xs text-rose-300">Remove</button></div>
                     <div className="grid grid-cols-2 gap-2">
                       <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                      <input aria-label={`Variant ${index + 1} Verse key`} value={offer.verseKey} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, verseKey: sanitizeVerseIdentifier(e.target.value) } : candidate) }))} placeholder="variant_key" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono text-cyan-300" />
-                      <input aria-label={`Variant ${index + 1} price in V-Bucks`} type="number" min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} value={offer.priceVBucks} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: Number(e.target.value) } : candidate) }))} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <NumericInput value={offer.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel={`Variant ${index + 1} price in V-Bucks`} onChange={value => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: value } : candidate) }))} className="w-16 text-xs" />
                       <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
                     </div>
                     <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                    <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price behavior</span><span className="text-slate-500">Verse may provide this variant's price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed in UTM</option><option value="runtime">Calculated by Verse</option></select></label>
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price source</span><span className="text-slate-500">Choose the catalog price or project-supplied runtime price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed price</option><option value="runtime">Set by Verse at runtime</option></select></label>
                     <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
                   </div>
                 ))}
@@ -451,6 +448,10 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           {/* TAB 2: Icon & Texture */}
           {activeTab === 'icon' && (
             <div className="space-y-4">
+                {formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}` && <div className="flex items-start gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-3 text-xs leading-5 text-slate-300">
+                  <img src={PLACEHOLDER_ICON_DATA_URL} alt="UTM built-in placeholder icon" className="h-14 w-14 shrink-0 rounded-lg border border-slate-700" />
+                  <div><p className="font-bold text-cyan-200">Built-in placeholder icon</p><p className="mt-1">A custom square PNG is recommended. Until you choose one, UTM uses this real project Texture2D so generated Verse has a valid icon reference and can compile.</p><p className="mt-1 text-[11px] text-slate-400">The placeholder is replaced when you import a custom icon or adopt an existing Texture2D.</p></div>
+                </div>}
                 {!editorStatus?.nativeTextureImportAvailable && <div id="icon-import-unavailable" role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
                   <p className="font-bold text-amber-200">Icon importing is unavailable until Transaction Manager has a full Python connection to UEFN.</p>
                   <p className="mt-1 text-amber-100/80">{!editorStatus?.uefnRunning
@@ -468,7 +469,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 assetFolderName={assetFolderName}
                 assetName={formData.verseKey || 'icon'}
                 currentTextureRef={formData.iconTexture}
-                  currentImageData={formData.iconImageData}
+                  currentImageData={formData.iconImageData ?? (formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}` ? PLACEHOLDER_ICON_DATA_URL : undefined)}
+                  isPlaceholder={formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`}
                   nativeTextureImportAvailable={editorStatus?.nativeTextureImportAvailable === true}
                   onTextureRefChange={(ref) => setFormData(prev => ({ ...prev, iconTexture: ref }))}
                   onImageDataChange={(base64, fileName) => setFormData(prev => ({ ...prev, iconImageData: base64, iconFileName: fileName }))}
@@ -538,14 +540,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                       <p className="text-xs font-bold text-amber-300">Max Holding Count (MaxCount)</p>
                       <p className="text-[11px] text-slate-400">Maximum stack the player can hold at one time.</p>
                     </div>
-                    <input
-                      type="number"
-                      min={MARKETPLACE_CONSTRAINTS.maxCountMin}
-                      max={MARKETPLACE_CONSTRAINTS.maxCount}
-                      value={formData.maxCount}
-                      onChange={(e) => setFormData(prev => ({ ...prev, maxCount: Number(e.target.value) }))}
-                      className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-white text-center"
-                    />
+                    <NumericInput value={formData.maxCount} min={MARKETPLACE_CONSTRAINTS.maxCountMin} max={MARKETPLACE_CONSTRAINTS.maxCount} ariaLabel="Maximum holding count" onChange={value => setFormData(prev => ({ ...prev, maxCount: value }))} className="w-16 text-xs" />
                   </div>
 
                   <div className="flex items-center justify-between border-t border-amber-500/20 pt-3">
@@ -663,7 +658,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Canonical entitlement events</span>
+                  <span>Transaction Events</span>
                 </label>
                 <p className="text-[11px] text-slate-400">The device signals stable-key-based Granted, Removed, and Reconciled events after authoritative Marketplace changes. A positive event represents any positive entitlement delta, including a purchase or direct grant.</p>
               </div>
@@ -718,9 +713,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           )}
 
           {/* Validation Warnings inside Modal */}
-          {validationIssues.length > 0 && (
+          {currentStepIssues.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
-              {validationIssues.map(issue => (
+              {currentStepIssues.map(issue => (
                 <div key={issue.id} className="flex items-start gap-2 text-xs">
                   {issue.severity === 'error' ? (
                     <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
@@ -744,14 +739,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={errors.length > 0}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>Save Offer</span>
-            </button>
+            {isCreating && creationStep > 0 && <button type="button" onClick={() => { const previousStep = creationStep - 1; setCreationStep(previousStep); setActiveTab(creationTabs[previousStep]); }} className="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Back</button>}
+            {isCreating && creationStep < creationTabs.length - 1 ? <button type="submit" disabled={currentStepErrors.length > 0} className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><span>Next</span><span aria-hidden="true">→</span></button> : <button type="submit" disabled={errors.length > 0} className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><Save className="h-4 w-4" /><span>Save Offer</span></button>}
           </div>
         </form>
         {pendingAction && (

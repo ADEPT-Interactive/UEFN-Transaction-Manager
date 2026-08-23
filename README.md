@@ -28,7 +28,7 @@ UEFN Transaction Manager is a visual companion for creators who want to design, 
 
 - Build a believable transaction catalog visually instead of hand-editing Marketplace plumbing.
 - Configure durable and consumable entitlements, alternate offers, prices, restrictions, disclosures, ownership limits, and gameplay-facing flags.
-- Compose fixed bundles, fill-to-max bundles, runtime-quantity bundles, and focused storefronts.
+- Compose fixed bundles, fill-to-max bundles, runtime-quantity bundles, and storefronts.
 - Use runtime prices and quantities calculated by your own Verse while UTM validates the final values and generates the integration surface.
 - Import supported artwork or adopt existing UEFN `Texture2D` assets into the managed icon workflow.
 - Generate the managed Verse device, purchase helpers, ownership queries, grants, consumption helpers, and state notifications.
@@ -38,22 +38,7 @@ UEFN Transaction Manager is a visual companion for creators who want to design, 
 
 UTM 4.3 adds an optional transaction-aware workflow for MCP-compatible coding agents such as Codex, Claude Code, and Cursor. UEFN provides [UEFN MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp), an editor connection for Verse, assets, devices, compilation, and sessions. UTM provides **UTM MCP**, a separate local connection for the transaction catalog.
 
-```text
-                         MCP-compatible coding agent
-                    Codex / Claude Code / Cursor / others
-                                  |
-                    +-------------+-------------+
-                    |                           |
-                    v                           v
-                 UTM MCP                     UEFN MCP
-             transaction domain            editor domain
-             catalog and offers             Verse and files
-             validation and icons            assets and devices
-             generated contract              compile and sessions
-                    \                           /
-                     \                         /
-                         your UEFN project
-```
+<p align="center"><img src="docs/assets/utm-mcp-workflow.svg" alt="A coding agent connects to UTM MCP for transaction catalog work and Unreal MCP for UEFN editor work; both meet in the same UEFN project." width="92%"></p>
 
 The agent can coordinate both surfaces while the ownership boundary stays clear: UTM owns transaction intent and plumbing, UEFN owns editor automation, and your project Verse owns gameplay rules, rewards, eligibility, progression, and UI. UTM is an independent tool and is not endorsed by or affiliated with Epic Games. UEFN and Fortnite are products of Epic Games.
 
@@ -98,7 +83,11 @@ Start with an entitlement, then configure its primary offer. Add alternate offer
   <img src="docs/screenshots/dynamic-transactions.png" alt="UEFN Transaction Manager dynamic transaction editor showing a price supplied by Verse" width="40%">
 </p>
 
-Prices are entered as V-Bucks. A stable project key keeps generated Verse helper names consistent if you later change a display name. Trigger and Button bindings are explicit, so passive zone entry is not treated as a purchase action.
+Prices are entered as V-Bucks. UTM allocates the stable Verse identity used by generated helpers; changing a display name does not rename that integration surface. Trigger and Button bindings are explicit, so a purchase flow starts from a deliberate player interaction rather than automatic zone entry.
+
+### A guided first offer
+
+When you create a new offer, UTM walks you through **General & Pricing**, **Icon & Texture**, and **Behavior & Moderation** before **Save Offer** becomes available. Templates arrive prefilled, but still pass through the same review. Existing offers remain freeform to edit, so advanced creators can move directly to the section they need.
 
 ### Runtime prices and quantities
 
@@ -116,7 +105,7 @@ To import artwork into the Content Browser:
 4. Keep UEFN and UTM connected to the same project.
 5. Add or edit an icon and confirm the import.
 
-Power-of-two PNGs are kept unchanged. Other supported raster images are normalized and scaled uniformly, with transparent padding only when needed to preserve proportions. The Icon tab can also adopt a verified UEFN `Texture2D` object path; do not enter a Windows filesystem path or edit `.uasset` files manually.
+Power-of-two PNGs are kept unchanged. Other supported raster images are normalized and scaled uniformly, with transparent padding only when needed to preserve proportions. New offers start with a built-in square placeholder Texture2D so generated Verse has a valid icon reference; replace it with a custom icon when your artwork is ready. The Icon tab can also adopt a verified UEFN `Texture2D` object path; do not enter a Windows filesystem path or edit `.uasset` files manually.
 
 <p align="center">
   <img src="docs/screenshots/icon-texture.png" alt="UEFN Transaction Manager icon editor showing an adopted UEFN Texture2D and managed icon preview" width="72%">
@@ -124,10 +113,10 @@ Power-of-two PNGs are kept unchanged. Other supported raster images are normaliz
 
 ### Bundles and storefronts
 
-Bundles preserve configured order and quantities, including nested and dynamic behavior. Storefront membership is explicit, so you choose exactly which primary offers, alternate offers, and static bundles appear in All Offers or a focused storefront.
+Bundles preserve configured order and quantities, including nested and dynamic behavior. Storefront membership is explicit, so you choose exactly which primary offers, alternate offers, and static bundles appear in All Offers or a storefront.
 
 <p align="center">
-  <img src="docs/screenshots/bundles-storefronts.png" alt="UEFN Transaction Manager bundle and storefront sections showing grouped offers and focused membership" width="82%">
+  <img src="docs/screenshots/bundles-storefronts.png" alt="UEFN Transaction Manager bundle and storefront sections showing grouped offers and storefront membership" width="82%">
 </p>
 
 ## Agent Integration
@@ -138,14 +127,14 @@ Agent Integration is optional. It adds UTM MCP to the open project while UEFN MC
 2. In UTM, open **Tools -> Agent Integration**.
 3. Enable **UTM MCP**.
 4. Choose **Copy MCP configuration**. UTM supplies the local endpoint and bearer configuration; keep the copied configuration private.
-5. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill).
+5. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
 6. Connect a compatible coding agent to both UTM MCP and UEFN MCP, then verify both identify the same project before making changes.
 
 <p align="center">
   <img src="docs/screenshots/agent-integration.png" alt="UTM Agent Integration panel showing a running UTM MCP endpoint, active project, and Agent Skill access" width="82%">
 </p>
 
-The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, icon adoption, generated-contract inspection, existing-project migration, compilation, and ambiguity checks. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
+The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, UTM-managed Verse identities, icon adoption, generated-contract inspection, existing-project migration, compilation, and ambiguity checks. MCP support and Agent Skill support are separate capabilities; a client that can connect to UTM MCP does not automatically discover the skill. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
 
 ## Compile and connect generated Verse
 
@@ -201,7 +190,7 @@ A successful Verse compile proves that the generated code compiles. It does not 
 
 ### The project is not connected
 
-Make sure UEFN is open with the same `.uefnproject` selected in UTM. Close duplicate UEFN sessions if more than one project is open, then reconnect from the launcher.
+Use **Open project in UEFN** in the connection banner when it is available. UTM asks Windows to open the same selected `.uefnproject` through the registered UEFN association. If Windows reports that no application is associated, repair the UEFN installation or open the project from the launcher. Close duplicate UEFN sessions if more than one project is open.
 
 ### Icon import is unavailable
 
@@ -237,3 +226,5 @@ The repository is source-available. Before submitting a contribution, read [CONT
 Copyright © 2026 AD3PT Interactive Inc., operating as ADEPT Interactive and ADEPT.
 
 This project uses the [ADEPT Source-Available License](LICENSE). Viewing, private evaluation, and contribution through the official repository are permitted. The license does not permit unauthorized redistribution, derivative releases, repackaging, embedding, commercialization, or branding use.
+
+UEFN and Fortnite are products of Epic Games. UEFN Transaction Manager is an independent community tool and is not endorsed by or affiliated with Epic Games.

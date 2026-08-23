@@ -29,6 +29,8 @@ The two local services have different responsibilities:
 6. Install or expose the packaged Agent Skill described below.
 7. Start the agent from the project/workspace context required by that client and ask it to verify both project contexts before editing.
 
+If UEFN is closed, the UTM connection banner offers **Open project in UEFN**. It uses the selected `.uefnproject` and Windows&apos; registered UEFN association; it does not accept an arbitrary command or path.
+
 UTM MCP normally listens on `http://127.0.0.1:8001/mcp`; the UEFN server normally listens on `http://127.0.0.1:8000/mcp`. The UTM panel supplies the current endpoint. If a local port is occupied, expand **Advanced connection settings** and apply another port.
 
 The copied UTM configuration contains a bearer token. Treat it as a secret: do not commit it, paste it into project files, or share it in an issue. Rotating the token invalidates existing client configurations. Disabling UTM MCP stops its listener. UTM MCP is disabled by default for existing users.
@@ -59,6 +61,8 @@ Copy the entire folder, including `SKILL.md` and `references`, into the client l
 
 These are user-facing examples for the named clients; client support for MCP does not by itself guarantee support for Agent Skills. Keep the skill folder together and connect the client to both UTM MCP and UEFN MCP for the same project.
 
+Current Codex, Claude Code, and Cursor releases support the open `SKILL.md` format, but their discovery and invocation surfaces differ. If a client can connect to MCP but does not support Agent Skills, use UTM MCP without the skill and follow the same safety sequence manually.
+
 Keep `SKILL.md` and its `references` folder together. The skill is guidance for an MCP-compatible agent, not a replacement for the live tool schemas or the UEFN editor.
 
 ## Same-project safety
@@ -72,6 +76,7 @@ UTM catalog mutations use an opaque revision. If a human saves or changes the ca
 1. Open the project in UEFN and UTM, then verify both MCP contexts.
 2. Ask the agent to inspect the current UTM catalog and integration contract.
 3. Create entitlements, alternate offers, bundles, and storefront membership through UTM MCP.
+   UTM allocates stable Verse keys for new objects. Use the IDs and keys returned by UTM; never send a display-name-derived key or try to rename an existing key in an update.
 4. Discover real project icons through UEFN MCP and ask UTM to adopt the selected `Texture2D` objects. Do not invent object paths or copy `.uasset` files.
 5. Save through UTM, compile through UEFN MCP, and place/configure the generated device in UEFN.
 6. Keep eligibility, progression, rewards, UI, and other gameplay consequences in project Verse.
@@ -126,6 +131,10 @@ Confirm Python Editor Scripting and UEFN MCP Toolsets are enabled, auto-start is
 ### A migration stops for ambiguity
 
 Review the code path or asset reference the agent named, provide the missing semantic decision, and rerun the dry run. Do not force an inferred mapping into the catalog.
+
+### A new offer has a placeholder icon
+
+New offers begin with a real built-in square placeholder `Texture2D` so the generated contract has a valid icon reference. Replace it with a custom PNG or adopt an existing project `Texture2D` from the Icon & Texture section when the final artwork is ready.
 
 ### Compile succeeds but the experience is wrong
 

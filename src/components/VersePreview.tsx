@@ -3,7 +3,6 @@ import {
   Copy, 
   Check, 
   Download, 
-  Save, 
   FileCode, 
   ExternalLink 
 } from 'lucide-react';
@@ -17,8 +16,6 @@ interface VersePreviewProps {
   config: ProjectConfig;
   entitlements: EntitlementItem[];
   storefrontMembership: StorefrontMembership;
-  onSaveToDisk: () => void;
-  isSaving: boolean;
   hasErrors: boolean;
 }
 
@@ -27,8 +24,6 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
   config,
   entitlements,
   storefrontMembership,
-  onSaveToDisk,
-  isSaving,
   hasErrors,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -97,16 +92,6 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
             <span>Download</span>
           </button>
 
-          {/* Direct Write to Disk */}
-          <button
-            onClick={onSaveToDisk}
-            disabled={isSaving || hasErrors}
-            title={hasErrors ? 'Resolve validation errors before writing to the project.' : undefined}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md shadow-cyan-500/20 transition-all disabled:opacity-50 active:scale-95"
-          >
-            <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-bounce' : ''}`} />
-            <span>{isSaving ? 'Writing to Disk...' : 'Write to Content/'}</span>
-          </button>
         </div>
       </div>
 

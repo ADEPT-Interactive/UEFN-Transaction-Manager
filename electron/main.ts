@@ -93,9 +93,9 @@ function launcherState(status?: string): LauncherState {
 }
 
 function loadShowcaseProjects(): ProjectCandidate[] {
-  const fixtureRoot = path.join(appRoot, 'docs', 'showcase', 'runtime', 'ADEPT-Transaction-Gallery');
+  const fixtureRoot = path.join(appRoot, 'docs', 'showcase', 'runtime', 'Creator Commerce Demo');
   const paths = [
-    path.join(fixtureRoot, 'Showcase.uefnproject'),
+    path.join(fixtureRoot, 'Creator Commerce Demo.uefnproject'),
     path.join(fixtureRoot, 'launcher-projects', 'CommerceLab', 'CommerceLab.uefnproject'),
     path.join(fixtureRoot, 'launcher-projects', 'SeasonalStore', 'SeasonalStore.uefnproject'),
     path.join(fixtureRoot, 'launcher-projects', 'CreatorSandbox', 'CreatorSandbox.uefnproject'),
@@ -122,7 +122,7 @@ async function loadProjectCandidates() {
       selectedProjectId = fixtureProjects[0].id;
       discoveryActive = false;
       diagnostic(`Showcase project fixture loaded: projects=${fixtureProjects.length}`);
-      sendLauncherState('Showcase projects ready. Select a project to continue.');
+      sendLauncherState('Example projects ready. Select a project to continue.');
       return;
     }
     diagnostic('Showcase mode was requested, but its generated fixture was not found; using normal project discovery.');
@@ -304,6 +304,23 @@ function configureIpc() {
     assertTrustedSender(event);
     if (mode !== 'launcher' || typeof projectId !== 'string') return { success: false, error: 'The project launcher is unavailable.' };
     return confirmProject(projectId);
+  });
+  ipcMain.handle('uem:project:open-in-uefn', async event => {
+    assertTrustedSender(event);
+    if (mode !== 'dashboard' || !selectedProjectId) return { success: false, error: 'The linked UEFN project is not available in this window.' };
+    const selected = projects.get(selectedProjectId);
+    if (!selected) return { success: false, error: 'The linked UEFN project is no longer listed. Return to the launcher and select it again.' };
+    const verified = readProject(selected.projectFile, selected.source, selected.isActive, selected.isActive ? { processId: selected.uefnProcessId, windowTitle: selected.uefnWindowTitle } : undefined, diagnostic);
+    if (!verified || verified.id !== selected.id || !verified.projectFile.toLowerCase().endsWith('.uefnproject') || !fs.existsSync(verified.projectFile)) {
+      return { success: false, error: 'The linked UEFN project could not be verified. Return to the launcher and choose it again.' };
+    }
+    const openError = await shell.openPath(verified.projectFile);
+    if (openError) {
+      diagnostic(`UEFN project launch failed for the verified project: ${openError}`);
+      return { success: false, error: 'Windows could not open this .uefnproject file with UEFN. Confirm the UEFN file association, then open the project from the launcher.' };
+    }
+    diagnostic(`UEFN project launch requested for the verified selected project: ${verified.projectFile}`);
+    return { success: true };
   });
   ipcMain.handle('uem:external:open', async (event, rawUrl: unknown) => {
     assertTrustedSender(event);

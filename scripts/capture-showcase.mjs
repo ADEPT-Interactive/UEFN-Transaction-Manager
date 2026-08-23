@@ -201,7 +201,9 @@ async function capture(cdp, name, { width, height, selector, padding = 36, paddi
 let child;
 let cdp;
 try {
-  const fixtureRoot = path.join(root, 'docs', 'showcase', 'runtime', 'ADEPT-Transaction-Gallery');
+  const showcaseRuntimeRoot = path.join(root, 'docs', 'showcase', 'runtime');
+  const fixtureRoot = path.join(showcaseRuntimeRoot, 'Creator Commerce Demo');
+  fs.rmSync(showcaseRuntimeRoot, { recursive: true, force: true });
   const fixtureCommand = process.platform === 'win32'
     ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', 'npm run showcase:fixture']]
     : ['npm', ['run', 'showcase:fixture']];
@@ -223,9 +225,10 @@ try {
   cdp = new CdpClient(target.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send('Runtime.enable');
-  await waitFor(cdp, "document.querySelector('[data-uem-launcher-ready]') && document.querySelectorAll('#projects .project').length >= 4", 'showcase launcher projects');
+  await waitFor(cdp, "document.querySelector('[data-uem-launcher-ready]') && [...document.querySelectorAll('#projects .project')].some(element => (element.innerText || '').includes('Creator Commerce Demo'))", 'deterministic showcase launcher project');
   await capture(cdp, 'launcher', { width: 1100, height: 820 });
 
+  await clickText(cdp, 'Creator Commerce Demo', '#projects .project');
   await clickText(cdp, 'Open project in Transaction Manager', '#continue');
   await waitFor(cdp, "document.querySelector('#root') && document.body.innerText.includes('This project is open and fully connected')", 'healthy showcase manager');
   // The bridge may finish the catalog load before the image elements have
@@ -255,7 +258,7 @@ try {
   await wait(250);
 
   await cdp.evaluate('window.scrollTo(0, 0)');
-  await clickText(cdp, 'Locally valid');
+  await clickText(cdp, 'No Issues');
   await waitFor(cdp, "Boolean(document.querySelector('[aria-label=\"Close validation report\"]'))", 'validation report');
   await capture(cdp, 'validation', { width: 1100, height: 820, selector: '[role="dialog"]' });
   await clickAria(cdp, 'Close validation report');

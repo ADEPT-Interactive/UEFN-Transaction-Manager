@@ -3,6 +3,7 @@ import { ChevronDown, Cloud, Gamepad2, Monitor, Plus, Search, Smartphone, X } fr
 import { COUNTRY_CODE_OPTIONS, COUNTRY_PICKER_OPTIONS, EPIC_PLATFORM_FAMILIES, getCountryName } from '../constants/offerRestrictions';
 import { OfferRestrictions } from '../types/entitlement';
 import { useClickAway } from '../hooks/useClickAway';
+import { NumericInput } from './NumericInput';
 
 interface OfferRestrictionsEditorProps {
   restrictions: OfferRestrictions;
@@ -66,7 +67,7 @@ export const OfferRestrictionsEditor: React.FC<OfferRestrictionsEditorProps> = (
     <div className={`space-y-3 ${compact ? 'rounded-xl border border-slate-800 bg-slate-950/40 p-3' : ''}`}>
       {!compact && <div><p className="text-xs font-bold text-cyan-300 uppercase tracking-wider">Offer restrictions</p><p className="text-[11px] text-slate-400">Epic receives the country and platform values anonymously when validating the offer. Platform IDs are limited to the official Marketplace values.</p></div>}
       <label className="block text-xs text-slate-300">Minimum purchase age
-        <input type="number" min={0} max={99} value={restrictions.minimumPurchaseAge ?? ''} onChange={event => update({ minimumPurchaseAge: event.target.value === '' ? undefined : Number(event.target.value) })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2" placeholder="No additional age gate" />
+        <span className="mt-1 flex items-center gap-2"><NumericInput min={0} max={99} value={restrictions.minimumPurchaseAge ?? ''} allowEmpty ariaLabel="Minimum purchase age" onChange={value => update({ minimumPurchaseAge: value === '' || value === 0 ? undefined : value })} className="w-16" /><span className="text-[11px] text-slate-500">Leave blank for no additional age gate.</span></span>
       </label>
       <div>
         <p className="text-xs text-slate-300 mb-1">Blocked platform families</p>

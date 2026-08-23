@@ -31,6 +31,7 @@ Read only the reference needed for the current workflow:
 - Use UTM MCP for entitlements, alternate offers, bundles, storefront membership, validation, integration introspection, icon adoption, and saving.
 - Use Epic MCP for project Verse search/edit, `BuildAll`, device placement/property inspection, asset discovery, and session operations. Do not duplicate those tools through UTM.
 - Prefer `apply_catalog_patch` with `dryRun: true` before a migration or mixed bulk change. Apply only after semantic review and validation errors are resolved. It is atomic: no partial patch is acceptable.
+- Verse keys are UTM-managed integration identity. Do not send `verseKey` values when creating or updating objects, do not derive keys from renamed display names, and do not rewrite keys inside nested alternate offers. Use the IDs and stable keys returned by UTM; a rename changes presentation only.
 - Granular mutations may leave ordinary draft validation issues for human editing. Structural integrity errors and bulk validation errors must stop the operation. `save_catalog` is blocked by validation errors and does not compile Verse.
 - Never read or write arbitrary files, run shell commands, invent Unreal object paths, manipulate `.uasset` binaries, perform purchases, or move gameplay logic into the managed Verse file.
 - Preserve player-specific discounts, progression checks, resource calculations, custom UI, gameplay consequences, runtime quantities, and other business logic in external project Verse. Use the current integration contract and runtime options API.
@@ -40,4 +41,3 @@ Read only the reference needed for the current workflow:
 Discover the exact current Epic MCP representation before assigning generated device reference arrays. The current tested 42.00 server rejects placed Creative Trigger/Button references for generated Verse `[]trigger_device` and `[]button_device` fields; automate discovery, placement, primitive edit, and read-back only when a live assignment succeeds. Otherwise report the fields that require manual UEFN wiring.
 
 For play verification, use the proven lifecycle and capability-check each time: session start, wait for `Connected`, start game, confirm `Running`, then attempt the exposed refresh path once after a successful compile. If PushChanges or client logs are unavailable, do not loop on Refresh. Save/generate, run the strongest available full compile, restart the session when needed, inspect available editor logs, and report the limitation.
-

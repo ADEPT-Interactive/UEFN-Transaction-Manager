@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">UTM placeholder icon</title>
+  <desc id="desc">A dark square UTM placeholder tile with cyan and purple construction marks and centered PLACE HOLDER lettering.</desc>
+  <defs>
+    <linearGradient id="border" x1="24" y1="20" x2="232" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#55E6F0"/>
+      <stop offset=".55" stop-color="#3188FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="62" y1="70" x2="202" y2="193" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FF7FF"/>
+      <stop offset="1" stop-color="#B49BFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="#0B1220"/>
+  <rect x="7" y="7" width="242" height="242" rx="52" fill="none" stroke="url(#border)" stroke-width="14"/>
+  <path d="M35 58v140" stroke="#42DDE8" stroke-width="9" stroke-linecap="round"/>
+  <path d="M58 218h140" stroke="#7658F4" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="218" cy="39" r="10" fill="#55E6F0"/>
+  <path d="M79 76h98" stroke="#233453" stroke-width="2"/>
+  <path d="M79 181h98" stroke="#233453" stroke-width="2"/>
+  <text x="128" y="122" fill="url(#accent)" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" text-anchor="middle" letter-spacing="3">PLACE</text>
+  <text x="128" y="158" fill="#F8FAFC" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" text-anchor="middle" letter-spacing="3">HOLDER</text>
+</svg>

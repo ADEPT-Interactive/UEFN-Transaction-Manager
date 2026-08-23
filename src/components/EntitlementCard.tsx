@@ -1,6 +1,5 @@
 import React from 'react';
 import { 
-  Sparkles, 
   Infinity as InfinityIcon, 
   RotateCw, 
   Dice5, 
@@ -8,11 +7,11 @@ import {
   ShieldAlert, 
   Copy, 
   Trash2, 
-  Edit3, 
   Layers
 } from 'lucide-react';
 import { EntitlementItem } from '../types/entitlement';
 import { VBucksIcon } from './VBucksIcon';
+import { PlaceholderIcon } from './PlaceholderIcon';
 
 interface EntitlementCardProps {
   item: EntitlementItem;
@@ -30,10 +29,10 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
   const isConsumable = item.itemType === 'consumable';
 
   return (
-    <div className="group relative bg-[#0f1629]/90 hover:bg-[#15203b] border border-slate-800 hover:border-cyan-500/40 rounded-2xl p-4 transition-all duration-200 shadow-md hover:shadow-xl hover:shadow-cyan-500/10 flex flex-col justify-between">
+    <article className="group relative flex flex-col justify-between rounded-2xl border border-slate-800 bg-[#0f1629]/90 p-4 shadow-md transition-all duration-200 hover:border-cyan-500/40 hover:bg-[#15203b] hover:shadow-xl hover:shadow-cyan-500/10">
       
       {/* Top Header & Badges */}
-      <div>
+      <div role="button" tabIndex={0} aria-label={`Edit ${item.name}`} onClick={() => onEdit(item)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onEdit(item); } }} className="cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70">
         <div className="flex items-start justify-between gap-3 mb-3">
           
           {/* Icon Thumbnail */}
@@ -45,19 +44,16 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
                 className="w-full h-full object-contain p-1" 
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-slate-500 group-hover:text-cyan-400 transition-colors">
-                <Sparkles className="w-6 h-6" />
-                <span className="text-[9px] font-mono mt-0.5 uppercase tracking-tighter">Icon</span>
-              </div>
+              <PlaceholderIcon className="h-full w-full" alt={`${item.name} placeholder icon`} />
             )}
           </div>
 
           {/* V-Bucks Price Tag */}
           <div className="flex flex-col items-end">
-            <div className="flex items-center gap-1.5 bg-gradient-to-r from-sky-500/20 to-blue-500/20 text-sky-300 border border-sky-400/40 px-2.5 py-1 rounded-full shadow-sm">
+            <div aria-label={`${item.priceVBucks.toLocaleString()} V-Bucks`} className="flex items-center gap-1.5 bg-gradient-to-r from-sky-500/20 to-blue-500/20 text-sky-300 border border-sky-400/40 px-2.5 py-1 rounded-full shadow-sm">
               <VBucksIcon className="h-3.5 w-3.5 animate-pulse-subtle text-sky-400" />
               <span className="font-extrabold text-xs font-mono">{item.priceVBucks.toLocaleString()}</span>
-              <span className="text-[10px] text-sky-400 font-bold">V-Bucks</span>
+              <span className="sr-only">V-Bucks</span>
             </div>
             
             <span className="text-[10px] font-mono text-slate-500 mt-1 truncate max-w-[120px]" title={item.iconTexture}>
@@ -71,9 +67,6 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
           <h3 className="font-bold text-base text-white group-hover:text-cyan-300 transition-colors flex items-center gap-1.5">
             <span>{item.name}</span>
           </h3>
-          <p className="font-mono text-xs text-slate-400 mt-0.5">
-            Key: <span className="text-cyan-400/90 font-medium">{item.verseKey}</span>
-          </p>
         </div>
 
         {/* Description */}
@@ -140,16 +133,6 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
           
           <button
             type="button"
-            aria-label={`Edit ${item.name}`}
-            onClick={() => onEdit(item)}
-            title="Edit offer"
-            className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-md transition-colors"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
             aria-label={`Delete ${item.name}`}
             onClick={() => onDelete(item.id)}
             title="Delete offer"
@@ -159,6 +142,6 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 };
