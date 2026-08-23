@@ -1,4 +1,11 @@
 export const PLACEHOLDER_ICON_ASSET_NAME = 'UTM_PlaceholderIcon';
+export const LEGACY_PLACEHOLDER_ICON_ASSET_NAMES = ['UEM_PlaceholderIcon'] as const;
+
+export function isPlaceholderIconTexture(textureRef: string): boolean {
+  const assetName = textureRef.split('.').pop() ?? '';
+  return assetName === PLACEHOLDER_ICON_ASSET_NAME
+    || LEGACY_PLACEHOLDER_ICON_ASSET_NAMES.includes(assetName as (typeof LEGACY_PLACEHOLDER_ICON_ASSET_NAMES)[number]);
+}
 
 // Derived from electron/assets/utm-placeholder-icon.svg. This is a real square,
 // power-of-two source texture that is imported through the existing UEFN bridge.

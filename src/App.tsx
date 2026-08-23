@@ -15,7 +15,7 @@ import { parseVerseCode } from './services/verseParser';
 import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
 import { EditorStatus, FileService, type CatalogSnapshotPayload } from './services/fileService';
 import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray, parseStoredStorefrontMembership } from './services/projectSchema';
-import { PLACEHOLDER_ICON_ASSET_NAME } from './constants/placeholderIcon';
+import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
 import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -204,6 +204,9 @@ async function hydrateProjectImages(
     return imagesByRef.get(`${assetFolderName}.${assetName}`);
   };
   const applyImage = <T extends { iconTexture: string; iconImageData?: string; iconFileName?: string }>(item: T): T => {
+    if (isPlaceholderIconTexture(item.iconTexture)) {
+      return { ...item, iconImageData: PLACEHOLDER_ICON_DATA_URL, iconFileName: `${item.iconTexture.split('.').pop()}.png` };
+    }
     const image = getImage(item.iconTexture);
     return image ? { ...item, iconImageData: image.imageData, iconFileName: `${image.assetName}.png` } : item;
   };

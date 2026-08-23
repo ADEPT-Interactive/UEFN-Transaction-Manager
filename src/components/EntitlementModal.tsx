@@ -29,7 +29,7 @@ import { OfferRestrictionsEditor } from './OfferRestrictionsEditor';
 import { VBucksIcon } from './VBucksIcon';
 import { DraftConfirmDialog } from './DraftConfirmDialog';
 import { useModalFocus } from '../hooks/useModalFocus';
-import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
+import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import { NumericInput } from './NumericInput';
 
 interface EntitlementModalProps {
@@ -448,7 +448,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           {/* TAB 2: Icon & Texture */}
           {activeTab === 'icon' && (
             <div className="space-y-4">
-                {formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}` && <div className="flex items-start gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-3 text-xs leading-5 text-slate-300">
+                {isPlaceholderIconTexture(formData.iconTexture) && <div className="flex items-start gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-3 text-xs leading-5 text-slate-300">
                   <img src={PLACEHOLDER_ICON_DATA_URL} alt="UTM built-in placeholder icon" className="h-14 w-14 shrink-0 rounded-lg border border-slate-700" />
                   <div><p className="font-bold text-cyan-200">Built-in placeholder icon</p><p className="mt-1">A custom square PNG is recommended. Until you choose one, UTM uses this real project Texture2D so generated Verse has a valid icon reference and can compile.</p><p className="mt-1 text-[11px] text-slate-400">The placeholder is replaced when you import a custom icon or adopt an existing Texture2D.</p></div>
                 </div>}
@@ -469,8 +469,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 assetFolderName={assetFolderName}
                 assetName={formData.verseKey || 'icon'}
                 currentTextureRef={formData.iconTexture}
-                  currentImageData={formData.iconImageData ?? (formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}` ? PLACEHOLDER_ICON_DATA_URL : undefined)}
-                  isPlaceholder={formData.iconTexture === `${assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`}
+                  currentImageData={formData.iconImageData ?? (isPlaceholderIconTexture(formData.iconTexture) ? PLACEHOLDER_ICON_DATA_URL : undefined)}
+                  isPlaceholder={isPlaceholderIconTexture(formData.iconTexture)}
                   nativeTextureImportAvailable={editorStatus?.nativeTextureImportAvailable === true}
                   onTextureRefChange={(ref) => setFormData(prev => ({ ...prev, iconTexture: ref }))}
                   onImageDataChange={(base64, fileName) => setFormData(prev => ({ ...prev, iconImageData: base64, iconFileName: fileName }))}
