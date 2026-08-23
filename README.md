@@ -20,13 +20,13 @@
   </p>
 </div>
 
-UEFN Transaction Manager is a visual companion for creators who want to design, validate, and connect Fortnite in-island transactions without hand-maintaining the transaction layer. Create entitlements, offers, bundles, storefronts, dynamic purchases, icons, and generated Verse integrations from one project-scoped catalog.
+UEFN Transaction Manager is a visual Windows app for building Fortnite in-island transactions in UEFN. Create entitlements, offers, bundles, storefronts, dynamic purchases, icons, and generated Verse from one project catalog. Use the app yourself, or let a compatible coding agent work with the same catalog.
 
 ![UEFN Transaction Manager catalog showing entitlements, offers, bundles, and connected project status](docs/screenshots/catalog-overview.png)
 
 ## Why creators use UTM
 
-- Build a believable transaction catalog visually instead of hand-editing Marketplace plumbing.
+- Build the transaction catalog visually instead of hand-editing Marketplace plumbing.
 - Configure durable and consumable entitlements, alternate offers, prices, restrictions, disclosures, ownership limits, and gameplay-facing flags.
 - Compose fixed bundles, fill-to-max bundles, runtime-quantity bundles, and storefronts.
 - Use runtime prices and quantities calculated by your own Verse while UTM validates the final values and generates the integration surface.
@@ -34,19 +34,21 @@ UEFN Transaction Manager is a visual companion for creators who want to design, 
 - Generate the managed Verse device, purchase helpers, ownership queries, grants, consumption helpers, and state notifications.
 - Review local validation and advisory moderation guidance before compiling and testing in UEFN.
 
-## Built for agentic UEFN workflows
+## Built for creators. Ready for coding agents.
 
-UTM 4.3 adds an optional transaction-aware workflow for MCP-compatible coding agents such as Codex, Claude Code, and Cursor. UEFN provides [UEFN MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp), an editor connection for Verse, assets, devices, compilation, and sessions. UTM provides **UTM MCP**, a separate local connection for the transaction catalog.
+You do not need a coding agent to use UTM. The complete catalog editor, validation, icon tools, Verse generation, and UEFN compile workflow are available in the app.
+
+If you connect an MCP-compatible coding agent such as Codex, Claude Code, or Cursor, it can work with that same catalog through **UTM MCP**. [UEFN MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp) handles the editor side: Verse, files, assets, devices, compilation, and sessions.
 
 <p align="center"><img src="docs/assets/utm-mcp-workflow.svg" alt="A coding agent connects to UTM MCP for transaction catalog work and Unreal MCP for UEFN editor work; both meet in the same UEFN project." width="92%"></p>
 
-The agent can coordinate both surfaces while the ownership boundary stays clear: UTM owns transaction intent and plumbing, UEFN owns editor automation, and your project Verse owns gameplay rules, rewards, eligibility, progression, and UI. UTM is an independent tool and is not endorsed by or affiliated with Epic Games. UEFN and Fortnite are products of Epic Games.
+A coding agent can coordinate both connections without blurring their responsibilities. UTM handles the transaction catalog and generated contract. UEFN MCP handles the editor. Your project Verse keeps gameplay rules, rewards, eligibility, progression, and UI. UTM is an independent tool and is not endorsed by or affiliated with Epic Games. UEFN and Fortnite are products of Epic Games.
 
 ## Existing-project migration
 
-Already have a Marketplace transaction layer in Verse? With UTM MCP and UEFN MCP connected to the same project, a compatible coding agent can inspect the existing implementation, map its transaction meaning into a UTM catalog, adopt real project `Texture2D` icons, rewrite project callers against UTM's generated contract, and compile the result.
+Already have Marketplace transactions in Verse? With UTM MCP and UEFN MCP connected to the same project, a compatible coding agent can inspect the implementation, propose a UTM catalog, adopt existing `Texture2D` icons, update project callers against UTM's generated contract, and compile the result.
 
-The workflow preserves gameplay-specific calculations and consequences in your own Verse. It does not guess through ambiguous transaction semantics: if ownership, offer meaning, bundle contents, or runtime behavior cannot be inferred safely, the agent stops for review. See the [existing-project adoption guidance](docs/AGENT_INTEGRATION.md#move-an-existing-transaction-layer) for the practical workflow.
+Your gameplay calculations and purchase consequences stay in your Verse. If ownership, offer meaning, bundle contents, or runtime behavior are unclear, the Agent Skill stops for review instead of guessing. See the [existing-project adoption guidance](docs/AGENT_INTEGRATION.md#move-an-existing-transaction-layer) for the full workflow.
 
 ## Download and install
 

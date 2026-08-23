@@ -4,14 +4,14 @@
 
 ## UEFN Transaction Manager 4.3.0
 
-UTM 4.3 brings transaction-aware agent workflows to UEFN. Pair UTM MCP with UEFN's Unreal MCP so an MCP-compatible coding agent can work across a creator's transaction catalog and editor project while each tool stays responsible for its own domain.
+UTM remains a complete visual transaction manager for creators. Version 4.3 adds an optional way for MCP-compatible coding agents to work with the same catalog. UTM MCP handles transactions; UEFN's Unreal MCP handles the editor project.
 
 ### Highlights
 
-- **UTM MCP** — create, inspect, validate, edit, and save transaction catalogs through a project-scoped local MCP server.
-- **Packaged UTM Agent Skill** — gives compatible coding agents a safe workflow for project checks, revision-aware catalog edits, icon adoption, generated-contract inspection, compilation, and verification.
-- **Dual-MCP workflow** — use UTM MCP for entitlements, offers, bundles, storefronts, dynamic configuration, validation, and generated integration; use UEFN MCP for Verse, assets, devices, editor state, compilation, and sessions.
-- **Agent-driven catalog work** — ask a compatible agent to create or adjust transaction objects while preserving the creator's gameplay-specific Verse.
+- **UTM MCP** — create, inspect, validate, edit, and save the catalog through a project-scoped local MCP server.
+- **Packaged UTM Agent Skill** — gives compatible coding agents a safe path through project checks, revision-aware edits, icon adoption, generated-contract inspection, compilation, and verification.
+- **Two focused MCP connections** — UTM MCP handles entitlements, offers, bundles, storefronts, dynamic settings, validation, and generated integration. UEFN MCP handles Verse, assets, devices, editor state, compilation, and sessions.
+- **The same catalog for people and agents** — edit in the visual app, through MCP, or move between the two without maintaining separate copies.
 - **Existing-project migration** — inspect an existing Marketplace transaction layer, map unambiguous semantics into UTM, adopt real UEFN `Texture2D` icons, and update project callers against the generated contract. Ambiguous meaning stops for review.
 - **Texture2D discovery and adoption** — use the verified editor bridge to find and adopt existing project icons rather than guessing asset paths or editing `.uasset` files.
 - **Safer concurrent edits** — revision checks protect a human save or another agent edit from being overwritten by a stale mutation.

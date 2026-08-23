@@ -1,0 +1,34 @@
+{
+  "title": "UEFN Transaction Manager 4.3 promotional demo",
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "container": "mp4",
+    "videoCodec": "h264",
+    "audioCodec": "aac"
+  },
+  "timeline": [
+    { "scene": 1, "start": 0.00, "end": 5.50, "purpose": "Product identity and visual-first positioning", "assets": ["uem-mark.svg"] },
+    { "scene": 2, "start": 5.05, "end": 10.55, "purpose": "Catalog overview", "assets": ["catalog-overview.png"] },
+    { "scene": 3, "start": 10.10, "end": 15.60, "purpose": "Guided offers and dynamic transactions", "assets": ["offer-editor.png", "dynamic-transactions.png"] },
+    { "scene": 4, "start": 15.15, "end": 20.65, "purpose": "Texture2D and icon workflow", "assets": ["icon-texture.png"] },
+    { "scene": 5, "start": 20.20, "end": 25.70, "purpose": "Bundles and storefronts", "assets": ["bundles-storefronts.png"] },
+    { "scene": 6, "start": 25.25, "end": 30.75, "purpose": "Validation and generated Verse", "assets": ["validation.png", "verse-integration.png"] },
+    { "scene": 7, "start": 30.30, "end": 35.80, "purpose": "Optional agent workflow and existing-project migration", "assets": ["agent-integration.png", "utm-mcp-workflow.svg"] },
+    { "scene": 8, "start": 35.35, "end": 40.85, "purpose": "Product close", "assets": ["uem-mark.svg"] }
+  ],
+  "sourceAssets": {
+    "screenshots": "<workspace>/docs/screenshots",
+    "workflowDiagram": "<workspace>/docs/assets/utm-mcp-workflow.svg",
+    "productMark": "<workspace>/public/uem-mark.svg"
+  },
+  "claims": [
+    "UTM is a Windows desktop application for visually managing UEFN in-island transactions.",
+    "UTM supports entitlements, offers, bundles, storefronts, dynamic transactions, icons, validation, and generated Verse.",
+    "Agent Integration is optional.",
+    "UTM MCP owns the transaction domain while Unreal MCP owns generic editor automation.",
+    "Creators retain project-specific gameplay and business logic."
+  ]
+}
+
