@@ -100,8 +100,10 @@ test('4.3 creator workflow keeps keys and native assets managed while exposing c
   assert.match(placeholderSource, /data:image\/png;base64/);
   assert.match(placeholderSvg, /PLACE/);
   assert.match(placeholderSvg, /HOLDER/);
-  assert.match(appSource, /Open project in UEFN/);
-  assert.match(mainSource, /shell\.openPath\(verified\.projectFile\)/);
+  assert.match(appSource, /Open .*in UEFN and UTM will reconnect automatically/);
+  assert.match(appSource, /projectDisplayName\(launchContext\.projectFile, config\.contentFolderPath\)/);
+  assert.doesNotMatch(appSource, /openProjectInUefn|Open project in UEFN|isOpeningProject/);
+  assert.doesNotMatch(mainSource, /uem:project:open-in-uefn|shell\.openPath\(verified\.projectFile\)/);
 });
 
 test('current and legacy managed placeholder references keep the authored placeholder preview', () => {

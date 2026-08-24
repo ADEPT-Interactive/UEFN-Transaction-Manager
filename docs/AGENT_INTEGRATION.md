@@ -29,7 +29,7 @@ The two local services have different responsibilities:
 6. Install or expose the packaged Agent Skill described below.
 7. Start the agent from the project/workspace context required by that client and ask it to verify both project contexts before editing.
 
-If UEFN is closed, the UTM connection banner offers **Open project in UEFN**. It uses the selected `.uefnproject` and Windows&apos; registered UEFN association; it does not accept an arbitrary command or path.
+If UEFN is closed, open the linked project manually in UEFN. UTM keeps the project session linked and reconnects automatically when the editor opens; it does not depend on Windows&apos; `.uefnproject` file association.
 
 UTM MCP normally listens on `http://127.0.0.1:8001/mcp`; the UEFN server normally listens on `http://127.0.0.1:8000/mcp`. The UTM panel supplies the current endpoint. If a local port is occupied, expand **Advanced connection settings** and apply another port.
 

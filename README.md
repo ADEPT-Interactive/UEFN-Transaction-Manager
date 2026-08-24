@@ -192,7 +192,7 @@ A successful Verse compile proves that the generated code compiles. It does not 
 
 ### The project is not connected
 
-Use **Open project in UEFN** in the connection banner when it is available. UTM asks Windows to open the same selected `.uefnproject` through the registered UEFN association. If Windows reports that no application is associated, repair the UEFN installation or open the project from the launcher. Close duplicate UEFN sessions if more than one project is open.
+When UEFN is closed, open the project linked to this Transaction Manager window manually in UEFN. UTM will reconnect automatically when the editor opens. Close duplicate UEFN sessions if more than one project is open.
 
 ### Icon import is unavailable
 

@@ -56,6 +56,8 @@ test('desktop source keeps the renderer sandboxed behind narrow IPC', () => {
   assert.doesNotMatch(preload, /require\(['"]node:fs/);
   assert.doesNotMatch(preload, /shell:/);
   assert.doesNotMatch(preload, /:\s*ipcRenderer(?:\s*[,}])/);
+  assert.doesNotMatch(main, /uem:project:open-in-uefn|shell\.openPath\(verified\.projectFile\)/);
+  assert.doesNotMatch(preload, /openProjectInUefn/);
 });
 
 test('updater IPC exposes state actions without accepting executable paths', () => {

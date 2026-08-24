@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, FolderOpen, ImageIcon, Layers, PlugZap } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, ImageIcon, Layers, PlugZap } from 'lucide-react';
 import { Header } from './components/Header';
 import { EntitlementList } from './components/EntitlementList';
 import { EntitlementModal } from './components/EntitlementModal';
@@ -273,14 +273,23 @@ const SetupGuide: React.FC<{ bridgeConnected: boolean; onCreateEntitlement: () =
   );
 };
 
-const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; onOpenProject?: () => void; isOpeningProject?: boolean }> = ({ status, onOpenProject, isOpeningProject = false }) => {
+function projectDisplayName(projectFile?: string, contentFolderPath?: string): string | undefined {
+  const source = projectFile?.trim() || contentFolderPath?.trim();
+  if (!source) return undefined;
+  const normalized = source.replace(/[\\/]+$/, '');
+  const leaf = normalized.split(/[\\/]/).pop() ?? '';
+  const name = leaf.replace(/\.uefnproject$/i, '');
+  return name && name.toLowerCase() !== 'content' ? name : undefined;
+}
+
+const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectName?: string }> = ({ status, projectName }) => {
   if (!status?.success) return null;
   const connected = status.editorConnected;
   const active = status.projectActive;
   const tone = connected ? 'emerald' : active ? 'cyan' : 'amber';
   let heading = 'UEFN is closed';
-  let summary = 'This project remains linked for catalog editing and saving. Open this same project in UEFN before compiling or importing native textures.';
-  let detail = 'Python and the editor connector cannot be checked until UEFN is running.';
+  let summary = `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN and UTM will reconnect automatically.`;
+  let detail = 'Transaction Manager remains linked to this project while the editor is closed.';
 
   if (connected) {
     heading = 'This project is open and fully connected';
@@ -317,7 +326,6 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; onOpenProj
           <p className="font-extrabold text-white">{heading}</p>
           <p>{summary}</p>
           <p className={`mt-1 font-semibold ${tone === 'emerald' ? 'text-emerald-200' : tone === 'cyan' ? 'text-cyan-200' : 'text-amber-200'}`}>{detail}</p>
-          {!connected && onOpenProject && <button type="button" onClick={onOpenProject} disabled={isOpeningProject} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-3.5 py-2 text-xs font-extrabold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-60"><FolderOpen className="h-3.5 w-3.5" />{isOpeningProject ? 'Opening project in UEFN…' : 'Open project in UEFN'}</button>}
         </div>
       </div>
     </section>
@@ -352,7 +360,6 @@ export const App: React.FC = () => {
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
   const [serverOnline, setServerOnline] = useState(false);
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
-  const [isOpeningProject, setIsOpeningProject] = useState(false);
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
   const [catalogReady, setCatalogReady] = useState(false);
@@ -553,20 +560,6 @@ export const App: React.FC = () => {
   const dismissUpdate = () => {
     if (!window.uemDesktop) { setUpdateState(null); return; }
     void window.uemDesktop.update.dismiss().then(next => setUpdateState(next)).catch(() => setUpdateState(null));
-  };
-
-  const openLinkedProject = () => {
-    if (!desktopHost || !window.uemDesktop || isOpeningProject) return;
-    setIsOpeningProject(true);
-    setStatus({ message: 'Opening the linked project in UEFN…' });
-    void window.uemDesktop.openProjectInUefn().then(result => {
-      if (!result.success) {
-        setStatus({ message: result.error ?? 'UEFN could not open the linked project.', error: true });
-        return;
-      }
-      setStatus({ message: 'UEFN is launching the linked project. Connection status will update automatically.' });
-      window.setTimeout(() => { void FileService.getEditorStatus().then(setEditorStatus); }, 1500);
-    }).catch(() => setStatus({ message: 'UEFN could not be launched for the linked project.', error: true })).finally(() => setIsOpeningProject(false));
   };
 
   const installUpdate = (discardChanges = false) => {
@@ -885,7 +878,7 @@ export const App: React.FC = () => {
       </div>
 
       <main className="flex-1 px-4 lg:px-8 py-6">
-        <EditorCapabilityNotice status={editorStatus} onOpenProject={desktopHost ? openLinkedProject : undefined} isOpeningProject={isOpeningProject} />
+        <EditorCapabilityNotice status={editorStatus} projectName={projectDisplayName(launchContext.projectFile, config.contentFolderPath)} />
         {entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} onCreateEntitlement={requestOfferCreation} />}
           {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
           : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>

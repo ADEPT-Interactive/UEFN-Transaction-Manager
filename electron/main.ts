@@ -305,23 +305,6 @@ function configureIpc() {
     if (mode !== 'launcher' || typeof projectId !== 'string') return { success: false, error: 'The project launcher is unavailable.' };
     return confirmProject(projectId);
   });
-  ipcMain.handle('uem:project:open-in-uefn', async event => {
-    assertTrustedSender(event);
-    if (mode !== 'dashboard' || !selectedProjectId) return { success: false, error: 'The linked UEFN project is not available in this window.' };
-    const selected = projects.get(selectedProjectId);
-    if (!selected) return { success: false, error: 'The linked UEFN project is no longer listed. Return to the launcher and select it again.' };
-    const verified = readProject(selected.projectFile, selected.source, selected.isActive, selected.isActive ? { processId: selected.uefnProcessId, windowTitle: selected.uefnWindowTitle } : undefined, diagnostic);
-    if (!verified || verified.id !== selected.id || !verified.projectFile.toLowerCase().endsWith('.uefnproject') || !fs.existsSync(verified.projectFile)) {
-      return { success: false, error: 'The linked UEFN project could not be verified. Return to the launcher and choose it again.' };
-    }
-    const openError = await shell.openPath(verified.projectFile);
-    if (openError) {
-      diagnostic(`UEFN project launch failed for the verified project: ${openError}`);
-      return { success: false, error: 'Windows could not open this .uefnproject file with UEFN. Confirm the UEFN file association, then open the project from the launcher.' };
-    }
-    diagnostic(`UEFN project launch requested for the verified selected project: ${verified.projectFile}`);
-    return { success: true };
-  });
   ipcMain.handle('uem:external:open', async (event, rawUrl: unknown) => {
     assertTrustedSender(event);
     if (typeof rawUrl !== 'string' || !isHttpExternal(rawUrl)) {

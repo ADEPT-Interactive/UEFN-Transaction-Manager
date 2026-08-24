@@ -32,7 +32,6 @@ contextBridge.exposeInMainWorld('uemDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('uem:window:confirm-close', wrapped);
     },
   }),
-  openProjectInUefn: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:project:open-in-uefn'),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('uem:external:open', typeof url === 'string' ? url : ''),
   update: Object.freeze({
     getState: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:get-state'),
