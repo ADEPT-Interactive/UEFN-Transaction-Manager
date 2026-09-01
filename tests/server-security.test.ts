@@ -166,11 +166,16 @@ test('guided agent setup installs only the UTM skill, avoids environment inherit
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-agent-setup-'));
   const agentHome = path.join(root, 'agent-home');
   const port = await freePort();
+  const mcpPort = await freePort();
+  const localAppData = path.join(root, 'LocalAppData');
+  const agentStateRoot = path.join(localAppData, 'UEFN Entitlement Manager');
+  fs.mkdirSync(agentStateRoot, { recursive: true });
+  fs.writeFileSync(path.join(agentStateRoot, 'agent-integration.json'), JSON.stringify({ enabled: true, port: mcpPort }));
   const token = 'agent-setup-ui-token-'.padEnd(48, 'x');
   const editorToken = 'agent-setup-editor-token-'.padEnd(48, 'x');
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     cwd: process.cwd(),
-    env: { ...process.env, LOCALAPPDATA: path.join(root, 'LocalAppData'), UEM_AGENT_HOME: agentHome, UTM_MCP_LOCAL_ENDPOINT: 'stale-environment-token', PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/AgentSetupTest', UEM_IDLE_TIMEOUT_MS: '60000' },
+    env: { ...process.env, LOCALAPPDATA: localAppData, UEM_AGENT_HOME: agentHome, UTM_MCP_LOCAL_ENDPOINT: 'stale-environment-token', PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/AgentSetupTest', UEM_IDLE_TIMEOUT_MS: '60000' },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;

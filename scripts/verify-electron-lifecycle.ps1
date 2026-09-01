@@ -128,7 +128,9 @@ try {
     if ($manager.MainWindowHandle -eq [IntPtr]::Zero) { throw "The dashboard process is alive but has no visible manager window." }
     $descendants = @(Get-DescendantProcesses -RootProcessId $manager.Id)
     foreach ($process in $descendants) { [void]$trackedIds.Add([int]$process.ProcessId) }
-    $visible = @($descendants | ForEach-Object { Get-Process -Id ([int]$_.ProcessId) -ErrorAction SilentlyContinue } | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
+    # WebView2/Electron utility children can expose a non-zero MainWindowHandle
+    # while having no user-visible title. Count the actual manager window only.
+    $visible = @($descendants | ForEach-Object { Get-Process -Id ([int]$_.ProcessId) -ErrorAction SilentlyContinue } | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle) })
     if ($visible.Count -ne 1) {
         $visibleDetails = ($visible | ForEach-Object { "pid=$($_.Id) title='$($_.MainWindowTitle)' path='$($_.Path)'" }) -join '; '
         throw "Expected one visible manager window, found $($visible.Count): $visibleDetails"
