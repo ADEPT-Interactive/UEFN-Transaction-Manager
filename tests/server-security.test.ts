@@ -55,31 +55,22 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const foreignOrigin = await fetch(`${base}/api/project/scan`, { method: 'POST', headers: { ...auth, Origin: 'https://attacker.example' }, body: '{}' });
     assert.equal(foreignOrigin.status, 403);
     const initialAgentStatus = await fetch(`${base}/api/agent-integration/status`, { headers: { 'X-UEM-Token': token } });
-    const initialAgentBody = await initialAgentStatus.json() as { enabled: boolean; running: boolean; port: number; endpoint: string };
-    assert.equal(initialAgentBody.enabled, true);
+    const initialAgentBody = await initialAgentStatus.json() as { running: boolean; port: number; endpoint: string };
     assert.equal(typeof initialAgentBody.running, 'boolean');
     assert.equal(initialAgentBody.port, 8001);
     assert.equal(initialAgentBody.endpoint, 'http://127.0.0.1:8001/mcp');
     const mcpPort = await freePort();
-    const enableAgent = await fetch(`${base}/api/agent-integration/config`, { method: 'POST', headers: auth, body: JSON.stringify({ enabled: true, port: mcpPort, includeToken: true }) });
-    assert.equal(enableAgent.status, 200);
-    const enabledBody = await enableAgent.json() as { token: string; status: { running: boolean; port: number } };
-    assert.equal(enabledBody.status.running, true);
-    assert.equal(enabledBody.status.port, mcpPort);
-    assert.ok(enabledBody.token.length >= 32);
+    const configureAgent = await fetch(`${base}/api/agent-integration/config`, { method: 'POST', headers: auth, body: JSON.stringify({ port: mcpPort }) });
+    assert.equal(configureAgent.status, 200);
+    const configuredBody = await configureAgent.json() as { status: { running: boolean; port: number } };
+    assert.equal(configuredBody.status.running, true);
+    assert.equal(configuredBody.status.port, mcpPort);
     const mcpEndpoint = `http://127.0.0.1:${mcpPort}/mcp`;
-    const mcpInitialize = await fetch(mcpEndpoint, { method: 'POST', headers: { Authorization: `Bearer ${enabledBody.token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'server-security-test', version: '1' } } }) });
+    const mcpInitialize = await fetch(mcpEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'server-security-test', version: '1' } } }) });
     assert.equal(mcpInitialize.status, 200);
-    const rotateAgent = await fetch(`${base}/api/agent-integration/config`, { method: 'POST', headers: auth, body: JSON.stringify({ refreshConnection: true, includeToken: true }) });
-    const rotatedBody = await rotateAgent.json() as { token: string };
-    assert.notEqual(rotatedBody.token, enabledBody.token);
-    const oldToken = await fetch(mcpEndpoint, { method: 'POST', headers: { Authorization: `Bearer ${enabledBody.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'old-token', version: '1' } } }) });
-    assert.equal(oldToken.status, 401);
-    const newToken = await fetch(mcpEndpoint, { method: 'POST', headers: { Authorization: `Bearer ${rotatedBody.token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'new-token', version: '1' } } }) });
-    assert.equal(newToken.status, 200);
-    const disableAgent = await fetch(`${base}/api/agent-integration/config`, { method: 'POST', headers: auth, body: JSON.stringify({ enabled: false }) });
-    assert.equal(disableAgent.status, 200);
-    assert.equal((await (await fetch(`${base}/api/agent-integration/status`, { headers: { 'X-UEM-Token': token } })).json() as { enabled: boolean; running: boolean }).running, false);
+    const copiedConfig = await fetch(`${base}/api/agent-integration/copy-config`, { method: 'POST', headers: auth, body: '{}' });
+    assert.equal(copiedConfig.status, 200);
+    assert.deepEqual((await copiedConfig.json()).config.mcpServers['utm-mcp'], { type: 'http', url: mcpEndpoint });
     assert.equal((await fetch(`${base}/api/health`)).status, 200);
     const traversal = await fetch(`${base}/api/verse/load`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: '..\\README.md' }) });
     assert.equal(traversal.status, 400);
@@ -170,12 +161,12 @@ test('guided agent setup installs only the UTM skill, avoids environment inherit
   const localAppData = path.join(root, 'LocalAppData');
   const agentStateRoot = path.join(localAppData, 'UEFN Entitlement Manager');
   fs.mkdirSync(agentStateRoot, { recursive: true });
-  fs.writeFileSync(path.join(agentStateRoot, 'agent-integration.json'), JSON.stringify({ enabled: true, port: mcpPort }));
+  fs.writeFileSync(path.join(agentStateRoot, 'agent-integration.json'), JSON.stringify({ enabled: true, port: mcpPort, token: 'legacy-state-that-must-be-ignored' }));
   const token = 'agent-setup-ui-token-'.padEnd(48, 'x');
   const editorToken = 'agent-setup-editor-token-'.padEnd(48, 'x');
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     cwd: process.cwd(),
-    env: { ...process.env, LOCALAPPDATA: localAppData, UEM_AGENT_HOME: agentHome, UTM_MCP_LOCAL_ENDPOINT: 'stale-environment-token', PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/AgentSetupTest', UEM_IDLE_TIMEOUT_MS: '60000' },
+    env: { ...process.env, LOCALAPPDATA: localAppData, UEM_AGENT_HOME: agentHome, PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/AgentSetupTest', UEM_IDLE_TIMEOUT_MS: '60000' },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;
@@ -192,17 +183,17 @@ test('guided agent setup installs only the UTM skill, avoids environment inherit
 
     const setupResponse = await fetch(`${base}/api/agent-integration/setup`, { method: 'POST', headers: auth, body: JSON.stringify({ agent: 'codex' }) });
     assert.equal(setupResponse.status, 200);
-    const setup = await setupResponse.json() as { config: { mcpServers: { 'utm-mcp': { headers: { Authorization: string } } } }; skill: { upToDate: boolean }; restartRequired: boolean; status: { running: boolean; configuration: { mode: string; restartRequired: boolean } } };
+    const setup = await setupResponse.json() as { config: { mcpServers: { 'utm-mcp': { type: string; url: string } } }; skill: { upToDate: boolean }; restartRequired: boolean; status: { running: boolean; configuration: { mode: string; restartRequired: boolean } } };
     assert.equal(setup.skill.upToDate, true);
     assert.equal(setup.status.running, true);
-    assert.equal(setup.status.configuration.mode, 'loopback-configuration-header');
+    assert.equal(setup.status.configuration.mode, 'loopback-url');
     assert.equal(setup.status.configuration.restartRequired, true);
     assert.equal(setup.restartRequired, true);
-    assert.notEqual(setup.config.mcpServers['utm-mcp'].headers.Authorization, 'Bearer stale-environment-token');
+    assert.deepEqual(setup.config.mcpServers['utm-mcp'], { type: 'http', url: `http://127.0.0.1:${mcpPort}/mcp` });
     assert.ok(fs.existsSync(path.join(agentHome, '.agents', 'skills', 'uefn-transaction-manager', 'SKILL.md')));
 
     const mcpUrl = setup.status.running ? (await (await fetch(`${base}/api/agent-integration/status`, { headers: auth })).json() as { endpoint: string }).endpoint : '';
-    const mcpHeaders = { Authorization: setup.config.mcpServers['utm-mcp'].headers.Authorization, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+    const mcpHeaders = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
     const initialize = await fetch(mcpUrl, { method: 'POST', headers: mcpHeaders, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'guided-setup-test', version: '1' } } }) });
     assert.equal(initialize.status, 200);
     const sessionId = initialize.headers.get('mcp-session-id');

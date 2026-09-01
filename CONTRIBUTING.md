@@ -29,3 +29,8 @@ Please keep pull requests focused, preserve unrelated work, include tests for
 behavioral changes, describe any UEFN editor-session validation that was
 performed, and identify any third-party material and its applicable license.
 Third-party material requires explicit approval before inclusion.
+
+Never commit machine-specific audit logs, session transcripts, local absolute
+paths, usernames, environment dumps, or temporary E2E handoff reports to this
+public repository. Release evidence must use repository-relative paths and
+generic placeholders.

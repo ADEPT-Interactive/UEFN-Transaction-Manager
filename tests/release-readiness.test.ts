@@ -239,11 +239,10 @@ test('Case H: disconnect between mutation and first save leaves the managed file
 
 test('Case I: MCP mutation runs the same readiness preflight before changing the draft', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-mcp-readiness-'));
-  const token = 'mcp-readiness-token-'.padEnd(48, 'x');
   const catalog = new CatalogSession(catalogDocument(root));
   let checks = 0;
   const host = new UTMcpHost({
-    version: '4.3.0', token, catalog,
+    version: '4.3.0', catalog,
     getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Readiness', projectFile: '', contentRoot: root, assetMount: '/ReadinessProject', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false, managedFileOwned: true }),
     adoptIcon: async () => ({ success: false, error: 'unused' }),
     saveCatalog: async () => ({ success: false, error: 'unused' }),
@@ -253,7 +252,7 @@ test('Case I: MCP mutation runs the same readiness preflight before changing the
   const client = new Client({ name: 'readiness-test', version: '1.0.0' });
   try {
     await host.start(port);
-    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
     const result = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Blocked MCP offer' } } });
     assert.equal(result.isError, true);
     assert.equal(checks, 1);

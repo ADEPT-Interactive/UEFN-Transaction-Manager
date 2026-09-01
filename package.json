@@ -26,7 +26,8 @@
     "test:desktop": "npm run install:electron-runtime && npm run build:desktop && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1",
     "test:version": "node scripts/verify-version.mjs",
     "test:distribution": "tsx --test tests/distribution.test.ts",
-    "test:all": "npm run build && npm test && npm run test:python && npm run test:desktop && npm run test:version && npm run test:distribution && npm run test:portable-updater"
+    "verify:privacy": "node scripts/check-repository-privacy.mjs",
+    "test:all": "npm run build && npm run verify:privacy && npm test && npm run test:python && npm run test:desktop && npm run test:version && npm run test:distribution && npm run test:portable-updater"
   },
   "keywords": [
     "uefn",

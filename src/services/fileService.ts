@@ -98,19 +98,17 @@ export interface CatalogSnapshotPayload {
 
 export interface AgentIntegrationStatus {
   success: boolean;
-  enabled: boolean;
   running: boolean;
   endpoint: string;
   serverName: string;
   port: number;
   projectName?: string;
   unavailableReason?: string;
-  connectionConfigured?: boolean;
   skillPath?: string;
   skillInstallations?: AgentSkillInstallationStatus[];
   configuration?: {
     available: boolean;
-    mode: 'loopback-configuration-header' | string;
+    mode: 'loopback-url' | string;
     issuedAt?: string;
     restartRequired: boolean;
   };
@@ -317,7 +315,7 @@ export const FileService = {
     return apiFetch('/agent-integration/status', { method: 'GET' });
   },
 
-  async updateAgentIntegration(input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }): Promise<{ success: boolean; token?: string; status?: AgentIntegrationStatus; error?: string }> {
+  async updateAgentIntegration(input: { port?: number }): Promise<{ success: boolean; status?: AgentIntegrationStatus; error?: string }> {
     return apiFetch('/agent-integration/config', { method: 'POST', body: JSON.stringify(input) });
   },
 

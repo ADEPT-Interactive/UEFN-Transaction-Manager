@@ -54,7 +54,7 @@ UEFN's log confirmed the server was started on port 8000 with path `/mcp`. The s
 - `Origin: http://127.0.0.1:8000` and `Origin: http://localhost:8000` were accepted.
 - `Origin: http://evil.example` returned HTTP 403 with no response body.
 - An arbitrary `Host: evil.example` header still received HTTP 200. UEFN's current server should therefore be treated as lacking strict Host validation even though it binds to loopback.
-- No bearer token or other authentication challenge was observed.
+- No credential challenge was observed on Epic's local MCP.
 - `prompts/list` returned HTTP 400 with JSON-RPC `-32601`, `Call to unknown method "prompts/list"`.
 - `resources/list` returned HTTP 200 with an empty list.
 
@@ -73,7 +73,7 @@ The project-local configuration created in the demo project is `.mcp.json`:
 }
 ```
 
-The Codex CLI also accepted a global `unreal-mcp` entry using its Streamable HTTP transport. A temporary second server entry with a bearer-token environment variable was accepted by the CLI, proving that the client configuration supports multiple HTTP servers and static bearer-token configuration. The temporary entry was removed. The project `.mcp.json` remains in the demo project and was not added to the public UTM repository.
+The Codex CLI also accepted a global `unreal-mcp` entry using its Streamable HTTP transport. The project `.mcp.json` remains in the demo project and was not added to the public UTM repository.
 
 The active Luna session did not hot-load newly created MCP configuration, so a small standards-compliant local MCP client was used to initialize, discover, and call the live server. This exercised the real UEFN server rather than a fixture.
 
@@ -338,11 +338,11 @@ UTM's current bridge already implements the stronger local half of this model: i
 
 ## 11. Multi-MCP behavior
 
-Codex accepted two HTTP MCP server entries simultaneously, including a second entry configured with a bearer-token environment variable. Server names are client configuration keys; toolset names are exposed inside each server and are not automatically globally unique. A future skill should refer to the two servers by explicit configured names such as `unreal-mcp` and `utm-mcp` and always include the server name in its own routing instructions.
+Codex accepted two HTTP MCP server entries simultaneously. Server names are client configuration keys; toolset names are exposed inside each server and are not automatically globally unique. A future skill should refer to the two servers by explicit configured names such as `unreal-mcp` and `utm-mcp` and always include the server name in its own routing instructions.
 
 The project `.mcp.json` format is suitable for generic project-local clients. Codex's active CLI configuration is global, so the installation flow must account for clients that require a restart after configuration changes. The active Luna session did not hot-reload a newly created server, which is why the direct local client was used for live calls.
 
-Static bearer headers are practical for clients that support an environment-backed bearer token. UTM should support an optional per-session token, but must remain safe when the client provides no token by binding to loopback, validating Host and Origin, requiring a project-scoped session, and rejecting cross-project requests.
+UTM should use the same local trust model as Epic's server: bind to loopback, validate Host and Origin, require a project-scoped session, and reject cross-project requests.
 
 ## 12. UTM 4.2.0 architecture audit
 
@@ -562,7 +562,7 @@ The future UTM MCP should:
 - use a separate project-scoped loopback endpoint or route, with an endpoint that is written into generated client configuration;
 - strictly validate Host against the exact loopback host and port, correcting the weakness observed in the UEFN server;
 - accept no unexpected Origin and allow only absent/loopback Origins required by supported clients;
-- support a high-entropy per-session bearer token where the client supports environment-backed headers, while remaining usable in a controlled loopback-only no-token mode only if the project session token is otherwise protected;
+- use the loopback-only local trust model without a client credential;
 - bind every request to the verified project descriptor, Content root, asset mount, editor process/session, and session token;
 - expose no arbitrary filesystem, shell, network proxy, or secret-reading tool;
 - route icon adoption through the existing controlled job and editor connector;
@@ -653,7 +653,7 @@ The first implementation slice now exists locally on the post-release reconnaiss
 
 - `CatalogSession` is the bridge-owned canonical project draft. Renderer synchronization, UTM MCP, validation, generation, icon assignment, and save share this project-scoped state rather than maintaining an MCP catalog copy.
 - Catalog revisions are monotonic session values and are separate from managed Verse content hashes. Mutations require `expectedRevision`; managed-file writes retain compare-and-swap and atomic backup behavior.
-- UTM MCP uses the maintained TypeScript MCP SDK and Streamable HTTP on a separate loopback listener, starting on port 8001 with the project bridge. It is bearer-authenticated, Host/Origin constrained, and tolerant of a port conflict.
+- UTM MCP uses the maintained TypeScript MCP SDK and Streamable HTTP on a separate loopback listener, starting on port 8001 with the project bridge. It is loopback-only, Host/Origin constrained, and tolerant of a port conflict.
 - The Agent Skill is distributed under `skills/uefn-transaction-manager` and packaged under `resources/agent-skills/uefn-transaction-manager`. It requires live dual-server discovery and same-project proof, asks UTM for the current integration contract, and encodes the proven device/session fallbacks.
 - The remaining Epic MCP limitations are not treated as UTM failures. UTM does not duplicate generic editor/device/session/asset tooling and does not weaken managed-file or project-root protections.
 

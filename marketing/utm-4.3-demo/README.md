@@ -9,7 +9,7 @@ does not fabricate application behavior or imply Epic Games endorsement.
 Run from PowerShell:
 
 ```powershell
-Set-Location '<workspace>\marketing\utm-4.3-demo'
+Set-Location (Join-Path $PSScriptRoot '.')
 .\render.ps1
 ```
 
@@ -34,4 +34,3 @@ no third-party recording. The edit remains readable when muted.
 `assets/` is a pinned copy of the canonical product inputs used by this exact
 render. Refresh those copies only after the canonical UTM screenshot set changes,
 then rerun the render and inspect all review frames before publication.
-

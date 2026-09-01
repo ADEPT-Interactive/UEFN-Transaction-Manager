@@ -4,7 +4,7 @@
 
 ## Launch positioning
 
-UEFN Transaction Manager is a visual transaction manager first. Creators can build the complete catalog in the app. Version 4.3 also lets compatible coding agents work with that same catalog: UTM MCP handles transactions while UEFN's Unreal MCP handles the editor project.
+UEFN Transaction Manager is a visual transaction manager first. Creators can build the complete catalog in the app. Version 4.3 also lets compatible coding agents work with that same catalog and UEFN project.
 
 Use the phrase **MCP-compatible coding agents**. Codex, Claude Code, and Cursor are examples, not certifications or partnerships. Do not imply Epic affiliation or endorsement.
 
@@ -12,7 +12,7 @@ Use the phrase **MCP-compatible coding agents**. Codex, Claude Code, and Cursor 
 
 Build UEFN transactions visually. Hand the same catalog to your coding agent when you want help.
 
-UTM 4.3 adds UTM MCP and a packaged Agent Skill. Pair them with UEFN’s Unreal MCP to work across the catalog and editor project while your gameplay logic stays yours.
+UTM 4.3 adds UTM MCP and a packaged Agent Skill. Pair them with Unreal MCP so the agent can work across the catalog and project while your gameplay logic stays yours.
 
 4.3.0 release candidate: [repository/release link]
 
@@ -20,7 +20,7 @@ Recommended imagery: `catalog-overview.png` plus `agent-integration.png`.
 
 ## Alternate X follow-up
 
-Already have Marketplace transactions in Verse? UTM 4.3 can help map an existing project into a catalog, adopt its real UEFN `Texture2D` icons, rewrite callers against the generated integration contract, and compile the result.
+Already have Marketplace transactions in Verse? UTM 4.3 can help map an existing project into a catalog, adopt its real UEFN `Texture2D` icons, update callers to use the generated helpers, and compile the result.
 
 When transaction meaning is ambiguous, the workflow stops for review. That is the point.
 
@@ -28,13 +28,13 @@ Recommended imagery: `icon-texture.png` or `verse-integration.png`.
 
 ## Epic Developer Community draft
 
-UEFN Transaction Manager 4.3 is a visual app for building and managing in-island transactions. Its optional Agent Integration gives compatible coding agents access to the same catalog through UTM MCP. UTM handles offers, bundles, storefronts, validation, icons, and the generated contract; UEFN’s Unreal MCP handles Verse, assets, devices, compilation, and sessions. The two can also help migrate an existing Marketplace implementation, but gameplay rules and purchase consequences remain in the creator’s Verse. If the product meaning is unclear, the workflow stops for review.
+UEFN Transaction Manager 4.3 is a visual app for building and managing in-island transactions. Its optional Agent Integration gives compatible coding agents access to the same catalog through UTM MCP and the project through Unreal MCP. The two can help migrate an existing Marketplace implementation, but gameplay rules and purchase consequences remain in the creator’s Verse. If the product meaning is unclear, the workflow stops for review.
 
 Recommended imagery: `catalog-overview.png`, `agent-integration.png`, and `bundles-storefronts.png`.
 
 ## Discord announcement draft
 
-UTM 4.3 is ready as a release candidate. Build the transaction catalog in the visual app, or connect an MCP-compatible coding agent to the same catalog through UTM MCP. Pair it with UEFN’s Unreal MCP for editor work, icon adoption, generated-contract integration, and carefully reviewed migration of an existing project. The public release is not live yet.
+UTM 4.3 is ready as a release candidate. Build the transaction catalog in the visual app, or connect an MCP-compatible coding agent to the same catalog through UTM MCP. Pair it with Unreal MCP for editor work, icon adoption, generated-contract integration, and carefully reviewed migration of an existing project. The public release is not live yet.
 
 Recommended imagery: `agent-integration.png`.
 

@@ -631,7 +631,7 @@ export const App: React.FC = () => {
     setAgentIntegrationOpen(true);
   };
 
-  const updateAgentIntegration = async (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }) => {
+  const updateAgentIntegration = async (input: { port?: number }) => {
     const result = await FileService.updateAgentIntegration(input);
     if (result.status) setAgentIntegrationStatus(result.status);
     return result;

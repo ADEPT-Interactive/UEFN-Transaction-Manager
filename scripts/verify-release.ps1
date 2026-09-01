@@ -7,6 +7,10 @@ param(
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 $toolRoot = Split-Path -Parent $PSScriptRoot
+$privacyCheck = Join-Path $PSScriptRoot "check-repository-privacy.mjs"
+if (-not (Test-Path -LiteralPath $privacyCheck -PathType Leaf)) { throw "Repository privacy check is missing: $privacyCheck" }
+& node $privacyCheck
+if ($LASTEXITCODE -ne 0) { throw "Repository privacy check failed." }
 $expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
 if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Transaction-Manager-$expectedVersion-Portable.zip" }
 if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Transaction-Manager-Setup-$expectedVersion.exe" }

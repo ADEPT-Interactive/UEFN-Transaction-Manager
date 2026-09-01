@@ -59,21 +59,17 @@ const agentIntegrationStatePath = path.join(stateRoot, 'agent-integration.json')
 const defaultCatalogConfig = defaultProjectConfig(contentRoot);
 
 interface AgentIntegrationState {
-  enabled: boolean;
   port: number;
-  token?: string;
 }
 
 function loadAgentIntegrationState(): AgentIntegrationState {
   try {
     const parsed = JSON.parse(fs.readFileSync(agentIntegrationStatePath, 'utf8')) as Partial<AgentIntegrationState>;
     return {
-      enabled: true,
       port: Number.isInteger(parsed.port) && Number(parsed.port) >= 1024 && Number(parsed.port) <= 65535 ? Number(parsed.port) : 8001,
-      token: typeof parsed.token === 'string' && parsed.token.length >= 32 ? parsed.token : undefined,
     };
   } catch {
-    return { enabled: true, port: 8001 };
+    return { port: 8001 };
   }
 }
 
@@ -261,10 +257,7 @@ function agentSkillInstallations(): AgentSkillInstallationStatus[] {
 }
 
 function mcpClientConfiguration(): Record<string, unknown> {
-  // Keep the bearer token in the explicitly requested client configuration. Do
-  // not rely on UTM_MCP_LOCAL_ENDPOINT or any other process environment variable:
-  // already-running coding agents cannot observe user-environment changes.
-  return { mcpServers: { 'utm-mcp': { type: 'http', url: `http://127.0.0.1:${agentIntegration.port}/mcp`, headers: { Authorization: `Bearer ${agentIntegration.token}` } } } };
+  return { mcpServers: { 'utm-mcp': { type: 'http', url: `http://127.0.0.1:${agentIntegration.port}/mcp` } } };
 }
 
 function publicAgentIntegrationStatus() {
@@ -272,19 +265,17 @@ function publicAgentIntegrationStatus() {
   const verified = Boolean(lastAgentConnection?.verified);
   return {
     success: true,
-    enabled: agentIntegration.enabled,
     running,
     endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`,
     serverName: 'utm-mcp',
     port: agentIntegration.port,
     projectName: currentProjectContext().projectName,
     unavailableReason: mcpUnavailableReason,
-    connectionConfigured: Boolean(agentIntegration.token),
     skillPath: installedAgentSkillPath(),
     skillInstallations: agentSkillInstallations(),
     configuration: {
-      available: agentIntegration.enabled && Boolean(agentIntegration.token),
-      mode: 'loopback-configuration-header',
+      available: running,
+      mode: 'loopback-url',
       issuedAt: lastConfigurationIssuedAt,
       restartRequired: Boolean(lastConfigurationIssuedAt && !verified),
     },
@@ -421,16 +412,10 @@ async function saveGeneratedCatalog(): Promise<SaveCatalogResult> {
 }
 
 async function startConfiguredMcp(): Promise<boolean> {
-  if (!agentIntegration.enabled) return false;
   if (mcpHost) return true;
-  if (!agentIntegration.token) {
-    agentIntegration.token = crypto.randomBytes(48).toString('base64url');
-    saveAgentIntegrationState(agentIntegration);
-  }
   lastAgentConnection = undefined;
   const host = new UTMcpHost({
     version: versionInfo.version,
-    token: agentIntegration.token,
     catalog: catalogSession,
     getProjectContext: currentProjectContext,
     adoptIcon: adoptIconThroughBridge,
@@ -585,18 +570,13 @@ app.get('/api/agent-integration/status', (_req, res) => {
 
 app.post('/api/agent-integration/config', async (req, res) => {
   try {
-    if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') throw new Error('enabled must be boolean.');
     if (req.body?.port !== undefined && (!Number.isInteger(req.body.port) || req.body.port < 1024 || req.body.port > 65535)) throw new Error('MCP port must be an integer between 1024 and 65535.');
     const previousPort = agentIntegration.port;
     if (req.body?.port !== undefined) agentIntegration.port = Number(req.body.port);
-    if (req.body?.enabled !== undefined) agentIntegration.enabled = req.body.enabled === true;
-    if (req.body?.refreshConnection === true) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
-    if (agentIntegration.enabled && !agentIntegration.token) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
-    if (!agentIntegration.enabled || previousPort !== agentIntegration.port || req.body?.refreshConnection === true) await stopConfiguredMcp();
+    if (previousPort !== agentIntegration.port) await stopConfiguredMcp();
     saveAgentIntegrationState(agentIntegration);
-    if (agentIntegration.enabled) await startConfiguredMcp();
-    else mcpUnavailableReason = undefined;
-    res.json({ success: true, ...(req.body?.includeToken === true ? { token: agentIntegration.token } : {}), status: publicAgentIntegrationStatus() });
+    await startConfiguredMcp();
+    res.json({ success: true, status: publicAgentIntegrationStatus() });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Agent Integration settings could not be changed.' });
   }
@@ -607,16 +587,9 @@ app.post('/api/agent-integration/setup', async (req, res) => {
     if (!isSupportedAgent(req.body?.agent)) throw new Error('Choose a supported coding agent before setup.');
     const agent = req.body.agent as SupportedAgentId;
     const skill = installAgentSkill(installedAgentSkillPath(), agent, process.env.UEM_AGENT_HOME ?? undefined);
-    const wasEnabled = agentIntegration.enabled;
-    agentIntegration.enabled = true;
-    if (!agentIntegration.token) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
     saveAgentIntegrationState(agentIntegration);
     const running = await startConfiguredMcp();
     if (!running) {
-      if (!wasEnabled) {
-        agentIntegration.enabled = false;
-        saveAgentIntegrationState(agentIntegration);
-      }
       return res.status(503).json({ success: false, skill, error: mcpUnavailableReason ?? 'UTM MCP could not start. Resolve the listener issue, then retry setup.' });
     }
     lastConfigurationIssuedAt = new Date().toISOString();
@@ -635,7 +608,6 @@ app.post('/api/agent-integration/setup', async (req, res) => {
 });
 
 app.post('/api/agent-integration/copy-config', (_req, res) => {
-  if (!agentIntegration.enabled || !agentIntegration.token) return res.status(409).json({ success: false, error: 'UTM MCP is not available for this project bridge.' });
   if (!mcpHost?.running) return res.status(409).json({ success: false, error: mcpUnavailableReason ?? 'UTM MCP is not running. Resolve the listener issue before copying configuration.' });
   lastConfigurationIssuedAt = new Date().toISOString();
   res.json({ success: true, config: mcpClientConfiguration() });

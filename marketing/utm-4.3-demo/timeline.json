@@ -19,16 +19,15 @@
     { "scene": 8, "start": 35.35, "end": 40.85, "purpose": "Product close", "assets": ["uem-mark.svg"] }
   ],
   "sourceAssets": {
-    "screenshots": "<workspace>/docs/screenshots",
-    "workflowDiagram": "<workspace>/docs/assets/utm-mcp-workflow.svg",
-    "productMark": "<workspace>/public/uem-mark.svg"
+    "screenshots": "../../docs/screenshots",
+    "workflowDiagram": "../../docs/assets/utm-mcp-workflow.svg",
+    "productMark": "../../public/uem-mark.svg"
   },
   "claims": [
     "UTM is a Windows desktop application for visually managing UEFN in-island transactions.",
     "UTM supports entitlements, offers, bundles, storefronts, dynamic transactions, icons, validation, and generated Verse.",
     "Agent Integration is optional.",
-    "UTM MCP owns the transaction domain while Unreal MCP owns generic editor automation.",
+    "Agents use UTM MCP for transaction data and Unreal MCP for editor work.",
     "Creators retain project-specific gameplay and business logic."
   ]
 }
-

@@ -38,17 +38,17 @@ UEFN Transaction Manager is a visual Windows app for building Fortnite in-island
 
 You do not need a coding agent to use UTM. The complete catalog editor, validation, icon tools, Verse generation, and UEFN compile workflow are available in the app.
 
-If you connect an MCP-compatible coding agent such as Codex, Claude Code, or Cursor, it can work with that same catalog through **UTM MCP**. [UEFN MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp) handles the editor side: Verse, files, assets, devices, compilation, and sessions.
+If you connect an MCP-compatible coding agent such as Codex, Claude Code, or Cursor, it can work with that same catalog through **UTM MCP**. [Unreal MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp) handles the editor side: Verse, files, assets, devices, compilation, and sessions.
 
 <p align="center"><img src="docs/assets/utm-mcp-workflow.svg" alt="A coding agent connects to UTM MCP for transaction catalog work and Unreal MCP for UEFN editor work; both meet in the same UEFN project." width="92%"></p>
 
-A coding agent can coordinate both connections without blurring their responsibilities. UTM handles the transaction catalog and generated contract. UEFN MCP handles the editor. Your project Verse keeps gameplay rules, rewards, eligibility, progression, and UI. UTM is an independent tool and is not endorsed by or affiliated with Epic Games. UEFN and Fortnite are products of Epic Games.
+Connect your coding agent to UTM and Unreal MCP. It can manage your transaction catalog through UTM, inspect your project, update Verse and assets, and compile the result through Unreal MCP. Your project Verse keeps gameplay rules, rewards, eligibility, progression, and UI. UTM is an independent tool and is not endorsed by or affiliated with Epic Games. UEFN and Fortnite are products of Epic Games.
 
 ## Existing-project migration
 
-Already have Marketplace transactions in Verse? With UTM MCP and UEFN MCP connected to the same project, a compatible coding agent can inspect the implementation, propose a UTM catalog, adopt existing `Texture2D` icons, update project callers against UTM's generated contract, and compile the result.
+Already have Marketplace transactions in Verse? A coding agent can inspect the existing setup, recreate the catalog in UTM, reuse project icons, update your Verse to use the generated UTM helpers, and compile the result.
 
-Your gameplay calculations and purchase consequences stay in your Verse. If ownership, offer meaning, bundle contents, or runtime behavior are unclear, the Agent Skill stops for review instead of guessing. See the [existing-project adoption guidance](docs/AGENT_INTEGRATION.md#move-an-existing-transaction-layer) for the full workflow.
+Your gameplay calculations and purchase consequences stay in your Verse. If ownership, offer meaning, bundle contents, or runtime behavior are unclear, the Agent Skill stops for review instead of guessing. See the [existing-project adoption guidance](docs/AGENT_INTEGRATION.md#existing-project-migration) for the full workflow.
 
 ## Download and install
 
@@ -60,8 +60,7 @@ The installer is a per-user Windows x64 application. It does not require adminis
 
 - Windows x64.
 - UEFN installed for project connection and Verse compilation.
-- The target `.uefnproject` open in UEFN for first-time managed setup, compilation, or native asset changes. Initialized catalogs with already-confirmed assets can receive catalog-only saves while UEFN is closed.
-- **Python Editor Scripting** enabled in the UEFN project for first-time placeholder provisioning, native icon import, or `Texture2D` adoption.
+- The exact target `.uefnproject` open in UEFN and **Python Editor Scripting** enabled for first-time managed setup or migration, compilation, and native asset changes. Initialized catalogs with already-confirmed assets can receive catalog-only saves while UEFN is closed.
 - An MCP-compatible coding agent only if you want to use Agent Integration.
 
 ## Quick start
@@ -99,7 +98,7 @@ Fill-to-max bundles calculate the remaining quantity from current ownership. Run
 
 ### Icons and UEFN project assets
 
-To import artwork into the Content Browser:
+For first-time setup or migration, confirm the exact project is open in UEFN and Python Editor Scripting is enabled before UTM writes the first managed catalog or generated Verse. To import artwork into the Content Browser:
 
 1. In UEFN, open the palm-tree **Project** menu.
 2. Choose **Project Settings**.
@@ -123,19 +122,19 @@ Bundles preserve configured order and quantities, including nested and dynamic b
 
 ## Agent Integration
 
-Agent Integration is optional. UTM MCP starts with the project bridge while UEFN MCP remains the editor-side connection.
+Agent Integration is optional. UTM MCP starts with the project bridge so your agent can manage the catalog, while Unreal MCP gives it access to the project.
 
-1. Enable UEFN MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
-2. In UTM, open **Tools -> Agent Integration**.
-3. Choose **Copy MCP configuration**. UTM supplies the local endpoint and bearer configuration; keep the copied configuration private.
+1. Enable Unreal MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
+2. In UTM, open **Agent** from the workspace header.
+3. Choose **Copy MCP configuration**. UTM supplies the local endpoint and server type.
 4. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
-5. Connect a compatible coding agent to both UTM MCP and UEFN MCP, then verify both identify the same project before making changes.
+5. Connect a compatible coding agent to both UTM MCP and Unreal MCP, then verify both identify the same project before making changes.
 
 <p align="center">
   <img src="docs/screenshots/agent-integration.png" alt="UTM Agent Integration panel showing a running UTM MCP endpoint, active project, and Agent Skill access" width="82%">
 </p>
 
-The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, UTM-managed Verse identities, icon adoption, generated-contract inspection, existing-project migration, compilation, and ambiguity checks. MCP support and Agent Skill support are separate capabilities; a client that can connect to UTM MCP does not automatically discover the skill. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
+The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, UTM-managed Verse identities, icon adoption, generated-contract inspection, existing-project migration, compilation, and semantic checks. MCP support and Agent Skill support are separate capabilities; a client that can connect to UTM MCP does not automatically discover the skill. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
 
 ## Compile and connect generated Verse
 
@@ -203,11 +202,11 @@ Compile successfully, refresh the UEFN Content Browser, and confirm that you pla
 
 ### An agent cannot see both servers
 
-Confirm UEFN MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If UEFN's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
+Confirm Unreal MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If Unreal MCP's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
 
 ## Documentation and support
 
-- [Agent Integration guide](docs/AGENT_INTEGRATION.md) for UTM MCP, UEFN MCP, the packaged skill, migration, and limits.
+- [Agent Integration guide](docs/AGENT_INTEGRATION.md) for UTM MCP, Unreal MCP, the packaged skill, migration, and limits.
 - [Generated Verse reference](docs/GENERATED_VERSE_REFERENCE.md) for the current generated contract and common integration patterns.
 - [Epic's UEFN MCP documentation](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
 - [Epic's In-Island Transactions documentation](https://dev.epicgames.com/documentation/en-us/fortnite/in-island-transactions-in-fortnite).

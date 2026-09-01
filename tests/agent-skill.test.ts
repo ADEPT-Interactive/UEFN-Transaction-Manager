@@ -14,8 +14,8 @@ test('Agent Skill is discoverable, reference-driven, and does not hardcode gener
   assert.match(skill, /expectedRevision/);
   assert.match(skill, /describe_integration_contract/);
   assert.match(skill, /apply_catalog_patch/);
-  assert.match(skill, /UTM_MCP_LOCAL_ENDPOINT/);
-  assert.match(skill, /browser automation/);
+  assert.match(skill, /loopback/);
+  assert.match(skill, /Do not .*browser/);
   assert.match(skill, /Existing-project migration/);
   assert.match(skill, /CATALOG_REVISION_CONFLICT/);
   assert.match(skill, /manual UEFN wiring/);
@@ -36,8 +36,8 @@ test('agent setup UI exposes migration discovery, distinct readiness states, and
   assert.match(headerSource, /Agent/);
   assert.match(panelSource, /Set up your coding agent/);
   assert.match(panelSource, /Connection readiness/);
-  assert.match(panelSource, /Copied in this session/);
-  assert.match(panelSource, /static bearer header/);
+  assert.match(panelSource, /Ready in this session/);
+  assert.match(panelSource, /UTM MCP endpoint/);
   assert.match(panelSource, /local port only/);
   assert.match(panelSource, /Open skill location/);
   assert.match(panelSource, /data-app-chrome-aware/);
@@ -46,7 +46,7 @@ test('agent setup UI exposes migration discovery, distinct readiness states, and
   assert.match(panelSource, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(panelSource, /action=\{hasVerifiedSkillLocation/);
   assert.doesNotMatch(panelSource, /Installed skill location/);
-  assert.match(serverSource, /loopback-configuration-header/);
+  assert.match(serverSource, /loopback-url/);
   assert.match(serverSource, /clientConnection/);
   assert.match(serverSource, /agent-integration\/setup/);
 });

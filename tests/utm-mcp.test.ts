@@ -32,9 +32,9 @@ async function mcpJson(response: Response): Promise<any> {
   }
 }
 
-function requestWithHost(port: number, host: string, token: string): Promise<number> {
+function requestWithHost(port: number, host: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const request = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: { Host: host, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Content-Length': '0' } }, response => {
+    const request = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: { Host: host, 'Content-Type': 'application/json', 'Content-Length': '0' } }, response => {
       response.resume();
       response.once('end', () => resolve(response.statusCode ?? 0));
     });
@@ -43,12 +43,10 @@ function requestWithHost(port: number, host: string, token: string): Promise<num
   });
 }
 
-test('UTM MCP uses authenticated Streamable HTTP with clear identity and tool surface', async () => {
+test('UTM MCP uses unauthenticated local Streamable HTTP with clear identity and tool surface', async () => {
   const port = await freePort();
-  const token = 'test-token-'.padEnd(48, 'x');
   const host = new UTMcpHost({
     version: '4.3.0',
-    token,
     catalog: makeCatalog(),
     getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: { editorConnected: false }, nativeTextureAdoptionAvailable: false }),
     adoptIcon: async () => ({ success: false, error: 'not used' }),
@@ -57,18 +55,18 @@ test('UTM MCP uses authenticated Streamable HTTP with clear identity and tool su
   await host.start(port);
   const endpoint = `http://127.0.0.1:${port}/mcp`;
   try {
-    const unauthorized = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Host: `127.0.0.1:${port}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
-    assert.equal(unauthorized.status, 401);
-    assert.equal(await requestWithHost(port, `192.0.2.1:${port}`, token), 403);
-    const badHost = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Origin: 'http://evil.example', Authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
+    const localNoAuth = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
+    assert.equal(localNoAuth.status, 200);
+    assert.equal(await requestWithHost(port, `192.0.2.1:${port}`), 403);
+    const badHost = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Origin: 'http://evil.example' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
     assert.equal(badHost.status, 403);
-    const initialize = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}`, Host: `127.0.0.1:${port}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
+    const initialize = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }) });
     assert.equal(initialize.status, 200);
     const sessionId = initialize.headers.get('mcp-session-id');
     assert.ok(sessionId);
-    const initialized = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}`, Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) });
+    const initialized = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) });
     assert.equal(initialized.status, 202);
-    const listed = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}`, Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) });
+    const listed = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) });
     assert.equal(listed.status, 200);
     const listBody = await mcpJson(listed) as { result: { tools: Array<{ name: string }> } };
     const names = listBody.result.tools.map(tool => tool.name);
@@ -77,7 +75,7 @@ test('UTM MCP uses authenticated Streamable HTTP with clear identity and tool su
     assert.ok(names.includes('apply_catalog_patch'));
     assert.ok(names.includes('adopt_icon'));
     assert.ok(names.includes('save_catalog'));
-    const snapshot = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}`, Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_catalog_snapshot', arguments: {} } }) });
+    const snapshot = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_catalog_snapshot', arguments: {} } }) });
     assert.equal(snapshot.status, 200);
     assert.match(JSON.stringify(await mcpJson(snapshot)), /"revision":"1"/);
   } finally {
@@ -85,12 +83,10 @@ test('UTM MCP uses authenticated Streamable HTTP with clear identity and tool su
   }
 });
 
-test('UTM MCP is consumable through the official Streamable HTTP client', async () => {
+test('UTM MCP is consumable through the official local Streamable HTTP client', async () => {
   const port = await freePort();
-  const token = 'official-client-token-'.padEnd(48, 'y');
   const host = new UTMcpHost({
     version: '4.3.0',
-    token,
     catalog: makeCatalog(),
     getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false }),
     adoptIcon: async () => ({ success: false, error: 'not used' }),
@@ -98,9 +94,7 @@ test('UTM MCP is consumable through the official Streamable HTTP client', async 
   });
   await host.start(port);
   const client = new Client({ name: 'phase29-test-client', version: '1.0.0' }, { capabilities: {} });
-  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
   try {
     await client.connect(transport);
     assert.equal(client.getServerVersion()?.name, 'utm-mcp');
@@ -123,7 +117,6 @@ test('UTM MCP preserves the dashboard-side process when its configured port is u
   const port = await freePort();
   const makeHost = () => new UTMcpHost({
     version: '4.3.0',
-    token: 'port-conflict-token-'.padEnd(48, 'z'),
     catalog: makeCatalog(),
     getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false }),
     adoptIcon: async () => ({ success: false, error: 'not used' }),
@@ -143,10 +136,8 @@ test('UTM MCP preserves the dashboard-side process when its configured port is u
 
 test('UTM MCP mutations enforce revisions and expose structured conflicts without partial writes', async () => {
   const port = await freePort();
-  const token = 'mutation-token-'.padEnd(48, 'm');
   const host = new UTMcpHost({
     version: '4.3.0',
-    token,
     catalog: makeCatalog(),
     getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false }),
     adoptIcon: async () => ({ success: false, error: 'not used' }),
@@ -154,7 +145,7 @@ test('UTM MCP mutations enforce revisions and expose structured conflicts withou
   });
   await host.start(port);
   const client = new Client({ name: 'phase29-mutation-client', version: '1.0.0' });
-  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
   try {
     await client.connect(transport);
     const created = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Agent Offer', shortDescription: 'Agent offer', description: 'Agent offer' } } });
@@ -169,6 +160,32 @@ test('UTM MCP mutations enforce revisions and expose structured conflicts withou
   } finally {
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
+    await host.stop();
+  }
+});
+
+test('migration patches preserve unmatched existing UTM records unless deletion is authorized', async () => {
+  const catalog = makeCatalog();
+  const existing = catalog.mutate({ type: 'create_entitlement', data: { id: 'existing-utm', name: 'Existing UTM entitlement' } }, '1');
+  const port = await freePort();
+  const host = new UTMcpHost({
+    version: '4.3.0',
+    catalog,
+    getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false }),
+    adoptIcon: async () => ({ success: false, error: 'not used' }),
+    saveCatalog: async () => ({ success: true, contentHash: 'f'.repeat(64), fileName: 'managed_transactions.verse' }),
+  });
+  const client = new Client({ name: 'migration-policy-test', version: '1.0.0' });
+  try {
+    await host.start(port);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+    const blocked = await client.callTool({ name: 'apply_catalog_patch', arguments: { expectedRevision: existing.snapshot.revision, dryRun: true, migration: { preserveUnmatchedExisting: true }, operations: [{ type: 'delete_entitlement', entitlementId: 'existing-utm' }] } });
+    assert.equal(blocked.isError, true);
+    assert.match(JSON.stringify(blocked), /preserve existing UTM records/i);
+    assert.equal(catalog.currentRevision, existing.snapshot.revision);
+    assert.equal(catalog.snapshot().entitlements.some(item => item.id === 'existing-utm'), true);
+  } finally {
+    await client.close().catch(() => undefined);
     await host.stop();
   }
 });

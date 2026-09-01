@@ -24,17 +24,17 @@ AGENT INTEGRATION
 
 UTM 4.3 can work with UEFN's separate Unreal MCP through an MCP-compatible coding agent.
 
-1. Open the exact project in UEFN, then enable Python Editor Scripting and UEFN MCP Toolsets in that project.
+1. Open the exact project in UEFN, then enable Python Editor Scripting and Unreal MCP Toolsets in that project.
 2. Open the visible Agent button in the Transaction Manager workspace. If the catalog is empty and you already have transactions, choose Start guided migration.
 3. Select Codex, Claude Code, or Cursor and use the guided setup. UTM installs its complete Agent Skill folder; UTM MCP is already started with the project bridge and the panel prepares the current project configuration.
-4. Replace or add only the UTM-owned MCP entry using the copied static bearer-header configuration. Keep it private; it does not depend on `UTM_MCP_LOCAL_ENDPOINT` being inherited by an existing process.
-5. Reload the coding agent or start a fresh process. Confirm both UTM MCP and UEFN MCP are visible, then ask the agent to verify that both target the same project.
+4. Replace or add only the UTM-owned MCP entry using the copied local URL configuration.
+5. Reload the coding agent or start a fresh process. Confirm both UTM MCP and Unreal MCP are visible, then ask the agent to verify that both target the same project.
 
-UTM separately reports its listener, skill installation, client configuration, reload requirement, and verified agent connection. Keep copied bearer configuration private. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated contract inspection, compile verification, and ambiguity stops. Manual path copying remains available for unusual clients.
+UTM separately reports its listener, skill installation, agent setup, reload requirement, and verified agent connection. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated contract inspection, compile verification, and semantic checks. Manual path copying remains available for unusual clients.
 
 NATIVE ICON IMPORT
 
-In UEFN, open the palm-tree Project menu, choose Project Settings, and enable Python Editor Scripting. Keep the exact project open while Transaction Manager installs and connects the project helper and confirms its native placeholder asset.
+For first-time setup or migration, open the exact project in UEFN, open the palm-tree Project menu, choose Project Settings, and enable Python Editor Scripting before creating or importing transactions. Keep the project open while Transaction Manager installs and connects the project helper and confirms its native placeholder asset.
 
 Power-of-two PNGs are imported unchanged. Other sizes are scaled uniformly to a suitable power-of-two shape, with transparent padding only when needed to preserve proportions. Existing UEFN Texture2D assets can be adopted through the verified project workflow; do not enter filesystem paths or edit .uasset files manually.
 

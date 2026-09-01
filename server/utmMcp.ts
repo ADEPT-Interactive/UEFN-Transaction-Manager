@@ -6,7 +6,6 @@ import { z } from 'zod';
 import type { CatalogDocument, CatalogPatchOperation, CatalogSession } from '../src/services/catalogSession';
 import { CatalogDomainError, catalogForMcp } from '../src/services/catalogSession';
 import { describeIntegrationContract } from '../src/services/integrationContract';
-import { tokensEqual } from './security';
 
 export interface UTMProjectContext {
   productVersion: string;
@@ -51,7 +50,6 @@ export interface SaveCatalogResult {
 
 export interface UTMHostOptions {
   version: string;
-  token: string;
   catalog: CatalogSession;
   getProjectContext: () => UTMProjectContext;
   adoptIcon: (request: AdoptIconRequest) => Promise<AdoptIconResult>;
@@ -77,6 +75,10 @@ type McpResponse = {
 const expectedRevision = z.string().min(1).describe('Opaque catalog revision returned by get_catalog_snapshot.');
 const data = z.record(z.unknown()).optional().describe('Fields to create or patch. Internal IDs are allocated by UTM unless explicitly supplied.');
 const targetId = z.string().min(1);
+const migrationPolicy = z.object({
+  preserveUnmatchedExisting: z.boolean().default(true).describe('Keep existing UTM records unless replacement is proven or deletion is explicitly authorized.'),
+  authorizedDeletionIds: z.array(z.string().min(1)).default([]).describe('IDs explicitly authorized for deletion during this migration.'),
+}).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [] });
 const patchOperationSchema = z.object({
   type: z.enum([
     'create_entitlement', 'update_entitlement', 'delete_entitlement',
@@ -110,6 +112,23 @@ function targetKind(value: unknown): 'entitlement' | 'alternate_offer' | 'bundle
   if (value === 'alternate' || value === 'alternate_offer') return 'alternate_offer';
   if (value === 'bundle') return 'bundle';
   throw new CatalogDomainError('CATALOG_INTEGRITY_ERROR', 'Icon target kind must be entitlement, alternate_offer, or bundle.', {}, 400);
+}
+
+function migrationTargetId(operation: CatalogPatchOperation): string | undefined {
+  const operationData = operation.data && typeof operation.data === 'object' && !Array.isArray(operation.data) ? operation.data as Record<string, unknown> : {};
+  const value = operation.entitlementId ?? operation.alternateOfferId ?? operation.bundleId ?? operation.storefrontId ?? operationData.id;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function assertMigrationDeletionPolicy(operations: CatalogPatchOperation[], policy: { preserveUnmatchedExisting: boolean; authorizedDeletionIds: string[] }): void {
+  if (!policy.preserveUnmatchedExisting) return;
+  const deletions = operations.filter(operation => operation.type.startsWith('delete_'));
+  const unauthorized = deletions
+    .map(operation => ({ operation: operation.type, id: migrationTargetId(operation) }))
+    .filter(entry => !entry.id || !policy.authorizedDeletionIds.includes(entry.id));
+  if (unauthorized.length) {
+    throw new CatalogDomainError('CATALOG_INTEGRITY_ERROR', 'Migration patches preserve existing UTM records by default. Prove replacement or explicitly authorize each deletion before retrying.', { unauthorized }, 409);
+  }
 }
 
 function registerTools(server: McpServer, options: UTMHostOptions): void {
@@ -256,12 +275,13 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
 
   server.registerTool('apply_catalog_patch', {
     title: 'Apply catalog patch',
-    description: 'Atomically evaluates typed transaction-domain operations against a cloned shared draft, normalizes and validates them, and either applies the full patch or nothing. Requires expectedRevision. dryRun never mutates or saves.',
-    inputSchema: { expectedRevision, dryRun: z.boolean().default(true), operations: z.array(patchOperationSchema) },
+    description: 'Atomically evaluates typed transaction-domain operations against a cloned shared draft, normalizes and validates them, and either applies the full patch or nothing. Requires expectedRevision. dryRun never mutates or saves. Migration patches preserve existing UTM records unless replacement is proven or deletion is explicitly authorized.',
+    inputSchema: { expectedRevision, dryRun: z.boolean().default(true), operations: z.array(patchOperationSchema), migration: migrationPolicy },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   }, async args => {
     try {
       assertProjectReady();
+      assertMigrationDeletionPolicy(args.operations as CatalogPatchOperation[], args.migration);
       if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
       const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true).snapshot;
       await assertCatalogReady(proposed);
@@ -358,11 +378,6 @@ export class UTMcpHost {
     if (!allowedHosts.has(req.headers.host ?? '')) { res.writeHead(403).end(JSON.stringify({ error: 'Host is not allowed.' })); return; }
     const origin = req.headers.origin;
     if (origin && !new Set([`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`]).has(origin)) { res.writeHead(403).end(JSON.stringify({ error: 'Origin is not allowed.' })); return; }
-    const authorization = req.headers.authorization;
-    if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ') || !tokensEqual(authorization.slice(7), this.options.token)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Bearer' }).end(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'A valid UTM MCP bearer token is required.' } }));
-      return;
-    }
     let body: unknown;
     if (req.method === 'POST') {
       const chunks: Buffer[] = [];

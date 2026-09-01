@@ -7,6 +7,8 @@ $Frames = Join-Path $Root 'frames'
 $Ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
 $Ffprobe = (Get-Command ffprobe -ErrorAction Stop).Source
 $Edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+$MarkSvgUri = [Uri]::new((Join-Path $Assets 'uem-mark.svg')).AbsoluteUri
+$WorkflowSvgUri = [Uri]::new((Join-Path $Assets 'utm-mcp-workflow.svg')).AbsoluteUri
 
 $Width = 1920
 $Height = 1080
@@ -71,7 +73,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Assets 'uem-mark.png'))) {
     & $Edge --headless=new --disable-gpu --hide-scrollbars `
         --user-data-dir="$Work\edge-profile-mark" --default-background-color=00000000 `
         --window-size=256,256 --screenshot="$Assets\uem-mark.png" `
-        "file:///O:/UEFN%20Entitlement%20Manager/marketing/utm-4.3-demo/assets/uem-mark.svg"
+        $MarkSvgUri
     if ($LASTEXITCODE -ne 0) { throw 'Failed to rasterize uem-mark.svg' }
 }
 
@@ -80,7 +82,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Assets 'utm-mcp-workflow.png'))) {
     & $Edge --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 `
         --user-data-dir="$Work\edge-profile-diagram" --window-size=1200,680 `
         --screenshot="$Assets\utm-mcp-workflow.png" `
-        "file:///O:/UEFN%20Entitlement%20Manager/marketing/utm-4.3-demo/assets/utm-mcp-workflow.svg"
+        $WorkflowSvgUri
     if ($LASTEXITCODE -ne 0) { throw 'Failed to rasterize utm-mcp-workflow.svg' }
 }
 

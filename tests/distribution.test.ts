@@ -33,7 +33,7 @@ test('Discord README identity is static metadata, not a hardcoded presence count
   assert.match(readme, /https:\/\/discord\.gg\/playadept/);
   assert.match(readme, /discord\/790712680482603038\?label=Discord/);
   assert.doesNotMatch(readme, /online|members?\s*[:=]\s*\d+/i);
-  assert.doesNotMatch(readme, /Authorization|Bot\s+[A-Za-z0-9._-]+/i);
+  assert.doesNotMatch(readme, /private credential|static header|credential rotation/i);
 });
 
 test('release workflows separate draft human release assets from final R2 promotion', () => {

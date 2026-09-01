@@ -300,7 +300,7 @@ try {
   await wait(1500);
   const bridgeToken = await cdp.evaluate("sessionStorage.getItem('uem_bridge_token')");
   const showcaseMcpPort = await freeLoopbackPort();
-  const agentConfigResult = await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ enabled: true, port: ${showcaseMcpPort} }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
+  const agentConfigResult = await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ port: ${showcaseMcpPort} }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
   if (!agentConfigResult?.body?.success || !agentConfigResult.body.status?.running) throw new Error(`Showcase UTM MCP did not start: ${JSON.stringify(agentConfigResult)}`);
   await waitFor(cdp, "document.body.innerText.includes('This project is open and fully connected')", 'healthy connected state');
 

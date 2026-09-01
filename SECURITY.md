@@ -16,7 +16,11 @@ ADEPT Interactive will acknowledge a complete report as soon as practical, inves
 
 ## Trust boundary
 
-UEFN Transaction Manager is a local, project-scoped tool. Its bridge listens only on loopback, requires ephemeral session credentials, validates project paths and asset identifiers, and restricts uploads to verified PNG input. The packaged application does not require public inbound network access.
+UEFN Transaction Manager is a local, project-scoped tool. Its UI/editor bridge listens only on loopback, requires its internal session credentials, validates project paths and asset identifiers, and restricts uploads to verified PNG input. The packaged application does not require public inbound network access.
+
+UTM MCP is a separate local project bridge connection. It binds explicitly to `127.0.0.1`, accepts only the exact `127.0.0.1:<port>` or `localhost:<port>` Host values, and rejects foreign Origins. Its constrained tools still require same-project identity, expected catalog revisions, validated catalog data, verified managed assets, and first-run readiness. UTM MCP has no LAN, remote, or public endpoint.
+
+The internal UTM UI/editor bridge remains separately authenticated with `UEM_SESSION_TOKEN` and `UEM_EDITOR_TOKEN` where applicable. Those credentials protect UI and editor operations; they are not client requirements for the local UTM MCP connection.
 
 The Verse compiler client is also local-only. It discovers listeners owned by the active UEFN process, matches the selected project where possible, rejects ambiguous sessions, and does not accept LAN or arbitrary remote endpoint overrides. `UEM_VERSE_COMPILER_ENDPOINT` is a loopback-only development and test override.
 
