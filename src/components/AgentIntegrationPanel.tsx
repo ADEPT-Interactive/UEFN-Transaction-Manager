@@ -1,23 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Copy, KeyRound, PlugZap, RefreshCw, ShieldCheck, X } from 'lucide-react';
-import type { AgentIntegrationStatus } from '../services/fileService';
+import { CheckCircle2, ChevronRight, Copy, FolderOpen, KeyRound, PlugZap, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import type { AgentIntegrationSetupResult, AgentIntegrationStatus } from '../services/fileService';
 import { NumericInput } from './NumericInput';
+
+type SupportedAgent = 'codex' | 'claude' | 'cursor';
+type IntegrationIntent = 'connect' | 'migrate';
 
 interface AgentIntegrationPanelProps {
   isOpen: boolean;
   status: AgentIntegrationStatus | null;
+  intent?: IntegrationIntent;
   showcaseMode?: boolean;
   onRefresh: () => void;
-  onUpdate: (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }) => Promise<{ success: boolean; token?: string; error?: string }>;
+  onUpdate: (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }) => Promise<{ success: boolean; token?: string; status?: AgentIntegrationStatus; error?: string }>;
+  onSetup: (agent: SupportedAgent) => Promise<AgentIntegrationSetupResult>;
+  onOpenSkillLocation: (agent: SupportedAgent) => Promise<{ success: boolean; error?: string }>;
   onCopyConfig: () => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
   onClose: () => void;
+  appChromeHeight?: number;
 }
 
-export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ isOpen, status, showcaseMode = false, onRefresh, onUpdate, onCopyConfig, onClose }) => {
+const agents: Array<{ id: SupportedAgent; label: string; detail: string }> = [
+  { id: 'codex', label: 'Codex', detail: 'User Agent Skill' },
+  { id: 'claude', label: 'Claude Code', detail: 'User skill folder' },
+  { id: 'cursor', label: 'Cursor', detail: 'User skill folder' },
+];
+
+export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ isOpen, status, intent = 'connect', showcaseMode = false, onRefresh, onUpdate, onSetup, onOpenSkillLocation, onCopyConfig, onClose, appChromeHeight = 0 }) => {
   const [port, setPort] = useState(status?.port ?? 8001);
+  const [selectedAgent, setSelectedAgent] = useState<SupportedAgent>('codex');
   const [message, setMessage] = useState<string | null>(null);
+  const [messageIsError, setMessageIsError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [configurationCopied, setConfigurationCopied] = useState(false);
+
   useEffect(() => { if (status) setPort(status.port); }, [status?.port]);
+  useEffect(() => { if (!isOpen) setConfigurationCopied(false); }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [isOpen]);
   if (!isOpen) return null;
 
   const copyText = async (text: string) => {
@@ -45,12 +69,52 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
     if (!copied) throw new Error('Clipboard access is unavailable.');
   };
 
+  const showMessage = (next: string, error = false) => {
+    setMessage(next);
+    setMessageIsError(error);
+  };
+
   const update = async (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }, successMessage?: string) => {
     setBusy(true);
-    const result = await onUpdate(input);
-    setBusy(false);
-    setMessage(result.success ? successMessage ?? 'Agent Integration updated.' : result.error ?? 'Agent Integration could not be updated.');
-    onRefresh();
+    try {
+      if (input.port !== undefined || input.refreshConnection === true || input.enabled === false) setConfigurationCopied(false);
+      const result = await onUpdate(input);
+      showMessage(result.success ? successMessage ?? 'Agent Integration updated.' : result.error ?? 'Agent Integration could not be updated.', !result.success);
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Agent Integration could not be updated.', true);
+    } finally {
+      setBusy(false);
+      onRefresh();
+    }
+  };
+
+  const setup = async () => {
+    setBusy(true);
+    try {
+      const result = await onSetup(selectedAgent);
+      if (!result.success) {
+        showMessage(result.error ?? 'Agent setup could not be completed.', true);
+        return;
+      }
+      let configCopied = false;
+      if (result.config) {
+        try {
+          await copyText(JSON.stringify(result.config, null, 2));
+          configCopied = true;
+        } catch {
+          // The fallback connection details remain available below.
+        }
+      }
+      if (configCopied) setConfigurationCopied(true);
+      showMessage(configCopied
+        ? `${agents.find(agent => agent.id === selectedAgent)?.label} skill installed and MCP configuration copied. Restart or reload that agent, then ask it to verify this project.`
+        : `${agents.find(agent => agent.id === selectedAgent)?.label} skill installed. The configuration was not copied automatically; use Copy MCP configuration below, then restart or reload that agent.`);
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Agent setup could not be completed.', true);
+    } finally {
+      setBusy(false);
+      onRefresh();
+    }
   };
 
   const copyConfig = async () => {
@@ -59,58 +123,103 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
       const result = await onCopyConfig();
       if (result.success && result.config) {
         await copyText(JSON.stringify(result.config, null, 2));
-        setMessage('MCP client configuration copied. Keep it private because it contains the bearer token.');
-      } else setMessage(result.error ?? 'Configuration could not be copied.');
+        setConfigurationCopied(true);
+        showMessage('MCP configuration copied. Replace any stale UTM entry and restart or reload the coding agent.');
+      } else showMessage(result.error ?? 'Configuration could not be copied.', true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Configuration could not be copied.');
+      showMessage(error instanceof Error ? error.message : 'Configuration could not be copied.', true);
     } finally {
       setBusy(false);
+      onRefresh();
     }
   };
 
   const copySkillPath = async () => {
-    const skillPath = status?.skillPath ?? 'skills/uefn-transaction-manager';
+    const skillPath = status?.skillPath ?? 'resources/agent-skills/uefn-transaction-manager';
     try {
       await copyText(skillPath);
-      setMessage('Agent Skill location copied.');
+      showMessage('Packaged skill source location copied for manual setup.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Agent Skill location could not be copied.');
+      showMessage(error instanceof Error ? error.message : 'Agent Skill location could not be copied.', true);
     }
   };
 
   const copySkillInstructions = async () => {
-    const skillPath = status?.skillPath ?? 'skills/uefn-transaction-manager';
+    const skillPath = status?.skillPath ?? 'resources/agent-skills/uefn-transaction-manager';
     try {
-      await copyText(`UEFN Transaction Manager Agent Skill\n\nMCP compatibility and Agent Skill support are separate. Add the copied UTM MCP entry to your client, then copy this entire folder with SKILL.md and references together into one of these client locations:\n\nCodex (user): %USERPROFILE%\\.agents\\skills\\uefn-transaction-manager\\\nClaude Code (user): %USERPROFILE%\\.claude\\skills\\uefn-transaction-manager\\\nCursor (user): %USERPROFILE%\\.cursor\\skills\\uefn-transaction-manager\\\n\nConnect the agent to both UTM MCP and UEFN MCP for the same project.\n\nSkill folder: ${skillPath}`);
-      setMessage('Agent Skill setup instructions copied.');
+      await copyText(`UEFN Transaction Manager Agent Skill\n\nRecommended: use the guided setup in this panel for Codex, Claude Code, or Cursor. It installs only the UTM-owned skill folder and gives you a static-header MCP configuration. Restart or reload the coding agent after setup.\n\nManual fallback: copy the entire folder, including SKILL.md and references, into the client’s user skill directory.\n\nPackaged source: ${skillPath}`);
+      showMessage('Manual Agent Skill instructions copied.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Agent Skill instructions could not be copied.');
+      showMessage(error instanceof Error ? error.message : 'Agent Skill instructions could not be copied.', true);
     }
   };
 
-  const displayedSkillPath = showcaseMode ? 'Included with this development build' : (status?.skillPath ?? 'skills/uefn-transaction-manager');
+  const openSkillLocation = async () => {
+    if (!hasVerifiedSkillLocation) {
+      showMessage('Install and verify this Agent Skill before opening its location.', true);
+      return;
+    }
+    try {
+      const result = await onOpenSkillLocation(selectedAgent);
+      showMessage(result.success ? `${agentLabel} skill location opened.` : result.error ?? 'The verified skill location could not be opened.', !result.success);
+      if (!result.success) onRefresh();
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'The verified skill location could not be opened.', true);
+      onRefresh();
+    }
+  };
+
+  const selectedInstallation = status?.skillInstallations?.find(installation => installation.id === selectedAgent);
+  const agentLabel = agents.find(agent => agent.id === selectedAgent)?.label ?? 'coding agent';
+  const displayedSkillPath = showcaseMode ? 'Included with this development build' : (status?.skillPath ?? 'resources/agent-skills/uefn-transaction-manager');
+  const serverState = status?.running ? 'Running' : 'Unavailable';
+  const serverTone = status?.running ? 'emerald' : 'amber';
+  const connectionVerified = status?.clientConnection?.state === 'verified';
+  const hasVerifiedSkillLocation = Boolean(selectedInstallation?.installed && !selectedInstallation.error && selectedInstallation.targetPath);
+  const overlayTop = Math.max(16, appChromeHeight + 16);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="agent-integration-title" className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-3xl border border-slate-700 bg-[#0d1326] shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-800 bg-slate-900/95 px-6 py-5 backdrop-blur">
-          <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300"><PlugZap className="h-5 w-5" /></div><div><h2 id="agent-integration-title" className="text-lg font-extrabold text-white">Agent Integration</h2><p className="text-xs text-slate-400">Connect a coding agent to this project&apos;s transaction catalog</p></div></div>
+    <div data-app-chrome-aware="true" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center overflow-hidden bg-black/80 p-3 backdrop-blur-sm sm:p-4" style={{ top: `${overlayTop}px` }} onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="agent-integration-title" className="flex max-h-full min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-[#0d1326] shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between border-b border-slate-800 bg-slate-900/95 px-6 py-5 backdrop-blur">
+          <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 text-violet-200"><PlugZap className="h-5 w-5" /></div><div><h2 id="agent-integration-title" className="text-lg font-extrabold text-white">{intent === 'migrate' ? 'Migrate existing transactions' : 'Connect an AI coding agent'}</h2><p className="text-xs text-slate-400">{intent === 'migrate' ? 'Bring an existing in-island transaction layer under safe UTM management.' : 'Work with this project’s transaction catalog through your coding agent.'}</p></div></div>
           <button type="button" aria-label="Close Agent Integration" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <div className="space-y-4 p-6 text-xs">
-          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><p className="font-bold text-cyan-200">Connect in a few clicks</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 font-black text-slate-950">1</span><p className="mt-2 font-bold text-white">Open UEFN MCP</p><p className="mt-1 text-[11px] leading-4 text-slate-400">Enable Epic&apos;s Unreal MCP for this same project.</p></div><div><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 font-black text-slate-950">2</span><p className="mt-2 font-bold text-white">Enable UTM MCP</p><p className="mt-1 text-[11px] leading-4 text-slate-400">Turn on the transaction server below.</p></div><div><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 font-black text-slate-950">3</span><p className="mt-2 font-bold text-white">Copy configuration</p><p className="mt-1 text-[11px] leading-4 text-slate-400">Give your MCP-compatible agent the local UTM endpoint.</p></div></div></div>
-          <div className="grid gap-3 md:grid-cols-2"><div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"><div className="flex items-center justify-between gap-3"><p className="font-bold text-white">UTM MCP</p><span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${status?.running ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>{status?.running ? 'Running' : status?.enabled ? 'Unavailable' : 'Disabled'}</span></div><p className="mt-2 text-[11px] leading-4 text-slate-400">Catalog, validation, generated integration, and controlled Texture2D adoption for this project.</p></div><div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"><p className="font-bold text-white">UEFN MCP</p><p className="mt-2 text-[11px] leading-4 text-slate-400">Epic&apos;s separate editor connection for Verse, assets, devices, compilation, and sessions.</p></div></div>
-          <label className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/40 p-4"><span><strong className="block text-white">Enable UTM MCP</strong><span className="text-[11px] text-slate-500">Off by default for existing users. The listener is loopback-only and scoped to the open project.</span></span><input aria-label="Enable UTM MCP" type="checkbox" checked={status?.enabled ?? false} disabled={busy} onChange={event => void update({ enabled: event.target.checked }, event.target.checked ? 'UTM MCP enabled.' : 'UTM MCP disabled.')} className="h-4 w-4 accent-cyan-500" /></label>
-          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><div className="flex items-center justify-between gap-3"><p className="font-bold text-cyan-200">UTM MCP connection</p><code className="rounded bg-slate-950/60 px-2 py-1 text-[10px] text-slate-300">utm-mcp</code></div><code className="mt-2 block break-all rounded-lg bg-slate-950/70 px-2 py-1.5 font-mono text-[11px] text-cyan-300">{status?.endpoint ?? 'http://127.0.0.1:8001/mcp'}</code><p className="mt-2 text-[11px] text-slate-400">Active project: <span className="text-slate-200">{status?.projectName ?? 'this open project'}</span></p></div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-color:#334155_transparent] [scrollbar-width:thin]"><div className="space-y-4 p-6 text-xs">
+          <div className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-200" /><div><p className="font-extrabold text-violet-100">{intent === 'migrate' ? 'Your existing project does not need to be rebuilt by hand.' : 'Use UTM from the tools you already use.'}</p><p className="mt-1 leading-5 text-slate-300">{intent === 'migrate' ? 'The agent can inspect your Verse, inventory offers and behavior, prepare a dry-run mapping, and stop when transaction meaning is ambiguous. UTM owns catalog state; your project Verse keeps gameplay logic.' : 'UTM handles catalog intent and generated transaction integration. UEFN MCP remains the separate editor connection for Verse, assets, compilation, and sessions.'}</p></div></div></div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4">
+            <div className="flex items-center justify-between gap-3"><div><p className="font-extrabold text-white">Set up your coding agent</p><p className="mt-1 text-[11px] leading-4 text-slate-400">UTM installs only its own skill folder, prepares the current project’s MCP entry, and tells you when a reload is required.</p></div><span className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold text-cyan-200">Recommended</span></div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">{agents.map(agent => {
+              const installation = status?.skillInstallations?.find(candidate => candidate.id === agent.id);
+              const selected = selectedAgent === agent.id;
+              return <button key={agent.id} type="button" onClick={() => setSelectedAgent(agent.id)} aria-pressed={selected} className={`rounded-xl border p-3 text-left transition ${selected ? 'border-cyan-400/60 bg-cyan-400/10' : 'border-slate-700 bg-slate-900/60 hover:border-slate-500'}`}><span className="flex items-center justify-between gap-2"><span className="font-extrabold text-white">{agent.label}</span>{installation?.upToDate ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}</span><span className="mt-1 block text-[10px] text-slate-500">{installation?.upToDate ? 'Skill up to date' : agent.detail}</span></button>;
+            })}</div>
+            <button type="button" disabled={busy || !status} onClick={() => void setup()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 font-extrabold text-slate-950 hover:bg-cyan-300 disabled:opacity-40"><PlugZap className="h-4 w-4" />{selectedInstallation?.upToDate && status?.running ? `Prepare ${agentLabel} again` : `Set up ${agentLabel}`}</button>
+            <p className="mt-2 text-[10px] leading-4 text-slate-500">A running UTM server is only one part of setup. A coding agent that was already open must reload its configuration or start a fresh session before it can see new tools.</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4"><div className="flex items-center justify-between"><p className="font-extrabold text-white">Connection readiness</p><button type="button" onClick={onRefresh} className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 hover:text-cyan-200"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div><div className="mt-3 grid items-stretch gap-2 sm:grid-cols-2"><ReadinessRow label="UTM MCP server" value={serverState} tone={serverTone} detail={status?.running ? status.endpoint : status?.unavailableReason ?? 'UTM MCP starts automatically with the project bridge.'} /><ReadinessRow label={`${agentLabel} Agent Skill`} value={selectedInstallation?.upToDate ? 'Installed' : selectedInstallation?.installed ? 'Update available' : 'Not installed'} tone={selectedInstallation?.upToDate ? 'emerald' : 'amber'} detail={selectedInstallation?.error} action={hasVerifiedSkillLocation ? <button type="button" onClick={() => void openSkillLocation()} className="mt-auto inline-flex items-center gap-1.5 self-start pt-3 text-[10px] font-extrabold text-cyan-300 hover:text-cyan-200"><FolderOpen className="h-3.5 w-3.5" />Open skill location</button> : undefined} /><ReadinessRow label="Client configuration" value={configurationCopied ? 'Copied in this session' : status?.configuration?.available ? 'Ready to copy' : 'Waiting for UTM MCP'} tone={status?.configuration?.available ? 'cyan' : 'slate'} detail={status?.configuration?.mode === 'loopback-configuration-header' ? 'Uses a private static bearer header; no environment-variable inheritance required.' : undefined} /><ReadinessRow label="Agent connection" value={connectionVerified ? 'Verified' : status?.clientConnection?.state === 'connected' ? 'Connected; verify project' : 'Not verified'} tone={connectionVerified ? 'emerald' : status?.clientConnection?.state === 'connected' ? 'amber' : 'slate'} detail={connectionVerified ? `Verified by ${status?.clientConnection?.clientName ?? 'the MCP client'} at ${status?.clientConnection?.verifiedAt ?? ''}` : status?.clientConnection?.message ?? (status?.configuration?.restartRequired ? 'Reload or restart the agent, then ask it to call get_project_context.' : 'The agent must call get_project_context before UTM can verify the client connection.')} /></div></div>
+
+          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><div className="flex items-center justify-between gap-3"><p className="font-extrabold text-cyan-100">Keep both project connections aligned</p><span className="rounded-full border border-cyan-500/25 px-2 py-1 text-[10px] font-bold text-cyan-200">Required before edits</span></div><p className="mt-2 text-[11px] leading-5 text-slate-300">Connect the agent to both <strong className="text-white">utm-mcp</strong> and Epic’s <strong className="text-white">unreal-mcp</strong>. The Agent Skill will compare their project identities before any catalog mutation or Verse edit.</p><p className="mt-2 text-[11px] text-slate-400">Active UTM project: <span className="font-bold text-slate-200">{status?.projectName ?? 'this open project'}</span></p></div>
+
           {status?.unavailableReason && <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">{status.unavailableReason}</p>}
-          <div className="grid gap-2 sm:grid-cols-2"><button type="button" disabled={busy || !status?.enabled} onClick={() => void copyConfig()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 font-extrabold text-slate-950 hover:bg-cyan-300 disabled:opacity-40"><Copy className="h-4 w-4" />Copy MCP configuration</button><button type="button" disabled={busy || !status?.enabled} onClick={() => void update({ refreshConnection: true }, 'Token rotated. Existing client configurations are now invalid.')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 font-bold text-slate-200 hover:border-amber-400 hover:text-amber-200 disabled:opacity-40"><KeyRound className="h-4 w-4" />Rotate token</button></div>
-          <div className="flex items-start gap-2 rounded-xl border border-slate-800 bg-slate-950/30 p-3 text-[11px] text-slate-400"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /><span>Bearer tokens are stored in private local application state and are never placed in project files, generated Verse, or diagnostics. Copying configuration includes the token only because you explicitly requested it.</span></div>
-          <details className="rounded-2xl border border-slate-800 bg-slate-950/25 p-4"><summary className="cursor-pointer list-none font-bold text-slate-200">Advanced connection settings <span className="ml-2 text-[10px] font-normal text-slate-500">local port and token rotation</span></summary><div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]"><label className="block"><span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">MCP port</span><NumericInput ariaLabel="Advanced MCP port" min={1024} max={65535} value={port} onChange={setPort} className="w-24" /></label><button type="button" disabled={busy || !Number.isInteger(port) || port < 1024 || port > 65535} onClick={() => void update({ port }, 'MCP port updated.')} className="self-end rounded-xl border border-slate-700 px-3 py-2 font-bold text-slate-200 hover:border-cyan-400 disabled:opacity-40">Apply port</button></div><p className="mt-2 text-[11px] leading-4 text-slate-500">Change this only when another local service is using the default port. Restarting the listener or rotating the token invalidates old client configuration.</p></details>
-          <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-violet-200">Packaged UTM Agent Skill</p><p className="mt-1 text-[11px] leading-4 text-slate-400">The skill gives a compatible agent the safe workflow for same-project checks, revisions, catalog edits, icon adoption, migration, and verification.</p></div><span className="shrink-0 rounded-full border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-bold text-violet-200">Included</span></div><code className="mt-3 block break-all rounded-lg bg-slate-950/60 px-2 py-1.5 font-mono text-[11px] text-violet-200">{displayedSkillPath}</code><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => void copySkillPath()} className="font-bold text-cyan-300 hover:text-cyan-200">Copy skill path</button><button type="button" onClick={() => void copySkillInstructions()} className="font-bold text-cyan-300 hover:text-cyan-200">Copy setup instructions</button></div></div>
-          <div className="flex items-center justify-end border-t border-slate-800 pt-3"><button type="button" onClick={onRefresh} className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 hover:text-cyan-200"><RefreshCw className="h-3.5 w-3.5" />Refresh status</button></div>
-          {message && <p role="status" className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-[11px] text-slate-300"><CheckCircle2 className="h-4 w-4 text-cyan-300" />{message}</p>}
-        </div>
+
+          <details className="rounded-2xl border border-slate-800 bg-slate-950/25 p-4"><summary className="cursor-pointer list-none font-bold text-slate-200">Connection details <span className="ml-2 text-[10px] font-normal text-slate-500">manual fallback and token actions</span></summary><div className="mt-3 space-y-3"><div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><div className="flex items-center justify-between gap-3"><p className="font-bold text-cyan-200">UTM MCP endpoint</p><code className="rounded bg-slate-950/60 px-2 py-1 text-[10px] text-slate-300">utm-mcp</code></div><code className="mt-2 block break-all rounded-lg bg-slate-950/70 px-2 py-1.5 font-mono text-[11px] text-cyan-300">{status?.endpoint ?? 'http://127.0.0.1:8001/mcp'}</code></div><div className="grid gap-2 sm:grid-cols-2"><button type="button" disabled={busy || !status?.running} onClick={() => void copyConfig()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 font-extrabold text-slate-950 hover:bg-cyan-300 disabled:opacity-40"><Copy className="h-4 w-4" />Copy MCP configuration</button><button type="button" disabled={busy || !status?.enabled} onClick={() => void update({ refreshConnection: true }, 'Token rotated. Copy a new configuration and reload every client using this project.')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 font-bold text-slate-200 hover:border-amber-400 hover:text-amber-200 disabled:opacity-40"><KeyRound className="h-4 w-4" />Rotate token</button></div></div></details>
+
+          <details className="rounded-2xl border border-slate-800 bg-slate-950/25 p-4"><summary className="cursor-pointer list-none font-bold text-slate-200">Advanced connection settings <span className="ml-2 text-[10px] font-normal text-slate-500">local port only</span></summary><div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]"><label className="block"><span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">MCP port</span><NumericInput ariaLabel="Advanced MCP port" min={1024} max={65535} value={port} onChange={setPort} className="w-24" /></label><button type="button" disabled={busy || !Number.isInteger(port) || port < 1024 || port > 65535} onClick={() => void update({ port }, 'MCP port updated. Copy a fresh configuration for the new endpoint.')} className="self-end rounded-xl border border-slate-700 px-3 py-2 font-bold text-slate-200 hover:border-cyan-400 disabled:opacity-40">Apply port</button></div><p className="mt-2 text-[11px] leading-4 text-slate-500">Use another loopback port only when the default is occupied. Changing the port stops the old listener and makes old endpoint configuration unusable.</p></details>
+
+          <details className="rounded-2xl border border-slate-800 bg-slate-950/25 p-4"><summary className="cursor-pointer list-none font-bold text-slate-200">Security and manual setup <span className="ml-2 text-[10px] font-normal text-slate-500">for unusual clients</span></summary><div className="mt-3 space-y-3"><div className="flex items-start gap-2 rounded-xl border border-slate-800 bg-slate-950/30 p-3 text-[11px] text-slate-400"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /><span>Bearer tokens stay in private local application state and are never placed in project files, generated Verse, diagnostics, or source control. The generated configuration uses a static header because already-running agents cannot inherit a newly changed Windows user environment.</span></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Packaged skill source</p><code className="mt-1 block break-all rounded-lg bg-slate-950/60 px-2 py-1.5 font-mono text-[11px] text-violet-200">{displayedSkillPath}</code><div className="mt-2 flex flex-wrap gap-3"><button type="button" onClick={() => void copySkillPath()} className="font-bold text-cyan-300 hover:text-cyan-200">Copy source path</button><button type="button" onClick={() => void copySkillInstructions()} className="font-bold text-cyan-300 hover:text-cyan-200">Copy manual instructions</button></div></div></div></details>
+
+          {message && <p role="status" className={`flex items-start gap-1.5 rounded-xl border p-3 text-[11px] ${messageIsError ? 'border-rose-500/30 bg-rose-500/10 text-rose-200' : 'border-slate-700 bg-slate-950/40 text-slate-300'}`}><CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${messageIsError ? 'text-rose-300' : 'text-cyan-300'}`} />{message}</p>}
+        </div></div>
       </section>
     </div>
   );
+};
+
+const ReadinessRow: React.FC<{ label: string; value: string; tone: 'emerald' | 'amber' | 'cyan' | 'slate'; detail?: string; action?: React.ReactNode }> = ({ label, value, tone, detail, action }) => {
+  const toneClass = tone === 'emerald' ? 'border-emerald-500/25 bg-emerald-500/5 text-emerald-200' : tone === 'amber' ? 'border-amber-500/25 bg-amber-500/5 text-amber-200' : tone === 'cyan' ? 'border-cyan-500/25 bg-cyan-500/5 text-cyan-200' : 'border-slate-800 bg-slate-900/40 text-slate-300';
+  return <div className={`flex h-full min-h-[96px] flex-col rounded-xl border p-3 ${toneClass}`}><div className="flex items-start justify-between gap-2"><span className="font-bold text-white">{label}</span><span className="shrink-0 text-right text-[10px] font-extrabold uppercase tracking-wide">{value}</span></div>{detail && <p className="mt-1 break-words text-[10px] leading-4 opacity-80">{detail}</p>}{action}</div>;
 };

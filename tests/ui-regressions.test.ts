@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { isNewCreationRequest } from '../src/services/creationIntent';
 
 const root = path.resolve(import.meta.dirname, '..');
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -52,6 +53,38 @@ test('creator guidance and template chooser stay streamlined', () => {
   assert.match(chooserSource, /aria-expanded=\{selected\}/);
   assert.match(chooserSource, /whitespace-nowrap/);
   assert.match(chooserSource, /Use this template/);
+});
+
+test('offer creation is an explicit one-shot intent and cannot be replayed by workspace remounts', () => {
+  const chooserSource = read(path.join('src', 'components', 'EntitlementList.tsx'));
+  const appSource = read(path.join('src', 'App.tsx'));
+  let lastConsumedRequest = 0;
+
+  // Case 1 / 3: an explicit new-entitlement request opens once, then the
+  // same request is inert after the chooser/editor flow closes.
+  assert.equal(isNewCreationRequest(1, lastConsumedRequest), true);
+  lastConsumedRequest = 1;
+  assert.equal(isNewCreationRequest(1, lastConsumedRequest), false);
+
+  // Case 2: the direct Create Offer controls remain local explicit actions.
+  assert.match(chooserSource, /onClick=\{\(\) => setIsCreationMenuOpen\(true\)\}/);
+
+  // Case 4 / 5: revision refreshes and Catalog/Catalog + Verse remounts do
+  // not replay the already-consumed request id.
+  assert.equal(isNewCreationRequest(1, 1), false);
+  assert.match(chooserSource, /const lastCreationRequestRef = useRef\(creationRequest\)/);
+  assert.match(chooserSource, /isNewCreationRequest\(creationRequest, lastCreationRequestRef\.current\)/);
+  assert.doesNotMatch(chooserSource, /if \(creationRequest > 0\) setIsCreationMenuOpen/);
+
+  // Case 6: a new App/project starts with no pending event, so an old
+  // project request cannot leak into it.
+  assert.equal(isNewCreationRequest(0, 0), false);
+  assert.match(appSource, /const \[creationChooserRequest, setCreationChooserRequest\]/);
+  assert.match(appSource, /const requestOfferCreation = \(\) => setCreationChooserRequest\(request => request \+ 1\)/);
+
+  // Case 7: merely having an entitlement without an offer is not an opener;
+  // no derived catalog condition is allowed to drive the chooser effect.
+  assert.doesNotMatch(chooserSource, /entitlements\.length[\s\S]{0,160}setIsCreationMenuOpen\(true\)/);
 });
 
 test('paid-random guidance separates the optional Transaction Manager field from the required island disclosure', () => {

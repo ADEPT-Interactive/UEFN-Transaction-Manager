@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Plus, 
   Search, 
@@ -15,6 +15,7 @@ import { BundleOffer, EntitlementItem } from '../types/entitlement';
 import { DEFAULT_PRESETS } from '../constants/presets';
 import { EntitlementCard } from './EntitlementCard';
 import { VBucksIcon } from './VBucksIcon';
+import { isNewCreationRequest } from '../services/creationIntent';
 
 interface EntitlementListProps {
   entitlements: EntitlementItem[];
@@ -40,8 +41,14 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'durable' | 'consumable' | 'paidArea' | 'paidRandom'>('all');
   const [isCreationMenuOpen, setIsCreationMenuOpen] = useState(false);
+  // creationRequest is an explicit event sequence, not a derived "needs an
+  // offer" flag. Initialize the cursor to the current event so a workspace
+  // remount cannot replay an already-issued creation workflow.
+  const lastCreationRequestRef = useRef(creationRequest);
   useEffect(() => {
-    if (creationRequest > 0) setIsCreationMenuOpen(true);
+    if (!isNewCreationRequest(creationRequest, lastCreationRequestRef.current)) return;
+    lastCreationRequestRef.current = creationRequest;
+    setIsCreationMenuOpen(true);
   }, [creationRequest]);
 
   // Compute catalog stats

@@ -10,10 +10,13 @@ import { assertExistingPathInsideRoot, tokensEqual, validateIdentifier, validate
 import { compileVerseProject } from './workflowClient';
 import { listProjectIconPreviews, resolveProjectIconPreview } from './iconPreviews';
 import versionInfo from '../version.json';
-import { CatalogDomainError, CatalogSession, catalogForMcp, defaultProjectConfig, type CatalogDocument } from '../src/services/catalogSession';
+import { CATALOG_ERROR_CODES, CatalogDomainError, CatalogSession, catalogForMcp, defaultProjectConfig, type CatalogDocument } from '../src/services/catalogSession';
 import { parseVerseCode } from '../src/services/verseParser';
 import { generateVerseCode } from '../src/services/verseGenerator';
+import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/constants/placeholderIcon';
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
+import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
+import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -65,12 +68,12 @@ function loadAgentIntegrationState(): AgentIntegrationState {
   try {
     const parsed = JSON.parse(fs.readFileSync(agentIntegrationStatePath, 'utf8')) as Partial<AgentIntegrationState>;
     return {
-      enabled: parsed.enabled === true,
+      enabled: true,
       port: Number.isInteger(parsed.port) && Number(parsed.port) >= 1024 && Number(parsed.port) <= 65535 ? Number(parsed.port) : 8001,
       token: typeof parsed.token === 'string' && parsed.token.length >= 32 ? parsed.token : undefined,
     };
   } catch {
-    return { enabled: false, port: 8001 };
+    return { enabled: true, port: 8001 };
   }
 }
 
@@ -116,6 +119,8 @@ let catalogOpen = false;
 const agentIntegration = loadAgentIntegrationState();
 let mcpHost: UTMcpHost | null = null;
 let mcpUnavailableReason: string | undefined;
+let lastConfigurationIssuedAt: string | undefined;
+let lastAgentConnection: import('./utmMcp').UTMClientConnection | undefined;
 const distPath = path.join(__dirname, '..', 'dist');
 let lastUiActivity = Date.now();
 const uiLeases = new Set<express.Response>();
@@ -215,6 +220,8 @@ function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
   const editorConnected = editorSessionIsFresh();
+  const projectActive = selectedProjectIsActiveInUefn();
+  const pythonEnabled = projectPythonIsEnabled();
   return {
     productVersion: versionInfo.version,
     projectName: configuredProjectFile ? path.basename(configuredProjectFile, path.extname(configuredProjectFile)) : path.basename(contentRoot),
@@ -225,12 +232,19 @@ function currentProjectContext(): UTMProjectContext {
     configuredIconFolder: snapshot.config.assetFolderName,
     editorConnection: {
       editorConnected,
-      projectActive: selectedProjectIsActiveInUefn(),
+      projectActive,
       uefnRunning: uefnIsRunning(),
       processId: (editorSession?.processId ?? launchedUefnProcessId) || undefined,
     },
-    nativeTextureAdoptionAvailable: editorConnected,
+    nativeTextureAdoptionAvailable: editorConnected && projectActive && pythonEnabled,
     managedFileOwned: catalogManaged,
+    catalogInitialization: fs.existsSync(filePath) ? 'initialized' : 'first-run',
+    projectReadiness: {
+      editorConnected,
+      projectActive,
+      pythonEnabled,
+      missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
+    },
     ...({ generatedFile: { present: fs.existsSync(filePath), contentHash: fs.existsSync(filePath) ? sha256(fs.readFileSync(filePath)) : null } }),
   };
 }
@@ -240,6 +254,48 @@ function installedAgentSkillPath(): string {
   if (fs.existsSync(path.join(packaged, 'SKILL.md'))) return packaged;
   const source = path.resolve(__dirname, '..', 'skills', 'uefn-transaction-manager');
   return fs.existsSync(path.join(source, 'SKILL.md')) ? source : 'skills/uefn-transaction-manager';
+}
+
+function agentSkillInstallations(): AgentSkillInstallationStatus[] {
+  return inspectAllAgentSkills(installedAgentSkillPath(), process.env.UEM_AGENT_HOME ?? undefined);
+}
+
+function mcpClientConfiguration(): Record<string, unknown> {
+  // Keep the bearer token in the explicitly requested client configuration. Do
+  // not rely on UTM_MCP_LOCAL_ENDPOINT or any other process environment variable:
+  // already-running coding agents cannot observe user-environment changes.
+  return { mcpServers: { 'utm-mcp': { type: 'http', url: `http://127.0.0.1:${agentIntegration.port}/mcp`, headers: { Authorization: `Bearer ${agentIntegration.token}` } } } };
+}
+
+function publicAgentIntegrationStatus() {
+  const running = Boolean(mcpHost?.running);
+  const verified = Boolean(lastAgentConnection?.verified);
+  return {
+    success: true,
+    enabled: agentIntegration.enabled,
+    running,
+    endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`,
+    serverName: 'utm-mcp',
+    port: agentIntegration.port,
+    projectName: currentProjectContext().projectName,
+    unavailableReason: mcpUnavailableReason,
+    connectionConfigured: Boolean(agentIntegration.token),
+    skillPath: installedAgentSkillPath(),
+    skillInstallations: agentSkillInstallations(),
+    configuration: {
+      available: agentIntegration.enabled && Boolean(agentIntegration.token),
+      mode: 'loopback-configuration-header',
+      issuedAt: lastConfigurationIssuedAt,
+      restartRequired: Boolean(lastConfigurationIssuedAt && !verified),
+    },
+    clientConnection: lastAgentConnection
+      ? { state: verified ? 'verified' : 'connected', ...lastAgentConnection }
+      : { state: 'not-verified', message: 'Start or reload the configured coding agent, then ask it to call get_project_context.' },
+  };
+}
+
+function isSupportedAgent(value: unknown): value is SupportedAgentId {
+  return value === 'codex' || value === 'claude' || value === 'cursor';
 }
 
 async function adoptIconThroughBridge(request: { sourceAssetPath: string; assetFolderName: string; assetName: string }): Promise<{ success: boolean; verseAssetPath?: string; assetObjectPath?: string; imageData?: string; error?: string }> {
@@ -262,11 +318,77 @@ async function adoptIconThroughBridge(request: { sourceAssetPath: string; assetF
   return { success: false, error: 'The UEFN Texture2D adoption job did not complete within the MCP call window. The queued job remains available to the connected editor.' };
 }
 
-function saveGeneratedCatalog(): SaveCatalogResult {
+function catalogReadinessError(message: string, data: Record<string, unknown> = {}): CatalogDomainError {
+  return new CatalogDomainError(CATALOG_ERROR_CODES.projectNotReady, `PROJECT_NOT_READY: ${message}`, data, 409);
+}
+
+async function waitForTextureImport(jobId: string, expectedObjectPath: string): Promise<void> {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const job = getTextureImportJob(jobId);
+    if (job.status === 'failed') throw catalogReadinessError(job.error ?? 'UEFN could not provision the required Texture2D asset.', { assetObjectPath: expectedObjectPath });
+    if (job.status !== 'completed') continue;
+    if (job.assetObjectPath !== expectedObjectPath) {
+      throw catalogReadinessError('UEFN returned a different Texture2D object path than the generated Verse reference.', {
+        expectedAssetObjectPath: expectedObjectPath,
+        actualAssetObjectPath: job.assetObjectPath ?? null,
+      });
+    }
+    const packagePath = assetPackagePathFromObjectPath(contentRoot, expectedObjectPath, configuredAssetMount!);
+    if (!packagePath || !fs.existsSync(packagePath)) throw catalogReadinessError('UEFN reported the Texture2D import complete, but the exact project asset package could not be confirmed.', { assetObjectPath: expectedObjectPath });
+    return;
+  }
+  throw catalogReadinessError('The required Texture2D import did not complete within the editor bridge window. No managed Verse was written.', { assetObjectPath: expectedObjectPath });
+}
+
+async function assertCatalogReady(document: CatalogDocument): Promise<void> {
+  if (!catalogManaged) throw catalogReadinessError('the selected target Verse file is not managed by UTM and will not be overwritten.');
+  const filePath = path.join(contentRoot, validateVerseFileName(document.config.targetVerseFileName));
+  const firstInitialization = !fs.existsSync(filePath);
+  const editorConnected = editorSessionIsFresh();
+  const projectActive = selectedProjectIsActiveInUefn();
+  const pythonEnabled = projectPythonIsEnabled();
+  const scopedDocument: CatalogDocument = { ...document, config: { ...document.config, contentFolderPath: contentRoot } };
+  const references = collectManagedAssetReferences(scopedDocument, configuredAssetMount!);
+  if (firstInitialization && references.length && (!editorConnected || !projectActive || !pythonEnabled)) {
+    throw catalogReadinessError(
+      !editorConnected ? 'open the selected project in UEFN and wait for its verified editor connector before creating the first managed catalog.'
+        : !projectActive ? 'the selected project is not the project currently open in UEFN.'
+          : 'Python Editor Scripting is disabled for the selected project.',
+      { initialization: 'first-run', editorConnected, projectActive, pythonEnabled, required: 'UEFN open, exact project active, verified editor bridge, Python Editor Scripting enabled' },
+    );
+  }
+
+  let missing = missingManagedAssetReferences(scopedDocument, configuredAssetMount!);
+  for (const reference of missing) {
+    if (!isPlaceholderIconTexture(reference.expression)) {
+      throw catalogReadinessError('a generated Texture2D reference is missing from the selected project. Adopt or restore the exact asset before saving.', { missingAssets: missing.map(candidate => candidate.objectPath) });
+    }
+    if (!editorConnected || !projectActive || !pythonEnabled) {
+      throw catalogReadinessError('the required UTM placeholder Texture2D is missing. Open the selected project in UEFN with Python Editor Scripting enabled so UTM can provision it before saving.', { missingAssets: missing.map(candidate => candidate.objectPath), editorConnected, projectActive, pythonEnabled });
+    }
+    const segments = reference.expression.split('.');
+    const assetFolderName = segments[0];
+    const assetName = segments.at(-1)!;
+    const sourceBuffer = Buffer.from(PLACEHOLDER_ICON_DATA_URL.slice(PLACEHOLDER_ICON_DATA_URL.indexOf(',') + 1), 'base64');
+    const queued = await queueTextureImport(assetFolderName, assetName, sourceBuffer);
+    await waitForTextureImport(queued.jobId, reference.objectPath);
+    missing = missingManagedAssetReferences(scopedDocument, configuredAssetMount!);
+  }
+  if (missing.length) throw catalogReadinessError('one or more exact managed Texture2D object paths could not be confirmed.', { missingAssets: missing.map(reference => reference.objectPath) });
+}
+
+async function saveGeneratedCatalog(): Promise<SaveCatalogResult> {
   const snapshot = catalogSession.snapshot();
   if (!catalogManaged) return { success: false, code: 'PROJECT_NOT_READY', error: 'PROJECT_NOT_READY: the selected target Verse file is not managed by UTM and will not be overwritten.', status: 409 };
   const errors = snapshot.validation.filter(issue => issue.severity === 'error');
   if (errors.length) return { success: false, error: 'CATALOG_VALIDATION_FAILED: validation errors block save.', status: 422 };
+  try {
+    await assertCatalogReady(snapshot);
+  } catch (error) {
+    if (error instanceof CatalogDomainError) return { success: false, code: error.code, error: error.message, status: error.status };
+    return { success: false, code: 'PROJECT_NOT_READY', error: error instanceof Error ? error.message : 'Project readiness could not be confirmed.', status: 409 };
+  }
   const fileName = validateVerseFileName(snapshot.config.targetVerseFileName);
   const filePath = path.join(contentRoot, fileName);
   if (fs.existsSync(filePath)) assertExistingPathInsideRoot(contentRoot, filePath);
@@ -298,12 +420,14 @@ function saveGeneratedCatalog(): SaveCatalogResult {
   }
 }
 
-async function startConfiguredMcp(): Promise<void> {
-  if (!agentIntegration.enabled || mcpHost) return;
+async function startConfiguredMcp(): Promise<boolean> {
+  if (!agentIntegration.enabled) return false;
+  if (mcpHost) return true;
   if (!agentIntegration.token) {
     agentIntegration.token = crypto.randomBytes(48).toString('base64url');
     saveAgentIntegrationState(agentIntegration);
   }
+  lastAgentConnection = undefined;
   const host = new UTMcpHost({
     version: versionInfo.version,
     token: agentIntegration.token,
@@ -311,19 +435,24 @@ async function startConfiguredMcp(): Promise<void> {
     getProjectContext: currentProjectContext,
     adoptIcon: adoptIconThroughBridge,
     saveCatalog: async () => saveGeneratedCatalog(),
+    assertCatalogReady,
+    onClientConnection: connection => { lastAgentConnection = connection; },
   });
   try {
     await host.start(agentIntegration.port);
     mcpHost = host;
     mcpUnavailableReason = undefined;
+    return true;
   } catch (error) {
     mcpUnavailableReason = error instanceof Error && (error as NodeJS.ErrnoException).code === 'EADDRINUSE'
       ? `MCP port ${agentIntegration.port} is already in use. Configure an alternate loopback port under Agent Integration.`
       : error instanceof Error ? error.message : 'UTM MCP could not start.';
+    return false;
   }
 }
 
 async function stopConfiguredMcp(): Promise<void> {
+  lastAgentConnection = undefined;
   if (!mcpHost) return;
   const host = mcpHost;
   mcpHost = null;
@@ -409,9 +538,12 @@ app.post('/api/catalog/open', (req, res) => {
 
 app.get('/api/catalog/snapshot', (_req, res) => res.json({ success: true, managed: catalogManaged, catalog: catalogSession.snapshot() }));
 
-app.post('/api/catalog/replace', (req, res) => {
+app.post('/api/catalog/replace', async (req, res) => {
   try {
     if (!req.body?.catalog || typeof req.body.catalog !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog replacement requires a catalog and expectedRevision.');
+    const currentRevision = catalogSession.snapshot().revision;
+    if (currentRevision !== req.body.expectedRevision) throw new CatalogDomainError(CATALOG_ERROR_CODES.revisionConflict, 'The catalog changed before replacement.', { expectedRevision: req.body.expectedRevision, currentRevision }, 409);
+    await assertCatalogReady(req.body.catalog as CatalogDocument);
     const result = catalogSession.replaceDocument(req.body.catalog as CatalogDocument, req.body.expectedRevision);
     res.json({ success: true, catalog: result.snapshot, cascades: result.cascades });
   } catch (error) {
@@ -420,9 +552,11 @@ app.post('/api/catalog/replace', (req, res) => {
   }
 });
 
-app.post('/api/catalog/mutate', (req, res) => {
+app.post('/api/catalog/mutate', async (req, res) => {
   try {
     if (!req.body?.operation || typeof req.body.operation !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog mutation requires an operation and expectedRevision.');
+    const proposed = catalogSession.applyPatch([req.body.operation], req.body.expectedRevision, true).snapshot;
+    await assertCatalogReady(proposed);
     const result = catalogSession.mutate(req.body.operation, req.body.expectedRevision);
     res.json({ success: true, catalog: result.snapshot, affected: result.affected, cascades: result.cascades });
   } catch (error) {
@@ -446,18 +580,7 @@ app.get('/api/catalog/events', (req, res) => {
 });
 
 app.get('/api/agent-integration/status', (_req, res) => {
-  res.json({
-    success: true,
-    enabled: agentIntegration.enabled,
-    running: Boolean(mcpHost?.running),
-    endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`,
-    serverName: 'utm-mcp',
-    port: agentIntegration.port,
-    projectName: currentProjectContext().projectName,
-    unavailableReason: mcpUnavailableReason,
-    connectionConfigured: Boolean(agentIntegration.token),
-    skillPath: installedAgentSkillPath(),
-  });
+  res.json(publicAgentIntegrationStatus());
 });
 
 app.post('/api/agent-integration/config', async (req, res) => {
@@ -473,25 +596,59 @@ app.post('/api/agent-integration/config', async (req, res) => {
     saveAgentIntegrationState(agentIntegration);
     if (agentIntegration.enabled) await startConfiguredMcp();
     else mcpUnavailableReason = undefined;
-    res.json({ success: true, ...(req.body?.includeToken === true ? { token: agentIntegration.token } : {}), status: { enabled: agentIntegration.enabled, running: Boolean(mcpHost?.running), endpoint: `http://127.0.0.1:${agentIntegration.port}/mcp`, serverName: 'utm-mcp', port: agentIntegration.port, unavailableReason: mcpUnavailableReason } });
+    res.json({ success: true, ...(req.body?.includeToken === true ? { token: agentIntegration.token } : {}), status: publicAgentIntegrationStatus() });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Agent Integration settings could not be changed.' });
   }
 });
 
-app.post('/api/agent-integration/copy-config', (_req, res) => {
-  if (!agentIntegration.enabled || !agentIntegration.token) return res.status(409).json({ success: false, error: 'Enable UTM MCP before copying a client configuration.' });
-  res.json({ success: true, config: { mcpServers: { 'utm-mcp': { type: 'http', url: `http://127.0.0.1:${agentIntegration.port}/mcp`, headers: { Authorization: `Bearer ${agentIntegration.token}` } } } } });
+app.post('/api/agent-integration/setup', async (req, res) => {
+  try {
+    if (!isSupportedAgent(req.body?.agent)) throw new Error('Choose a supported coding agent before setup.');
+    const agent = req.body.agent as SupportedAgentId;
+    const skill = installAgentSkill(installedAgentSkillPath(), agent, process.env.UEM_AGENT_HOME ?? undefined);
+    const wasEnabled = agentIntegration.enabled;
+    agentIntegration.enabled = true;
+    if (!agentIntegration.token) agentIntegration.token = crypto.randomBytes(48).toString('base64url');
+    saveAgentIntegrationState(agentIntegration);
+    const running = await startConfiguredMcp();
+    if (!running) {
+      if (!wasEnabled) {
+        agentIntegration.enabled = false;
+        saveAgentIntegrationState(agentIntegration);
+      }
+      return res.status(503).json({ success: false, skill, error: mcpUnavailableReason ?? 'UTM MCP could not start. Resolve the listener issue, then retry setup.' });
+    }
+    lastConfigurationIssuedAt = new Date().toISOString();
+    res.json({
+      success: true,
+      agent,
+      skill,
+      config: mcpClientConfiguration(),
+      restartRequired: true,
+      status: publicAgentIntegrationStatus(),
+    });
+  } catch (error) {
+    const status = error instanceof Error && /contains files UTM does not own|unavailable/.test(error.message) ? 409 : 400;
+    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Agent setup could not be completed.' });
+  }
 });
 
-app.post('/api/catalog/save', (req, res) => {
+app.post('/api/agent-integration/copy-config', (_req, res) => {
+  if (!agentIntegration.enabled || !agentIntegration.token) return res.status(409).json({ success: false, error: 'UTM MCP is not available for this project bridge.' });
+  if (!mcpHost?.running) return res.status(409).json({ success: false, error: mcpUnavailableReason ?? 'UTM MCP is not running. Resolve the listener issue before copying configuration.' });
+  lastConfigurationIssuedAt = new Date().toISOString();
+  res.json({ success: true, config: mcpClientConfiguration() });
+});
+
+app.post('/api/catalog/save', async (req, res) => {
   try {
     if (typeof req.body?.expectedRevision !== 'string') throw new Error('Catalog save requires expectedRevision.');
     const snapshot = catalogSession.snapshot();
     if (snapshot.revision !== req.body.expectedRevision) {
       throw new CatalogDomainError('CATALOG_REVISION_CONFLICT', 'The catalog changed before save.', { expectedRevision: req.body.expectedRevision, currentRevision: snapshot.revision }, 409);
     }
-    const saved = saveGeneratedCatalog();
+    const saved = await saveGeneratedCatalog();
     if (!saved.success || !saved.contentHash) {
       return res.status(saved.status ?? 422).json(saved);
     }
@@ -533,8 +690,8 @@ app.get('/api/editor/status', (_req, res) => {
   const sessionConnected = editorSessionIsFresh();
   const uefnRunning = uefnIsRunning();
   const openProjectFile = uefnRunning ? latestProjectOpenedByUefn() : undefined;
-  const editorConnected = sessionConnected && (!configuredProjectFile || !openProjectFile || pathsEqual(openProjectFile, configuredProjectFile));
-  const projectActive = editorConnected || (uefnRunning && pathsEqual(openProjectFile, configuredProjectFile));
+  const projectActive = selectedProjectIsActiveInUefn();
+  const editorConnected = sessionConnected && projectActive;
   if (editorConnected) bootstrapState = 'connected';
   res.json({
     success: true,
@@ -545,7 +702,7 @@ app.get('/api/editor/status', (_req, res) => {
     openProjectFile: uefnRunning ? openProjectFile : undefined,
     pythonEnabled: projectPythonIsEnabled(),
     autoConnectorInstalled,
-    nativeTextureImportAvailable: editorConnected && projectActive,
+    nativeTextureImportAvailable: editorConnected && projectActive && projectPythonIsEnabled(),
     bootstrapState,
     bootstrapMessage,
   });
@@ -619,6 +776,9 @@ app.post('/api/verse/save', (req, res) => {
   let temporaryPath = '';
   try {
     const fileName = validateVerseFileName(req.body.fileName);
+    if (fileName === catalogSession.snapshot().config.targetVerseFileName || fileName.toLowerCase() === 'managed_transactions.verse') {
+      return res.status(409).json({ success: false, code: 'PROJECT_NOT_READY', error: 'The managed transaction Verse file can only be written through catalog save after managed Texture2D readiness has been confirmed.' });
+    }
     if (typeof req.body.content !== 'string') throw new Error('Verse content must be a string.');
     if (!Object.prototype.hasOwnProperty.call(req.body, 'expectedHash') || (req.body.expectedHash !== null && typeof req.body.expectedHash !== 'string')) {
       throw new Error('Verse save requires the expected content hash, or null when creating a new file.');

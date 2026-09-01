@@ -75,6 +75,9 @@ test('showcase capture selects the deterministic creator project before opening 
   const captureSource = read('scripts/capture-showcase.mjs');
   assert.match(captureSource, /clickText\(cdp, 'Creator Commerce Demo', '#projects \.project'\)/);
   assert.match(captureSource, /fs\.rmSync\(showcaseRuntimeRoot, \{ recursive: true, force: true \}\)/);
+  assert.match(captureSource, /verifyAgentModalLayout/);
+  assert.match(captureSource, /125% scaling/);
+  assert.match(captureSource, /150% scaling/);
 });
 
 function pngDimensions(filePath: string) {
@@ -97,7 +100,7 @@ test('canonical showcase captures are complete, lossless, and free of stale imag
     'bundles-storefronts.png': { width: 1440, height: 980 },
     'validation.png': { width: 648, height: 519 },
     'verse-integration.png': { width: 1440, height: 1000 },
-    'agent-integration.png': { width: 992, height: 1100 },
+    'agent-integration.png': { width: 992, height: 955 },
     'moderation-guidance.png': { width: 744, height: 624 },
   };
   for (const fileName of expectedScreenshots) {

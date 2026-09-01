@@ -185,7 +185,10 @@ function applyEntitlementCreate(document: CatalogDocument, payload: Record<strin
   // Verse keys are UTM-managed identity. Create operations may carry a stale
   // client hint, but it must never override the canonical allocator.
   const verseKey = allocator.allocate(name);
-  const managedPayload = withManagedAlternateKeys(payload, verseKey, allocator);
+  const managedPayload = withManagedAlternateKeys({
+    ...payload,
+    iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
+  }, verseKey, allocator);
   const item = normalizeEntitlement({ ...managedPayload, id: uniqueId(identity?.id ?? payload.id, 'ent', ids), verseKey, name }, document.entitlements.length);
   document.entitlements.push(item);
   if (!document.storefrontMembership.allOffers.some(entry => entry.entitlementId === item.id)) document.storefrontMembership.allOffers.push({ entitlementId: item.id });
@@ -202,6 +205,7 @@ function applyAlternateCreate(document: CatalogDocument, payload: Record<string,
   const verseKey = allocator.allocateAlternate(parent.verseKey);
   const alternate = {
     ...payload,
+    iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
     id: uniqueId(identity?.id ?? payload.id, 'offer', ids),
     verseKey,
     name,
@@ -216,7 +220,7 @@ function applyBundleCreate(document: CatalogDocument, payload: Record<string, un
   const ids = new Set(document.bundles.map(item => item.id).concat(document.entitlements.map(item => item.id)).concat(document.storefrontMembership.focused.map(item => item.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
   const name = text(payload.name) ?? 'Bundle';
-  const bundle = normalizeBundle({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: allocator.allocate(name), name }, document.bundles.length);
+  const bundle = normalizeBundle({ ...payload, iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: allocator.allocate(name), name }, document.bundles.length);
   document.bundles.push(bundle);
   if (!bundle.dynamicOffer && !bundle.dynamicRemaining && !document.storefrontMembership.allOffers.some(entry => entry.bundleId === bundle.id)) document.storefrontMembership.allOffers.push({ bundleId: bundle.id });
   return bundle;

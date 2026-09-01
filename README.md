@@ -60,8 +60,8 @@ The installer is a per-user Windows x64 application. It does not require adminis
 
 - Windows x64.
 - UEFN installed for project connection and Verse compilation.
-- The target `.uefnproject` open in UEFN when you save, compile, or import artwork.
-- **Python Editor Scripting** enabled in the UEFN project for native icon import or `Texture2D` adoption.
+- The target `.uefnproject` open in UEFN for first-time managed setup, compilation, or native asset changes. Initialized catalogs with already-confirmed assets can receive catalog-only saves while UEFN is closed.
+- **Python Editor Scripting** enabled in the UEFN project for first-time placeholder provisioning, native icon import, or `Texture2D` adoption.
 - An MCP-compatible coding agent only if you want to use Agent Integration.
 
 ## Quick start
@@ -104,10 +104,10 @@ To import artwork into the Content Browser:
 1. In UEFN, open the palm-tree **Project** menu.
 2. Choose **Project Settings**.
 3. Enable **Python Editor Scripting**.
-4. Keep UEFN and UTM connected to the same project.
+4. Keep this exact project open while UTM provisions its native placeholder and confirms the object path.
 5. Add or edit an icon and confirm the import.
 
-Power-of-two PNGs are kept unchanged. Other supported raster images are normalized and scaled uniformly, with transparent padding only when needed to preserve proportions. New offers start with a built-in square placeholder Texture2D so generated Verse has a valid icon reference; replace it with a custom icon when your artwork is ready. The Icon tab can also adopt a verified UEFN `Texture2D` object path; do not enter a Windows filesystem path or edit `.uasset` files manually.
+Power-of-two PNGs are kept unchanged. Other supported raster images are normalized and scaled uniformly, with transparent padding only when needed to preserve proportions. New offers start with a built-in square placeholder Texture2D; UTM provisions and confirms it before generated Verse is saved. Replace it with a custom icon when your artwork is ready. The Icon tab can also adopt a verified UEFN `Texture2D` object path; do not enter a Windows filesystem path or edit `.uasset` files manually.
 
 <p align="center">
   <img src="docs/screenshots/icon-texture.png" alt="UEFN Transaction Manager icon editor showing an adopted UEFN Texture2D and managed icon preview" width="72%">
@@ -123,14 +123,13 @@ Bundles preserve configured order and quantities, including nested and dynamic b
 
 ## Agent Integration
 
-Agent Integration is optional. It adds UTM MCP to the open project while UEFN MCP remains the editor-side connection.
+Agent Integration is optional. UTM MCP starts with the project bridge while UEFN MCP remains the editor-side connection.
 
 1. Enable UEFN MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
 2. In UTM, open **Tools -> Agent Integration**.
-3. Enable **UTM MCP**.
-4. Choose **Copy MCP configuration**. UTM supplies the local endpoint and bearer configuration; keep the copied configuration private.
-5. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
-6. Connect a compatible coding agent to both UTM MCP and UEFN MCP, then verify both identify the same project before making changes.
+3. Choose **Copy MCP configuration**. UTM supplies the local endpoint and bearer configuration; keep the copied configuration private.
+4. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
+5. Connect a compatible coding agent to both UTM MCP and UEFN MCP, then verify both identify the same project before making changes.
 
 <p align="center">
   <img src="docs/screenshots/agent-integration.png" alt="UTM Agent Integration panel showing a running UTM MCP endpoint, active project, and Agent Skill access" width="82%">
@@ -196,7 +195,7 @@ When UEFN is closed, open the project linked to this Transaction Manager window 
 
 ### Icon import is unavailable
 
-Enable **Python Editor Scripting** in the project settings, then confirm UEFN and UTM target the same project. Native import requires the editor connection to remain available while the import is confirmed.
+Enable **Python Editor Scripting** in the project settings, then confirm UEFN and UTM target the same project. First-time setup and native import require the editor connection to remain available while the exact Texture2D object path is confirmed. If an initialized catalog references only existing confirmed assets, catalog-only edits can be saved while UEFN is closed.
 
 ### A generated device field is missing
 
@@ -204,7 +203,7 @@ Compile successfully, refresh the UEFN Content Browser, and confirm that you pla
 
 ### An agent cannot see both servers
 
-Confirm UEFN MCP is enabled, UTM MCP is enabled, and the agent was started from the project/workspace context expected by that client. Compare both servers' project context before mutation. If UEFN's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
+Confirm UEFN MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If UEFN's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
 
 ## Documentation and support
 

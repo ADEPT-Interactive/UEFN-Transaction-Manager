@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('uemDesktop', Object.freeze({
     },
   }),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('uem:external:open', typeof url === 'string' ? url : ''),
+  agent: Object.freeze({
+    openSkillLocation: (agent: 'codex' | 'claude' | 'cursor'): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:agent:open-skill-location', agent),
+  }),
   update: Object.freeze({
     getState: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:get-state'),
     check: (): Promise<UpdateState> => ipcRenderer.invoke('uem:update:check'),

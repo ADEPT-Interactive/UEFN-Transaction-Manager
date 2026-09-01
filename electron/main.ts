@@ -74,6 +74,19 @@ function assertTrustedSender(event: Electron.IpcMainEvent | Electron.IpcMainInvo
   }
 }
 
+function trustedAgentSkillLocation(agent: unknown): string | null {
+  const directories: Record<string, string> = { codex: '.agents', claude: '.claude', cursor: '.cursor' };
+  if (typeof agent !== 'string' || !Object.prototype.hasOwnProperty.call(directories, agent)) return null;
+  const homeDirectory = process.env.UEM_AGENT_HOME ?? os.homedir();
+  const targetPath = path.resolve(homeDirectory, directories[agent], 'skills', 'uefn-transaction-manager');
+  try {
+    if (!fs.statSync(targetPath).isDirectory() || !fs.statSync(path.join(targetPath, 'SKILL.md')).isFile()) return null;
+    return targetPath;
+  } catch {
+    return null;
+  }
+}
+
 function publicProject(project: ProjectCandidate) {
   const { contentDirectory: _contentDirectory, assetMount: _assetMount, uefnProcessId: _uefnProcessId, uefnWindowTitle: _uefnWindowTitle, ...safe } = project;
   return safe;
@@ -314,6 +327,15 @@ function configureIpc() {
     await shell.openExternal(rawUrl, { activate: true });
     diagnostic(`External browser requested for ${new URL(rawUrl).hostname}.`);
     return true;
+  });
+  ipcMain.handle('uem:agent:open-skill-location', async (event, agent: unknown) => {
+    assertTrustedSender(event);
+    const targetPath = trustedAgentSkillLocation(agent);
+    if (!targetPath) return { success: false, error: 'This Agent Skill is not installed at its verified user skill location.' };
+    const openError = await shell.openPath(targetPath);
+    if (openError) return { success: false, error: openError };
+    diagnostic(`Verified Agent Skill location opened for ${String(agent)}.`);
+    return { success: true };
   });
   ipcMain.on('uem:window:dirty', (event, dirty: unknown) => { assertTrustedSender(event); appHasUnsavedChanges = dirty === true; });
   ipcMain.handle('uem:update:get-state', event => {

@@ -38,6 +38,8 @@ test('project selection resolves a real descriptor and verified Content root', (
     assert.equal(candidate.assetMount, 'PortableTest');
     assert.equal(candidate.contentDirectory, fs.realpathSync.native(content));
     assert.equal(candidate.pythonEnabled, true);
+    assert.equal(candidate.utmInitialized, false);
+    assert.equal(candidate.firstRunBlocker, 'open-in-uefn');
     assert.equal(candidate.isActive, false);
     assert.equal(readProject(path.join(root, 'missing.uefnproject'), 'browse', false, undefined), null);
   } finally {
@@ -58,6 +60,14 @@ test('desktop source keeps the renderer sandboxed behind narrow IPC', () => {
   assert.doesNotMatch(preload, /:\s*ipcRenderer(?:\s*[,}])/);
   assert.doesNotMatch(main, /uem:project:open-in-uefn|shell\.openPath\(verified\.projectFile\)/);
   assert.doesNotMatch(preload, /openProjectInUefn/);
+});
+
+test('Agent Skill location IPC rejects unknown agents and vanished locations', () => {
+  const main = fs.readFileSync(path.resolve('electron/main.ts'), 'utf8');
+  const server = fs.readFileSync(path.resolve('server/index.ts'), 'utf8');
+  assert.match(main, /typeof agent !== 'string' \|\| !Object\.prototype\.hasOwnProperty\.call\(directories, agent\)/);
+  assert.match(main, /is not installed at its verified user skill location/);
+  assert.match(server, /value === 'codex' \|\| value === 'claude' \|\| value === 'cursor'/);
 });
 
 test('updater IPC exposes state actions without accepting executable paths', () => {

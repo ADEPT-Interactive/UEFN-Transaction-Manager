@@ -294,7 +294,11 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     $bridgeProcess = $null
     [Environment]::SetEnvironmentVariable("ELECTRON_RUN_AS_NODE", $oldEnvironment["ELECTRON_RUN_AS_NODE"], "Process")
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "verify-electron-lifecycle.ps1") -ApplicationPath $desktop -PackageRoot $packageRoot -Packaged
+    # A first launch from an extracted portable package can spend more than the
+    # source-tree check's 30 seconds in Chromium/AV cold start before the
+    # dashboard is ready. Keep the same assertions, but give this packaged
+    # acceptance run a bounded 60-second startup window.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "verify-electron-lifecycle.ps1") -ApplicationPath $desktop -PackageRoot $packageRoot -Packaged -TimeoutSeconds 60
     if ($LASTEXITCODE -ne 0) { throw "The extracted Electron lifecycle failed with exit code $LASTEXITCODE." }
     Write-Host "Extracted ZIP contents, x64 architecture, image normalization, frontend, authentication, file IO, visible lifecycle, switching, and shutdown checks passed." -ForegroundColor Green
 }

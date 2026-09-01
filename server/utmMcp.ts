@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import type { CatalogPatchOperation, CatalogSession } from '../src/services/catalogSession';
+import type { CatalogDocument, CatalogPatchOperation, CatalogSession } from '../src/services/catalogSession';
 import { CatalogDomainError, catalogForMcp } from '../src/services/catalogSession';
 import { describeIntegrationContract } from '../src/services/integrationContract';
 import { tokensEqual } from './security';
@@ -19,6 +19,8 @@ export interface UTMProjectContext {
   editorConnection: Record<string, unknown>;
   nativeTextureAdoptionAvailable: boolean;
   managedFileOwned?: boolean;
+  catalogInitialization?: 'first-run' | 'initialized';
+  projectReadiness?: Record<string, unknown>;
 }
 
 export interface AdoptIconRequest {
@@ -54,6 +56,16 @@ export interface UTMHostOptions {
   getProjectContext: () => UTMProjectContext;
   adoptIcon: (request: AdoptIconRequest) => Promise<AdoptIconResult>;
   saveCatalog: () => Promise<SaveCatalogResult>;
+  assertCatalogReady?: (document: CatalogDocument) => Promise<void>;
+  onClientConnection?: (connection: UTMClientConnection) => void;
+}
+
+export interface UTMClientConnection {
+  clientName?: string;
+  clientVersion?: string;
+  verified: boolean;
+  connectedAt: string;
+  verifiedAt?: string;
 }
 
 type McpResponse = {
@@ -107,10 +119,16 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
       throw new CatalogDomainError('PROJECT_NOT_READY', 'The selected target Verse file is not managed by UTM. Choose a new managed target in the human interface before mutating.', {}, 409);
     }
   };
+  const assertCatalogReady = async (document: CatalogDocument) => {
+    assertProjectReady();
+    await options.assertCatalogReady?.(document);
+  };
   const mutate = async (operation: CatalogPatchOperation, revision: string, dryRun = false): Promise<McpResponse> => {
     try {
       assertProjectReady();
       if (dryRun) return jsonResult(catalog.applyPatch([operation], revision, true));
+      const proposed = catalog.applyPatch([operation], revision, true).snapshot;
+      await assertCatalogReady(proposed);
       return jsonResult(catalog.mutate(operation, revision));
     } catch (error) {
       return errorResult(error);
@@ -242,7 +260,13 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
     inputSchema: { expectedRevision, dryRun: z.boolean().default(true), operations: z.array(patchOperationSchema) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   }, async args => {
-    try { assertProjectReady(); return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, args.dryRun)); }
+    try {
+      assertProjectReady();
+      if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
+      const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true).snapshot;
+      await assertCatalogReady(proposed);
+      return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false));
+    }
     catch (error) { return errorResult(error); }
   });
 
@@ -266,6 +290,7 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
         : kind === 'bundle' ? snapshot.bundles.find(candidate => candidate.id === args.target.id)
           : snapshot.entitlements.find(candidate => candidate.id === args.target.parentId)?.alternateOffers?.find(candidate => candidate.id === args.target.id);
       if (!item) throw new CatalogDomainError('ASSET_ADOPTION_FAILED', 'The icon target does not exist in the current catalog.', {}, 400);
+      await assertCatalogReady(snapshot);
       const result = await options.adoptIcon({ sourceAssetPath: args.sourceAssetPath, assetFolderName: snapshot.config.assetFolderName, assetName: `${item.verseKey}_Icon` });
       if (!result.success || !result.verseAssetPath) throw new CatalogDomainError('ASSET_ADOPTION_FAILED', result.error ?? 'The controlled Texture2D adoption did not complete.', {}, 422);
       return jsonResult(catalog.assignIcon({ kind, id: args.target.id, parentId: args.target.parentId }, result.verseAssetPath, result.imageData, args.expectedRevision));
@@ -284,6 +309,7 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
       if (snapshot.revision !== args.expectedRevision) throw new CatalogDomainError('CATALOG_REVISION_CONFLICT', 'The catalog changed before save.', { expectedRevision: args.expectedRevision, currentRevision: snapshot.revision }, 409);
       const errors = snapshot.validation.filter(issue => issue.severity === 'error');
       if (errors.length) throw new CatalogDomainError('CATALOG_VALIDATION_FAILED', 'Save is blocked until validation errors are resolved.', { issues: snapshot.validation }, 422);
+      await assertCatalogReady(snapshot);
       const saved = await options.saveCatalog();
       if (!saved.success || !saved.contentHash) throw new CatalogDomainError(saved.code === 'PROJECT_NOT_READY' ? 'PROJECT_NOT_READY' : saved.status === 409 ? 'MANAGED_FILE_CHANGED' : 'CATALOG_VALIDATION_FAILED', saved.error ?? 'The catalog could not be saved.', { currentHash: saved.currentHash ?? null, fileName: saved.fileName }, saved.status ?? 422);
       return jsonResult({ ...saved, snapshot: catalog.markSaved(saved.contentHash) });
@@ -294,7 +320,7 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
 export class UTMcpHost {
   private listener: http.Server | null = null;
   private port = 0;
-  private readonly transports = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer }>();
+  private readonly transports = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer; client?: UTMClientConnection }>();
 
   constructor(private readonly options: UTMHostOptions) {}
 
@@ -358,6 +384,25 @@ export class UTMcpHost {
       await server.connect(transport);
       entry = { transport, server };
       if (transport.sessionId) this.transports.set(transport.sessionId, entry);
+    }
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+      const request = body as { method?: unknown; params?: unknown };
+      if (request.method === 'initialize') {
+        const clientInfo = request.params && typeof request.params === 'object' ? (request.params as { clientInfo?: { name?: unknown; version?: unknown } }).clientInfo : undefined;
+        entry.client = {
+          clientName: typeof clientInfo?.name === 'string' ? clientInfo.name : undefined,
+          clientVersion: typeof clientInfo?.version === 'string' ? clientInfo.version : undefined,
+          verified: false,
+          connectedAt: new Date().toISOString(),
+        };
+        this.options.onClientConnection?.(entry.client);
+      } else if (request.method === 'tools/call') {
+        const params = request.params && typeof request.params === 'object' ? request.params as { name?: unknown } : undefined;
+        if (params?.name === 'get_project_context' && entry.client) {
+          entry.client = { ...entry.client, verified: true, verifiedAt: new Date().toISOString() };
+          this.options.onClientConnection?.(entry.client);
+        }
+      }
     }
     await entry.transport.handleRequest(req, res, body);
     if (entry.transport.sessionId && !this.transports.has(entry.transport.sessionId)) this.transports.set(entry.transport.sessionId, entry);

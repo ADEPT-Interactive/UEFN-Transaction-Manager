@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const screenshotRoot = path.join(root, 'docs', 'screenshots');
+const screenshotRoot = process.env.UEM_SCREENSHOT_ROOT ? path.resolve(process.env.UEM_SCREENSHOT_ROOT) : path.join(root, 'docs', 'screenshots');
 const cdpPort = 9222;
 const showcaseStateRoot = path.join(os.tmpdir(), 'utm-4.3-showcase-state');
 const names = [
@@ -25,6 +25,22 @@ const names = [
 
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function freeLoopbackPort() {
+  return await new Promise((resolve, reject) => {
+    const listener = net.createServer();
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', () => {
+      const address = listener.address();
+      if (!address || typeof address === 'string') {
+        listener.close();
+        reject(new Error('Could not reserve a showcase MCP port.'));
+        return;
+      }
+      listener.close(error => error ? reject(error) : resolve(address.port));
+    });
+  });
 }
 
 class CdpClient {
@@ -176,8 +192,8 @@ async function scrollToId(cdp, id) {
   await cdp.evaluate(expression);
 }
 
-async function setViewport(cdp, width, height) {
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false, screenWidth: width, screenHeight: height });
+async function setViewport(cdp, width, height, deviceScaleFactor = 1) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor, mobile: false, screenWidth: width, screenHeight: height });
   await wait(350);
 }
 
@@ -196,6 +212,53 @@ async function capture(cdp, name, { width, height, selector, padding = 36, paddi
   const target = path.join(screenshotRoot, `${name}.png`);
   fs.writeFileSync(target, Buffer.from(result.data, 'base64'));
   console.log(`${name}: ${target}`);
+}
+
+async function verifyAgentModalLayout(cdp) {
+  const sizes = [
+    [1920, 1080, 1, '1920x1080'],
+    [1366, 768, 1, 'short laptop'],
+    [1180, 760, 1, 'non-maximized resize'],
+    [1536, 864, 1.25, '125% scaling'],
+    [1280, 720, 1.5, '150% scaling'],
+  ];
+  for (const [width, height, deviceScaleFactor, label] of sizes) {
+    await setViewport(cdp, width, height, deviceScaleFactor);
+    const metrics = await cdp.evaluate(`(() => {
+      const dialog = document.querySelector('[aria-labelledby="agent-integration-title"]');
+      const overlay = dialog?.parentElement;
+      const chrome = document.querySelector('[data-app-chrome="true"]');
+      const scrollArea = dialog?.children[1];
+      const close = dialog?.querySelector('[aria-label="Close Agent Integration"]');
+      if (!dialog || !overlay || !chrome || !scrollArea || !close) return null;
+      const rect = dialog.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      const chromeRect = chrome.getBoundingClientRect();
+      const scrollRect = scrollArea.getBoundingClientRect();
+      const closeRect = close.getBoundingClientRect();
+      scrollArea.scrollTop = scrollArea.scrollHeight;
+      const details = [...dialog.querySelectorAll('details')].slice(-2).map(element => {
+        const detailRect = element.getBoundingClientRect();
+        return detailRect.top >= scrollRect.top - 1 && detailRect.bottom <= scrollRect.bottom + 1;
+      });
+      scrollArea.scrollTop = 0;
+      return {
+        topGap: rect.top - chromeRect.bottom,
+        bottomGap: window.innerHeight - rect.bottom,
+        overlayTop: overlayRect.top,
+        overlayBottom: window.innerHeight - overlayRect.bottom,
+        closeReachable: closeRect.top >= rect.top && closeRect.bottom <= rect.bottom,
+        contentScrolls: scrollArea.scrollHeight > scrollArea.clientHeight,
+        bottomDetailsReachable: details.every(Boolean),
+        bodyLocked: document.body.style.overflow === 'hidden',
+      };
+    })()`);
+    if (!metrics) throw new Error(`Agent Integration layout could not be inspected at ${label}.`);
+    if (metrics.topGap < 12 || metrics.bottomGap < 12 || metrics.overlayTop < 0 || metrics.overlayBottom < 0 || !metrics.closeReachable || !metrics.contentScrolls || !metrics.bottomDetailsReachable || !metrics.bodyLocked) {
+      throw new Error(`Agent Integration layout failed at ${label}: ${JSON.stringify(metrics)}`);
+    }
+    console.log(`Agent Integration layout: ${label} passed (${JSON.stringify(metrics)}).`);
+  }
 }
 
 let child;
@@ -236,7 +299,9 @@ try {
   // the capture remains useful even when a local preview cache is unavailable.
   await wait(1500);
   const bridgeToken = await cdp.evaluate("sessionStorage.getItem('uem_bridge_token')");
-  await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ enabled: true, port: 8001 }) })`, true);
+  const showcaseMcpPort = await freeLoopbackPort();
+  const agentConfigResult = await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ enabled: true, port: ${showcaseMcpPort} }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
+  if (!agentConfigResult?.body?.success || !agentConfigResult.body.status?.running) throw new Error(`Showcase UTM MCP did not start: ${JSON.stringify(agentConfigResult)}`);
   await waitFor(cdp, "document.body.innerText.includes('This project is open and fully connected')", 'healthy connected state');
 
   await capture(cdp, 'catalog-overview', { width: 1440, height: 980 });
@@ -276,7 +341,8 @@ try {
   await clickText(cdp, 'Tools');
   await clickText(cdp, 'Agent Integration');
   await waitFor(cdp, "Boolean(document.querySelector('[aria-labelledby=\"agent-integration-title\"]'))", 'Agent Integration panel');
-  await waitFor(cdp, "document.body.innerText.includes('Running')", 'running UTM MCP status');
+  await waitFor(cdp, "document.body.innerText.toLowerCase().includes('running')", 'running UTM MCP status');
+  await verifyAgentModalLayout(cdp);
   await capture(cdp, 'agent-integration', { width: 1200, height: 1100, selector: '[aria-labelledby="agent-integration-title"]', paddingX: 160, paddingY: 40 });
   console.log(`Captured ${names.length} cursor-free PNG showcase views.`);
 } finally {

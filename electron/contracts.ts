@@ -10,6 +10,8 @@ export interface ProjectCandidate {
   sourceLabel: string;
   isActive: boolean;
   pythonEnabled: boolean;
+  utmInitialized: boolean;
+  firstRunBlocker?: 'open-in-uefn' | 'python';
   lastModifiedUtc: string;
   uefnProcessId: number;
   uefnWindowTitle?: string;

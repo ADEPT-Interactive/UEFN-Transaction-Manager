@@ -107,6 +107,42 @@ export interface AgentIntegrationStatus {
   unavailableReason?: string;
   connectionConfigured?: boolean;
   skillPath?: string;
+  skillInstallations?: AgentSkillInstallationStatus[];
+  configuration?: {
+    available: boolean;
+    mode: 'loopback-configuration-header' | string;
+    issuedAt?: string;
+    restartRequired: boolean;
+  };
+  clientConnection?: {
+    state: 'not-verified' | 'connected' | 'verified' | string;
+    message?: string;
+    clientName?: string;
+    clientVersion?: string;
+    connectedAt?: string;
+    verifiedAt?: string;
+  };
+}
+
+export interface AgentSkillInstallationStatus {
+  id: 'codex' | 'claude' | 'cursor';
+  label: string;
+  targetPath: string;
+  installed: boolean;
+  upToDate: boolean;
+  managed: boolean;
+  fileCount: number;
+  error?: string;
+}
+
+export interface AgentIntegrationSetupResult {
+  success: boolean;
+  agent?: string;
+  skill?: AgentSkillInstallationStatus;
+  config?: Record<string, unknown>;
+  restartRequired?: boolean;
+  status?: AgentIntegrationStatus;
+  error?: string;
 }
 
 export interface CatalogMutationResult {
@@ -287,6 +323,15 @@ export const FileService = {
 
   async copyAgentConfig(): Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }> {
     return apiFetch('/agent-integration/copy-config', { method: 'POST', body: '{}' });
+  },
+
+  async setupAgentIntegration(agent: 'codex' | 'claude' | 'cursor'): Promise<AgentIntegrationSetupResult> {
+    return apiFetch('/agent-integration/setup', { method: 'POST', body: JSON.stringify({ agent }) });
+  },
+
+  async openAgentSkillLocation(agent: 'codex' | 'claude' | 'cursor'): Promise<{ success: boolean; error?: string }> {
+    if (!window.uemDesktop?.agent) return { success: false, error: 'Opening an installed skill location is available from the desktop build.' };
+    return window.uemDesktop.agent.openSkillLocation(agent);
   },
 
   async getEditorStatus(): Promise<EditorStatus> {

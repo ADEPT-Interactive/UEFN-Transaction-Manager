@@ -280,6 +280,8 @@ export function readProject(
     if (!contentDirectory) return null;
     const canonicalContent = fs.realpathSync.native(contentDirectory);
     const active = Boolean(isActive && uefnProcess);
+    const utmInitialized = fs.existsSync(path.join(canonicalContent, 'managed_transactions.verse'));
+    const firstRunBlocker = !utmInitialized ? active ? (!PYTHON_ENABLED_PATTERN.test(descriptor) ? 'python' : undefined) : 'open-in-uefn' : undefined;
     return {
       id: crypto.createHash('sha256').update(projectFile.toLowerCase()).digest('hex'),
       projectFile,
@@ -290,6 +292,8 @@ export function readProject(
       sourceLabel: sourceLabel(source, active),
       isActive: active,
       pythonEnabled: PYTHON_ENABLED_PATTERN.test(descriptor),
+      utmInitialized,
+      firstRunBlocker,
       lastModifiedUtc: fs.statSync(projectFile).mtime.toISOString(),
       uefnProcessId: active ? uefnProcess!.processId : 0,
       uefnWindowTitle: active ? uefnProcess!.windowTitle : undefined,

@@ -653,7 +653,7 @@ The first implementation slice now exists locally on the post-release reconnaiss
 
 - `CatalogSession` is the bridge-owned canonical project draft. Renderer synchronization, UTM MCP, validation, generation, icon assignment, and save share this project-scoped state rather than maintaining an MCP catalog copy.
 - Catalog revisions are monotonic session values and are separate from managed Verse content hashes. Mutations require `expectedRevision`; managed-file writes retain compare-and-swap and atomic backup behavior.
-- UTM MCP uses the maintained TypeScript MCP SDK and Streamable HTTP on a separate loopback listener, defaulting to port 8001. It is disabled by default, bearer-authenticated, Host/Origin constrained, and tolerant of a port conflict.
+- UTM MCP uses the maintained TypeScript MCP SDK and Streamable HTTP on a separate loopback listener, starting on port 8001 with the project bridge. It is bearer-authenticated, Host/Origin constrained, and tolerant of a port conflict.
 - The Agent Skill is distributed under `skills/uefn-transaction-manager` and packaged under `resources/agent-skills/uefn-transaction-manager`. It requires live dual-server discovery and same-project proof, asks UTM for the current integration contract, and encodes the proven device/session fallbacks.
 - The remaining Epic MCP limitations are not treated as UTM failures. UTM does not duplicate generic editor/device/session/asset tooling and does not weaken managed-file or project-root protections.
 

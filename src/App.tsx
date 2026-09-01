@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, ImageIcon, Layers, PlugZap } from 'lucide-react';
 import { Header } from './components/Header';
 import { EntitlementList } from './components/EntitlementList';
@@ -240,7 +240,9 @@ function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlement
   return { ...next, entitlements, bundles: preserveTransientImages(next.bundles, previousBundles) };
 }
 
-const SetupGuide: React.FC<{ bridgeConnected: boolean; onCreateEntitlement: () => void }> = ({ bridgeConnected, onCreateEntitlement }) => {
+type AgentIntegrationIntent = 'connect' | 'migrate';
+
+const SetupGuide: React.FC<{ bridgeConnected: boolean; editorStatus: EditorStatus | null; onCreateEntitlement: () => void; onStartMigration: () => void }> = ({ bridgeConnected, editorStatus, onCreateEntitlement, onStartMigration }) => {
   if (!bridgeConnected) {
     return (
       <section className="mx-auto mb-6 max-w-6xl rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5" aria-labelledby="connect-uefn-heading">
@@ -256,19 +258,43 @@ const SetupGuide: React.FC<{ bridgeConnected: boolean; onCreateEntitlement: () =
     );
   }
 
+  const readinessBlocker = !editorStatus?.success
+    ? 'Checking the exact UEFN project and editor connector…'
+    : editorStatus.differentProjectOpen || (editorStatus.uefnRunning && !editorStatus.projectActive)
+      ? 'First catalog creation is blocked until this exact project is the project open in UEFN.'
+      : !editorStatus.projectActive
+        ? 'Open this project in UEFN before creating its first managed catalog.'
+        : !editorStatus.editorConnected
+          ? 'The verified UEFN editor connector is not attached yet.'
+          : !editorStatus.pythonEnabled
+            ? 'Enable Python Editor Scripting in this project before creating its first managed catalog.'
+            : null;
+
   return (
-    <section className="mx-auto mb-6 max-w-6xl rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-5" aria-labelledby="first-offer-heading">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">Project connected</p>
-          <h2 id="first-offer-heading" className="mt-1 text-base font-extrabold text-white">Create your first offer</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-300">Start with a blank offer or a broad entitlement category. You can add bundles after you have offers.</p>
-        </div>
-        <button type="button" onClick={onCreateEntitlement} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 hover:bg-cyan-300">
-          Create first offer <ArrowRight className="h-4 w-4" />
-        </button>
+    <section className="mx-auto mb-6 max-w-6xl rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-5" aria-labelledby="catalog-start-heading">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">PROJECT SETUP</p>
+        <h2 id="catalog-start-heading" className="mt-1 text-base font-extrabold text-white">Choose a starting path for this project</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-300">UTM will create the native placeholder asset and managed Verse together, after this exact project is open in UEFN and ready.</p>
       </div>
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-slate-400"><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Add offer details</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Save to project</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Compile in UEFN</span></div>
+      {readinessBlocker && <p role="status" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-semibold leading-5 text-amber-200">{readinessBlocker}</p>}
+      <div className="mt-4 grid items-stretch gap-3 md:grid-cols-2">
+        <div className="flex h-full flex-col rounded-2xl border border-cyan-500/25 bg-slate-950/30 p-4">
+          <p className="text-sm font-extrabold text-white">I’m creating transactions in this project for the first time</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Create an offer, save it to this project, then compile the managed Verse in UEFN.</p>
+          <button type="button" disabled={Boolean(readinessBlocker)} onClick={onCreateEntitlement} className="mt-auto inline-flex items-center justify-center gap-2 pt-4 text-left text-xs font-extrabold text-cyan-300 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40">
+            Create first offer <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex h-full flex-col rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4">
+          <p className="text-sm font-extrabold text-white">I already have transactions in this project</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">A coding agent can inspect existing Verse, map unambiguous offers into UTM, and preserve gameplay logic.</p>
+          <button type="button" disabled={Boolean(readinessBlocker)} onClick={onStartMigration} className="mt-auto inline-flex items-center justify-center gap-2 pt-4 text-left text-xs font-extrabold text-violet-200 hover:text-violet-100 disabled:cursor-not-allowed disabled:opacity-40">
+            Start guided migration <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-slate-400"><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Same-project checks</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Safe catalog mapping</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Compile and verify</span></div>
     </section>
   );
 };
@@ -286,12 +312,20 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
   if (!status?.success) return null;
   const connected = status.editorConnected;
   const active = status.projectActive;
-  const tone = connected ? 'emerald' : active ? 'cyan' : 'amber';
+  const tone = connected && active && status.pythonEnabled ? 'emerald' : active ? 'cyan' : 'amber';
   let heading = 'UEFN is closed';
   let summary = `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN and UTM will reconnect automatically.`;
   let detail = 'Transaction Manager remains linked to this project while the editor is closed.';
 
-  if (connected) {
+  if (status.differentProjectOpen) {
+    heading = 'A different project is open in UEFN';
+    summary = 'First-time managed catalog creation is blocked until the exact project linked to this window is open.';
+    detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
+  } else if (connected && active && !status.pythonEnabled) {
+    heading = 'This project is open, but Python Editor Scripting is disabled';
+    summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
+    detail = 'Enable Python Editor Scripting for this project, then keep UEFN open while Transaction Manager reconnects.';
+  } else if (connected && active) {
     heading = 'This project is open and fully connected';
     summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
     detail = status.autoConnectorInstalled
@@ -307,10 +341,6 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
         : status.bootstrapState === 'failed'
           ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep Transaction Manager open while it retries, or relink the project if the issue continues.'
           : 'Python is enabled and the connector is installed. Transaction Manager is attaching it automatically.';
-  } else if (status.differentProjectOpen) {
-    heading = 'A different project is open in UEFN';
-    summary = 'This Transaction Manager window is linked to another project. Saving here still targets the linked project, but compilation and native texture importing are unavailable.';
-    detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
   } else if (status.uefnRunning) {
     heading = 'UEFN is running without a detected project';
     summary = 'Transaction Manager has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
@@ -363,10 +393,14 @@ export const App: React.FC = () => {
   const [unmanagedTargetFile, setUnmanagedTargetFile] = useState<string | null>(null);
   const [loadedFileRevision, setLoadedFileRevision] = useState<{ fileName: string; contentHash: string | null } | null>(null);
   const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogInitialized, setCatalogInitialized] = useState(false);
   const [catalogRevision, setCatalogRevision] = useState('1');
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [agentIntegrationOpen, setAgentIntegrationOpen] = useState(false);
+  const [agentIntegrationIntent, setAgentIntegrationIntent] = useState<AgentIntegrationIntent>('connect');
   const [agentIntegrationStatus, setAgentIntegrationStatus] = useState<import('./services/fileService').AgentIntegrationStatus | null>(null);
+  const [appChromeHeight, setAppChromeHeight] = useState(0);
+  const appChromeRef = useRef<HTMLDivElement>(null);
   const catalogRevisionRef = useRef('1');
   const suppressCatalogSyncRef = useRef(false);
 
@@ -399,6 +433,7 @@ export const App: React.FC = () => {
     catalogRevisionRef.current = nextWithImages.revision;
     setCatalogRevision(nextWithImages.revision);
     setCatalogDirty(nextWithImages.dirty);
+    setCatalogInitialized(Boolean(nextWithImages.savedFileHash));
     setConfig(nextWithImages.config);
     setEntitlements(nextWithImages.entitlements);
     setBundles(nextWithImages.bundles);
@@ -542,6 +577,17 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('beforeunload', warn);
   }, [isDirty]);
 
+  useLayoutEffect(() => {
+    const chrome = appChromeRef.current;
+    if (!chrome) return;
+    const measure = () => setAppChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(chrome);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+
   const clearStatusLater = () => window.setTimeout(() => setStatus(null), 6000);
 
   const checkForUpdates = () => {
@@ -579,6 +625,12 @@ export const App: React.FC = () => {
     void FileService.getAgentIntegrationStatus().then(result => setAgentIntegrationStatus(result)).catch(() => undefined);
   };
 
+  const openAgentIntegration = (intent: AgentIntegrationIntent = 'connect') => {
+    setAgentIntegrationIntent(intent);
+    refreshAgentIntegration();
+    setAgentIntegrationOpen(true);
+  };
+
   const updateAgentIntegration = async (input: { enabled?: boolean; port?: number; refreshConnection?: boolean; includeToken?: boolean }) => {
     const result = await FileService.updateAgentIntegration(input);
     if (result.status) setAgentIntegrationStatus(result.status);
@@ -586,6 +638,11 @@ export const App: React.FC = () => {
   };
 
   const copyAgentConfig = () => FileService.copyAgentConfig();
+
+  const setupAgentIntegration = (agent: 'codex' | 'claude' | 'cursor') => FileService.setupAgentIntegration(agent).then(result => {
+    if (result.status) setAgentIntegrationStatus(result.status);
+    return result;
+  });
 
   const applyBridgeMutation = async (operation: Record<string, unknown>): Promise<boolean> => {
     const result = await FileService.mutateCatalog(operation, catalogRevisionRef.current);
@@ -601,19 +658,10 @@ export const App: React.FC = () => {
     return false;
   };
 
-  const saveToDisk = async (): Promise<{ contentHash: string; placeholderDeferred: boolean } | undefined> => {
+  const saveToDisk = async (): Promise<{ contentHash: string } | undefined> => {
     if (hasErrors) {
       setStatus({ message: 'Save blocked: resolve validation errors first.', error: true });
       setIsValidatorOpen(true);
-      return undefined;
-    }
-    const placeholderRef = `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`;
-    const needsPlaceholder = entitlements.some(item => item.iconTexture === placeholderRef)
-      || bundles.some(bundle => bundle.iconTexture === placeholderRef);
-    const placeholderReady = !needsPlaceholder || await FileService.ensurePlaceholderTexture(config.assetFolderName, Boolean(editorStatus?.nativeTextureImportAvailable));
-    const placeholderDeferred = needsPlaceholder && !placeholderReady && !editorStatus?.nativeTextureImportAvailable;
-    if (needsPlaceholder && !placeholderReady && !placeholderDeferred) {
-      setStatus({ message: 'Save blocked: UEFN has not created the placeholder icon in the project. Keep UEFN open and retry.', error: true });
       return undefined;
     }
     setIsSaving(true);
@@ -660,11 +708,9 @@ export const App: React.FC = () => {
     if (result.catalog) applyCatalogSnapshot(result.catalog);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash });
     setLastSavedSnapshot(currentSnapshot);
-    setStatus({ message: placeholderDeferred
-      ? `Saved ${result.filePath}. Native placeholder import is still required before compilation.`
-      : `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` });
+    setStatus({ message: `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` });
     clearStatusLater();
-    return { contentHash: result.contentHash, placeholderDeferred };
+    return { contentHash: result.contentHash };
   };
 
   const performLoadFromDisk = async () => {
@@ -703,10 +749,6 @@ export const App: React.FC = () => {
     }
     const saved = await saveToDisk();
     if (!saved) return;
-    if (saved.placeholderDeferred) {
-      setStatus({ message: 'Verse was saved, but compilation is waiting for the default Texture2D. Complete the automatic connector guidance shown above, then try Compile again.', error: true });
-      return;
-    }
     setIsCompiling(true);
     const result = await FileService.triggerVerseCompilation(config.targetVerseFileName, saved.contentHash);
     setIsCompiling(false);
@@ -857,16 +899,18 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#080c14] text-slate-100">
-      <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
-      <Header
-        config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
-        onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
-        onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
-         onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
-         validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
-         saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
-         appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates} onOpenAgentIntegration={() => { refreshAgentIntegration(); setAgentIntegrationOpen(true); }}
-      />
+      <div ref={appChromeRef} data-app-chrome="true">
+        <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
+        <Header
+          config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
+          onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
+          onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
+           onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
+           validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
+           saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
+            appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates} agentIntegrationStatus={agentIntegrationStatus} onOpenAgentIntegration={() => openAgentIntegration()}
+        />
+      </div>
       <UpdateCard state={updateState} onCheck={checkForUpdates} onDownload={downloadUpdate} onInstall={() => installUpdate()} onLater={dismissUpdate} />
 
       <div className="px-4 lg:px-8 py-2.5 bg-[#090e1a] border-b border-slate-800/80 flex items-center justify-between">
@@ -879,7 +923,7 @@ export const App: React.FC = () => {
 
       <main className="flex-1 px-4 lg:px-8 py-6">
         <EditorCapabilityNotice status={editorStatus} projectName={projectDisplayName(launchContext.projectFile, config.contentFolderPath)} />
-        {entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} onCreateEntitlement={requestOfferCreation} />}
+        {!catalogInitialized && entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} editorStatus={editorStatus} onCreateEntitlement={requestOfferCreation} onStartMigration={() => openAgentIntegration('migrate')} />}
           {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
           : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
           : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div>}
@@ -889,7 +933,7 @@ export const App: React.FC = () => {
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
-      <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} showcaseMode={showcaseMode} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
+       <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} intent={agentIntegrationIntent} showcaseMode={showcaseMode} appChromeHeight={appChromeHeight} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onSetup={setupAgentIntegration} onOpenSkillLocation={agent => FileService.openAgentSkillLocation(agent)} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />

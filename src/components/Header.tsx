@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
+import type { AgentIntegrationStatus } from '../services/fileService';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { DISCORD_CONTROL_SIZE, DISCORD_ICON_SIZE, DiscordIcon } from './BrandControls';
 
@@ -28,13 +29,14 @@ interface HeaderProps {
   appVersion: string;
   updateState: DesktopUpdateState | null;
   onCheckForUpdates: () => void;
+  agentIntegrationStatus: AgentIntegrationStatus | null;
   onOpenAgentIntegration: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   config, onSaveToDisk, onLoadFromDisk, onCompileVerse, onExportPreset, onImportPreset,
   onOpenSettings, onOpenValidator, onSwitchProject, validationIssues, isSaving, isCompiling,
-  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, appVersion, updateState, onCheckForUpdates, onOpenAgentIntegration,
+  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, appVersion, updateState, onCheckForUpdates, agentIntegrationStatus, onOpenAgentIntegration,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const toolsRef = React.useRef<HTMLDivElement>(null);
@@ -44,6 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
   const warnings = validationIssues.filter(issue => issue.severity === 'warning').length;
   const blocked = hasValidationErrors || !serverOnline;
   const isFirstOfferStep = entitlementCount === 0 && errors === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
+  const agentVerified = agentIntegrationStatus?.clientConnection?.state === 'verified';
+  const agentRunning = agentIntegrationStatus?.running === true;
   const pathSegments = config.contentFolderPath.split(/[\\/]+/).filter(Boolean);
   const contentSegmentIndex = pathSegments.map(segment => segment.toLowerCase()).lastIndexOf('content');
   const projectName = contentSegmentIndex > 0 ? pathSegments[contentSegmentIndex - 1] : pathSegments[pathSegments.length - 1] || 'UEFN project';
@@ -92,8 +96,9 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex shrink-0 flex-nowrap items-center gap-2">
           <button type="button" onClick={onOpenValidator} aria-label={errors || warnings ? 'Review validation issues' : 'No Issues'} title={errors || warnings ? 'Review UTM validation issues. This does not replace UEFN compilation or publishing checks.' : 'No UTM validation issues. This does not confirm UEFN compilation or publishing.'} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${isFirstOfferStep ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : errors ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : warnings ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}><ShieldCheck className="h-3.5 w-3.5" />{isFirstOfferStep ? 'Create an offer' : errors ? `${errors} issues to fix` : warnings ? `${warnings} warnings` : 'No Issues'}</button>
           <button type="button" onClick={onSaveToDisk} disabled={isSaving || blocked} aria-label="Save project" title={hasValidationErrors ? 'Resolve the listed issues before saving.' : 'Save the manager data to this UEFN project.'} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 text-xs font-bold text-white transition hover:bg-slate-700 active:scale-[.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] disabled:opacity-40"><Save className="h-4 w-4 text-cyan-300" /></button>
-          <button type="button" onClick={onCompileVerse} disabled={isCompiling || blocked} title={blocked ? 'Connect UEFN and resolve the listed issues first.' : 'Save, then run an authoritative UEFN Verse compile.'} className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-4 text-xs font-extrabold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-blue-400 active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] disabled:opacity-40"><Terminal className={`h-3.5 w-3.5 ${isCompiling ? 'animate-spin' : ''}`} />{isCompiling ? 'Compiling...' : 'Compile'}</button>
-          <div ref={toolsRef} className="relative">
+           <button type="button" onClick={onCompileVerse} disabled={isCompiling || blocked} title={blocked ? 'Connect UEFN and resolve the listed issues first.' : 'Save, then run an authoritative UEFN Verse compile.'} className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-4 text-xs font-extrabold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-blue-400 active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] disabled:opacity-40"><Terminal className={`h-3.5 w-3.5 ${isCompiling ? 'animate-spin' : ''}`} />{isCompiling ? 'Compiling...' : 'Compile'}</button>
+           <button type="button" onClick={onOpenAgentIntegration} title={agentVerified ? 'Agent connection verified for this project.' : agentRunning ? 'UTM MCP is running. Open Agent Integration to finish or verify your coding-agent setup.' : 'Set up a coding agent for this project.'} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-extrabold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] ${agentVerified ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20' : agentRunning ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20' : 'border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'}`}><PlugZap className="h-3.5 w-3.5" /><span className="hidden xl:inline">Agent</span><span className="xl:hidden">AI</span><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${agentVerified ? 'bg-emerald-300' : agentRunning ? 'bg-cyan-300' : 'bg-violet-300'}`} /></button>
+           <div ref={toolsRef} className="relative">
             <button type="button" aria-haspopup="menu" aria-expanded={isToolsOpen} onClick={() => setIsToolsOpen(open => !open)} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19]"><Wrench className="h-3.5 w-3.5 text-slate-400" />Tools<ChevronDown className={`h-3.5 w-3.5 transition ${isToolsOpen ? 'rotate-180' : ''}`} /></button>
             {isToolsOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-slate-700 bg-[#10182c] p-1.5 text-xs shadow-2xl">
               <button role="menuitem" type="button" disabled={!serverOnline} onClick={() => runTool(onLoadFromDisk)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40"><FolderOpen className="h-4 w-4 text-cyan-300" />Reload from project</button>

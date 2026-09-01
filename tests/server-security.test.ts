@@ -56,8 +56,8 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     assert.equal(foreignOrigin.status, 403);
     const initialAgentStatus = await fetch(`${base}/api/agent-integration/status`, { headers: { 'X-UEM-Token': token } });
     const initialAgentBody = await initialAgentStatus.json() as { enabled: boolean; running: boolean; port: number; endpoint: string };
-    assert.equal(initialAgentBody.enabled, false);
-    assert.equal(initialAgentBody.running, false);
+    assert.equal(initialAgentBody.enabled, true);
+    assert.equal(typeof initialAgentBody.running, 'boolean');
     assert.equal(initialAgentBody.port, 8001);
     assert.equal(initialAgentBody.endpoint, 'http://127.0.0.1:8001/mcp');
     const mcpPort = await freePort();
@@ -84,18 +84,20 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const traversal = await fetch(`${base}/api/verse/load`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: '..\\README.md' }) });
     assert.equal(traversal.status, 400);
 
-    const firstSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: 'first', createBackup: true, expectedHash: null }) });
+    const reservedManagedSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: 'first', createBackup: true, expectedHash: null }) });
+    assert.equal(reservedManagedSave.status, 409);
+    const firstSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'first', createBackup: true, expectedHash: null }) });
     assert.equal(firstSave.status, 200);
     const firstHash = ((await firstSave.json()) as { contentHash: string }).contentHash;
-    const secondSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: 'second', createBackup: true, expectedHash: firstHash }) });
+    const secondSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'second', createBackup: true, expectedHash: firstHash }) });
     assert.equal(secondSave.status, 200);
     const secondHash = ((await secondSave.json()) as { contentHash: string }).contentHash;
-    assert.equal(fs.readFileSync(path.join(root, 'managed_transactions.verse'), 'utf8'), 'second');
+    assert.equal(fs.readFileSync(path.join(root, 'manual.verse'), 'utf8'), 'second');
     assert.equal(fs.readdirSync(path.join(root, '.backups')).length, 1);
 
-    const staleSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: 'lost update', createBackup: true, expectedHash: firstHash }) });
+    const staleSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'lost update', createBackup: true, expectedHash: firstHash }) });
     assert.equal(staleSave.status, 409);
-    assert.equal(fs.readFileSync(path.join(root, 'managed_transactions.verse'), 'utf8'), 'second');
+    assert.equal(fs.readFileSync(path.join(root, 'manual.verse'), 'utf8'), 'second');
     assert.equal(fs.readdirSync(path.join(root, '.backups')).length, 1);
 
     const compileWithoutEditorIdentity = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', expectedHash: secondHash }) });
@@ -108,7 +110,9 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const matchingEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', processId: process.pid }) });
     assert.equal(matchingEditorIdentity.status, 200);
     const statusWithEditorIdentity = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
-    assert.equal((await statusWithEditorIdentity.json()).editorConnected, true);
+    const editorStateWithIdentity = await statusWithEditorIdentity.json() as { editorConnected: boolean; projectActive: boolean };
+    assert.equal(editorStateWithIdentity.projectActive, false);
+    assert.equal(editorStateWithIdentity.editorConnected, false);
 
     leaseController = new AbortController();
     const leaseResponse = await fetch(`${base}/api/session/lease`, { headers: { 'X-UEM-Token': token }, signal: leaseController.signal });
@@ -154,6 +158,59 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
   } finally {
     leaseController?.abort();
     child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('guided agent setup installs only the UTM skill, avoids environment inheritance, and records real MCP verification', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-agent-setup-'));
+  const agentHome = path.join(root, 'agent-home');
+  const port = await freePort();
+  const token = 'agent-setup-ui-token-'.padEnd(48, 'x');
+  const editorToken = 'agent-setup-editor-token-'.padEnd(48, 'x');
+  const child = spawn(process.execPath, ['dist/server.cjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, LOCALAPPDATA: path.join(root, 'LocalAppData'), UEM_AGENT_HOME: agentHome, UTM_MCP_LOCAL_ENDPOINT: 'stale-environment-token', PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/AgentSetupTest', UEM_IDLE_TIMEOUT_MS: '60000' },
+    stdio: 'ignore',
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const auth = { 'Content-Type': 'application/json', 'X-UEM-Token': token };
+  try {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    const initial = await (await fetch(`${base}/api/agent-integration/status`, { headers: auth })).json() as { skillInstallations: Array<{ id: string; installed: boolean }>; configuration: { available: boolean } };
+    assert.equal(initial.skillInstallations.length, 3);
+    assert.equal(initial.skillInstallations.every(item => !item.installed), true);
+    assert.equal(initial.configuration.available, true);
+
+    const setupResponse = await fetch(`${base}/api/agent-integration/setup`, { method: 'POST', headers: auth, body: JSON.stringify({ agent: 'codex' }) });
+    assert.equal(setupResponse.status, 200);
+    const setup = await setupResponse.json() as { config: { mcpServers: { 'utm-mcp': { headers: { Authorization: string } } } }; skill: { upToDate: boolean }; restartRequired: boolean; status: { running: boolean; configuration: { mode: string; restartRequired: boolean } } };
+    assert.equal(setup.skill.upToDate, true);
+    assert.equal(setup.status.running, true);
+    assert.equal(setup.status.configuration.mode, 'loopback-configuration-header');
+    assert.equal(setup.status.configuration.restartRequired, true);
+    assert.equal(setup.restartRequired, true);
+    assert.notEqual(setup.config.mcpServers['utm-mcp'].headers.Authorization, 'Bearer stale-environment-token');
+    assert.ok(fs.existsSync(path.join(agentHome, '.agents', 'skills', 'uefn-transaction-manager', 'SKILL.md')));
+
+    const mcpUrl = setup.status.running ? (await (await fetch(`${base}/api/agent-integration/status`, { headers: auth })).json() as { endpoint: string }).endpoint : '';
+    const mcpHeaders = { Authorization: setup.config.mcpServers['utm-mcp'].headers.Authorization, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+    const initialize = await fetch(mcpUrl, { method: 'POST', headers: mcpHeaders, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'guided-setup-test', version: '1' } } }) });
+    assert.equal(initialize.status, 200);
+    const sessionId = initialize.headers.get('mcp-session-id');
+    assert.ok(sessionId);
+    const verified = await fetch(mcpUrl, { method: 'POST', headers: { ...mcpHeaders, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_project_context', arguments: {} } }) });
+    assert.equal(verified.status, 200);
+    const finalStatus = await (await fetch(`${base}/api/agent-integration/status`, { headers: auth })).json() as { clientConnection: { state: string; clientName?: string }; configuration: { restartRequired: boolean } };
+    assert.equal(finalStatus.clientConnection.state, 'verified');
+    assert.equal(finalStatus.clientConnection.clientName, 'guided-setup-test');
+    assert.equal(finalStatus.configuration.restartRequired, false);
+  } finally {
+    child.kill();
+    await new Promise(resolve => child.once('exit', resolve));
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -237,7 +294,7 @@ test('standalone bridge verifies the active UEFN project without a Python editor
       try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    const saved = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: '# standalone compile preflight', expectedHash: null }) });
+    const saved = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: '# standalone compile preflight', expectedHash: null }) });
     assert.equal(saved.status, 200);
     const contentHash = ((await saved.json()) as { contentHash: string }).contentHash;
     const editorStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
@@ -253,7 +310,7 @@ test('standalone bridge verifies the active UEFN project without a Python editor
       nativeTextureImportAvailable: false,
       bootstrapState: 'not-needed',
     });
-    const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', expectedHash: contentHash }) });
+    const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', expectedHash: contentHash }) });
     assert.equal(compile.status, 422);
     assert.match(String((await compile.json()).error), /workflow server/i);
     const otherProjectFile = path.join(tempRoot, 'OtherProject', 'OtherProject.uefnproject');

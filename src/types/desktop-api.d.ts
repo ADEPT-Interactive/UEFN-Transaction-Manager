@@ -31,6 +31,9 @@ declare global {
         onConfirmClose: (listener: () => void) => () => void;
       };
       readonly openExternal: (url: string) => Promise<boolean>;
+      readonly agent: {
+        openSkillLocation: (agent: 'codex' | 'claude' | 'cursor') => Promise<{ success: boolean; error?: string }>;
+      };
       readonly update: {
         getState: () => Promise<DesktopUpdateState>;
         check: () => Promise<DesktopUpdateState>;

@@ -36,8 +36,18 @@ function render() {
     projectPath.textContent = state.showcaseMode ? 'Example UEFN project' : project.projectFile;
     const metadata = document.createElement('div');
     metadata.className = 'project-meta';
-    metadata.textContent = `${project.sourceLabel} · ${project.pythonEnabled ? 'Python enabled' : 'Native imports need Python'}`;
+    metadata.textContent = `${project.sourceLabel} · ${project.pythonEnabled ? 'Python enabled' : 'Native asset changes need Python'}`;
     item.append(name, projectPath, metadata);
+    if (project.firstRunBlocker || (!project.utmInitialized && project.isActive)) {
+      const setup = document.createElement('div');
+      setup.className = 'project-meta setup-note';
+      setup.textContent = project.firstRunBlocker === 'python'
+        ? 'First setup: enable Python Editor Scripting'
+        : project.firstRunBlocker === 'open-in-uefn'
+          ? 'First setup: open this project in UEFN'
+          : 'First setup ready';
+      item.append(setup);
+    }
     item.addEventListener('click', async () => applyState(await window.uemDesktop.launcher.select(project.id)));
     list.append(item);
     if (focusedProjectId === project.id) item.focus();
@@ -54,7 +64,17 @@ function render() {
   byId('browse').disabled = state.busy;
   byId('selected-name').textContent = selected ? (selected.isActive ? `${selected.name} — active in UEFN` : selected.name) : 'Select a project to continue';
   byId('selected-path').textContent = selected ? (state.showcaseMode ? 'Example UEFN project' : selected.projectFile) : 'Choose an active, recent, discovered, or browsed UEFN project.';
-  byId('python').textContent = selected ? (selected.pythonEnabled ? 'Python Editor Scripting is enabled. Transaction Manager will install and attach native texture importing automatically.' : 'Python Editor Scripting is disabled. Transaction Manager can still manage Verse; enable it for native texture importing.') : '';
+  byId('python').textContent = selected
+    ? selected.firstRunBlocker === 'python'
+      ? 'First setup is blocked: enable Python Editor Scripting in this project before creating a managed catalog.'
+      : selected.firstRunBlocker === 'open-in-uefn'
+        ? 'First setup is blocked: open this exact project in UEFN so UTM can provision its native placeholder asset.'
+        : !selected.utmInitialized
+          ? 'First setup is ready. UTM will provision the native placeholder asset before saving managed Verse.'
+          : selected.pythonEnabled
+            ? 'Python Editor Scripting is enabled. Native asset changes are ready when this project is open in UEFN.'
+            : 'Python Editor Scripting is disabled. Existing managed Verse can be reviewed; native asset changes require Python.'
+    : '';
   byId('continue').textContent = state.busy ? 'Opening project…' : 'Open project in Transaction Manager';
 }
 

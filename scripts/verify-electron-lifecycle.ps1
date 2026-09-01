@@ -120,12 +120,19 @@ try {
     if (([regex]::Matches($managerText, "Bridge started:")).Count -lt 2) { throw "Project switching did not start a replacement bridge." }
     if (([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -lt 1) { throw "Project switching did not stop the previous bridge." }
 
-    $manager.Refresh()
+    $managerWindowDeadline = (Get-Date).AddSeconds(10)
+    while ($manager.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $managerWindowDeadline) {
+        Start-Sleep -Milliseconds 100
+        $manager.Refresh()
+    }
     if ($manager.MainWindowHandle -eq [IntPtr]::Zero) { throw "The dashboard process is alive but has no visible manager window." }
     $descendants = @(Get-DescendantProcesses -RootProcessId $manager.Id)
     foreach ($process in $descendants) { [void]$trackedIds.Add([int]$process.ProcessId) }
     $visible = @($descendants | ForEach-Object { Get-Process -Id ([int]$_.ProcessId) -ErrorAction SilentlyContinue } | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
-    if ($visible.Count -ne 1) { throw "Expected one visible manager window, found $($visible.Count)." }
+    if ($visible.Count -ne 1) {
+        $visibleDetails = ($visible | ForEach-Object { "pid=$($_.Id) title='$($_.MainWindowTitle)' path='$($_.Path)'" }) -join '; '
+        throw "Expected one visible manager window, found $($visible.Count): $visibleDetails"
+    }
     $bridgeChildren = @($descendants | Where-Object { $_.CommandLine -match "dist[\\/]server\.cjs" })
     if ($bridgeChildren.Count -ne 1) { throw "Expected exactly one owned bridge after project switching, found $($bridgeChildren.Count)." }
     foreach ($bridgeChild in $bridgeChildren) {
