@@ -38,7 +38,7 @@ UEFN Transaction Manager is a visual Windows app for building Fortnite in-island
 
 You do not need a coding agent to use UTM. The complete catalog editor, validation, icon tools, Verse generation, and UEFN compile workflow are available in the app.
 
-If you connect an MCP-compatible coding agent such as Codex, Claude Code, or Cursor, it can work with that same catalog through **UTM MCP**. [Unreal MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp) handles the editor side: Verse, files, assets, devices, compilation, and sessions.
+If you connect a coding agent such as Codex, Claude Code, or Cursor, it can work with that same catalog through **UTM MCP** and with your UEFN project through [Unreal MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
 
 <p align="center"><img src="docs/assets/utm-mcp-workflow.svg" alt="A coding agent connects to UTM MCP for transaction catalog work and Unreal MCP for UEFN editor work; both meet in the same UEFN project." width="92%"></p>
 
@@ -122,7 +122,7 @@ Bundles preserve configured order and quantities, including nested and dynamic b
 
 ## Agent Integration
 
-Agent Integration is optional. UTM MCP starts with the project bridge so your agent can manage the catalog, while Unreal MCP gives it access to the project.
+Agent Integration is optional. Connect your coding agent to UTM MCP and Unreal MCP when you want it to work with this catalog and your UEFN project.
 
 1. Enable Unreal MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
 2. In UTM, open **Agent** from the workspace header.
@@ -134,7 +134,7 @@ Agent Integration is optional. UTM MCP starts with the project bridge so your ag
   <img src="docs/screenshots/agent-integration.png" alt="UTM Agent Integration panel showing a running UTM MCP endpoint, active project, and Agent Skill access" width="82%">
 </p>
 
-The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, UTM-managed Verse identities, icon adoption, generated-contract inspection, existing-project migration, compilation, and semantic checks. MCP support and Agent Skill support are separate capabilities; a client that can connect to UTM MCP does not automatically discover the skill. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
+The packaged Agent Skill teaches the safe workflow for catalog creation, revision-aware edits, UTM-managed Verse identities, icon adoption, generated integration review, existing-project migration, compilation, and semantic checks. MCP support and Agent Skill support are separate capabilities; a client that can connect to UTM MCP does not automatically discover the skill. Read the [Agent Integration guide](docs/AGENT_INTEGRATION.md) for client setup, same-project safety, and troubleshooting.
 
 ## Compile and connect generated Verse
 

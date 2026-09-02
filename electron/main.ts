@@ -24,6 +24,9 @@ const launcherAssets = new Map([
 ]);
 const launcherUrl = 'uem-launcher://app/index.html';
 const showcaseMode = !app.isPackaged && process.env.UEM_SHOWCASE_MODE === '1';
+if (showcaseMode && process.env.UEM_SHOWCASE_STATE_ROOT) {
+  app.setPath('userData', path.join(process.env.UEM_SHOWCASE_STATE_ROOT, 'user-data'));
+}
 // Compatibility: retain the 4.0.1 user-data namespace so upgrades do not fragment logs or state.
 const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager', 'logs');
 fs.mkdirSync(logRoot, { recursive: true });

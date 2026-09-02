@@ -140,7 +140,12 @@ function latestProjectOpenedByUefn(): string | undefined {
     const descriptor = fs.openSync(logPath, 'r');
     try { fs.readSync(descriptor, buffer, 0, bytesToRead, stats.size - bytesToRead); }
     finally { fs.closeSync(descriptor); }
-    const matches = [...buffer.toString('utf8').matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
+    let text = buffer.toString('utf8');
+    // UEFN may append a new editor startup before rotating its log. Only use
+    // project-open records belonging to the latest startup block.
+    const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
+    if (latestStartup >= 0) text = text.slice(latestStartup);
+    const matches = [...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
     return matches.length ? matches[matches.length - 1][1] : undefined;
   } catch {
     return undefined;

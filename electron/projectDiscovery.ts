@@ -211,7 +211,12 @@ function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter): str
   const logPath = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   if (!fs.existsSync(logPath)) return null;
   try {
-    const text = fs.readFileSync(logPath, 'utf8');
+    let text = fs.readFileSync(logPath, 'utf8');
+    // UEFN can append a new editor startup to the same log before rotating it.
+    // Ignore project-open records from an earlier editor process so a newly
+    // launched editor is not mistaken for the already-open project.
+    const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
+    if (latestStartup >= 0) text = text.slice(latestStartup);
     let latest: string | null = null;
     for (const match of text.matchAll(OPENED_PROJECT_PATTERN)) latest = match[1];
     return latest;

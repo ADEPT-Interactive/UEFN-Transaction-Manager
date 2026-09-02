@@ -30,7 +30,7 @@ UTM 4.3 can work with UEFN's separate Unreal MCP through an MCP-compatible codin
 4. Replace or add only the UTM-owned MCP entry using the copied local URL configuration.
 5. Reload the coding agent or start a fresh process. Confirm both UTM MCP and Unreal MCP are visible, then ask the agent to verify that both target the same project.
 
-UTM separately reports its listener, skill installation, agent setup, reload requirement, and verified agent connection. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated contract inspection, compile verification, and semantic checks. Manual path copying remains available for unusual clients.
+UTM separately reports its listener, skill installation, agent setup, reload requirement, and verified agent connection. The Agent Skill includes guidance for catalog editing, revision safety, icon adoption, existing-project migration, generated integration review, compile verification, and semantic checks. Manual path copying remains available for unusual clients.
 
 NATIVE ICON IMPORT
 

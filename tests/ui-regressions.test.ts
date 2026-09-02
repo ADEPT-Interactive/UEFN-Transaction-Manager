@@ -134,6 +134,13 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(read('entitlement_manager.py'), /attach_to_standalone_session/);
   assert.match(serverSource, /selectedProjectIsActiveInUefn/);
   assert.match(serverSource, /\/api\/editor\/status/);
+  assert.match(bridgeSource, /watchForEditorBootstrap/);
+  assert.match(bridgeSource, /projectIsOpen\(projectFile/);
+  assert.match(bridgeSource, /editorBootstrapWatcher = setInterval/);
+  assert.match(bridgeSource, /retryDelays = \[0, 2_000, 5_000/);
+  assert.match(bridgeSource, /editorBootstrapExhausted/);
+  assert.match(discoverySource, /latestStartup/);
+  assert.match(serverSource, /latestStartup/);
   assert.match(bridgeSource, /bootstrapOpenEditor/);
   assert.match(bridgeSource, /import uefn_auto_connector; uefn_auto_connector\.install\(\)/);
   assert.match(bridgeSource, /py import uefn_auto_connector/);

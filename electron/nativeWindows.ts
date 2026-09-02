@@ -9,6 +9,18 @@ const VK_RETURN = 0x0D;
 const SW_RESTORE = 9;
 
 const user32 = process.platform === 'win32' ? koffi.load('user32.dll') : null;
+// INPUT contains the largest member of the MOUSEINPUT/KEYBDINPUT/HARDWAREINPUT
+// union. Declaring only KEYBDINPUT makes koffi report a 32-byte INPUT on x64,
+// while Win32 requires the 40-byte native struct and rejects SendInput with
+// ERROR_INVALID_PARAMETER.
+const MOUSEINPUT = koffi.struct('UEM_MOUSEINPUT', {
+  dx: 'int32_t',
+  dy: 'int32_t',
+  mouseData: 'uint32_t',
+  dwFlags: 'uint32_t',
+  time: 'uint32_t',
+  dwExtraInfo: 'uintptr_t',
+});
 const KEYBDINPUT = koffi.struct('UEM_KEYBDINPUT', {
   wVk: 'uint16_t',
   wScan: 'uint16_t',
@@ -16,10 +28,16 @@ const KEYBDINPUT = koffi.struct('UEM_KEYBDINPUT', {
   time: 'uint32_t',
   dwExtraInfo: 'uintptr_t',
 });
+const HARDWAREINPUT = koffi.struct('UEM_HARDWAREINPUT', {
+  uMsg: 'uint32_t',
+  wParamL: 'uint16_t',
+  wParamH: 'uint16_t',
+});
 const INPUT = koffi.struct('UEM_INPUT', {
   type: 'uint32_t',
-  u: koffi.union({ ki: KEYBDINPUT }),
+  u: koffi.union({ mi: MOUSEINPUT, ki: KEYBDINPUT, hi: HARDWAREINPUT }),
 });
+export const UEM_INPUT_SIZE = koffi.sizeof(INPUT);
 
 const FindWindowW = user32?.func('intptr_t __stdcall FindWindowW(const char16_t *className, const char16_t *windowName)');
 const SetForegroundWindow = user32?.func('bool __stdcall SetForegroundWindow(intptr_t window)');
@@ -34,7 +52,7 @@ function keyboard(virtualKey: number, scanCode: number, flags: number) {
 }
 function sendVirtualKey(virtualKey: number) {
   const inputs = [keyboard(virtualKey, 0, 0), keyboard(virtualKey, 0, KEYEVENTF_KEYUP)];
-  if (SendInput?.(inputs.length, inputs, koffi.sizeof(INPUT)) !== inputs.length) throw new Error('Windows did not deliver the automatic UEFN connector keystroke.');
+  if (SendInput?.(inputs.length, inputs, UEM_INPUT_SIZE) !== inputs.length) throw new Error('Windows did not deliver the automatic UEFN connector keystroke.');
 }
 
 function sendUnicode(text: string) {
@@ -42,7 +60,7 @@ function sendUnicode(text: string) {
     const code = character.charCodeAt(0);
     return [keyboard(0, code, KEYEVENTF_UNICODE), keyboard(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)];
   });
-  if (SendInput?.(inputs.length, inputs, koffi.sizeof(INPUT)) !== inputs.length) throw new Error('Windows did not deliver the automatic UEFN connector command.');
+  if (SendInput?.(inputs.length, inputs, UEM_INPUT_SIZE) !== inputs.length) throw new Error('Windows did not deliver the automatic UEFN connector command.');
 }
 
 const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));

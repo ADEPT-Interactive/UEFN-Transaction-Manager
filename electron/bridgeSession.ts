@@ -138,6 +138,13 @@ export class BridgeSession {
   readonly appUrl: string;
   readonly processId: number;
   private stopped = false;
+  private editorBootstrapWatcher: NodeJS.Timeout | undefined;
+  private editorBootstrapCheckInFlight = false;
+  private editorBootstrapAttemptInFlight = false;
+  private editorBootstrapAttemptCount = 0;
+  private nextEditorBootstrapAttemptAt = 0;
+  private editorBootstrapExhausted = false;
+  private lastEditorBootstrapWaitDiagnosticAt = 0;
 
   private constructor(
     private readonly child: ChildProcess,
@@ -183,7 +190,7 @@ export class BridgeSession {
       UEM_PROJECT_PYTHON_ENABLED: project.pythonEnabled ? '1' : '0',
       UEM_AUTO_CONNECTOR_INSTALLED: connector.installed ? '1' : '0',
       UEM_UEFN_PROCESS_ID: String(openProject?.processId ?? 0),
-      UEM_BOOTSTRAP_ELIGIBLE: openProject && project.pythonEnabled && connector.installed ? '1' : '0',
+      UEM_BOOTSTRAP_ELIGIBLE: project.pythonEnabled && connector.installed ? '1' : '0',
       UEM_IDLE_TIMEOUT_MS: '120000',
     };
     const child = spawn(process.execPath, [serverPath], {
@@ -227,13 +234,66 @@ export class BridgeSession {
       statePath = writeActiveSession(port, editorToken, project, connectorScript);
       const session = new BridgeSession(child, port, sessionToken, editorToken, statePath, logPath, writeDiagnostic, `http://127.0.0.1:${port}/#${fragment}`);
       writeDiagnostic(`Bridge started: pid=${child.pid ?? 0}, port=${port}, project=${path.basename(project.projectFile)}`);
-      if (openProject && project.pythonEnabled && connector.installed) void session.bootstrapOpenEditor(openProject.windowTitle, managerWindow);
+      if (project.pythonEnabled && connector.installed) session.watchForEditorBootstrap(project.projectFile, managerWindow, openProject?.windowTitle);
       return session;
     } catch (error) {
       if (statePath) fs.rmSync(statePath, { force: true });
       if (child.exitCode === null) child.kill();
       throw error;
     }
+  }
+
+  private watchForEditorBootstrap(projectFile: string, managerWindow: BrowserWindow, initialWindowTitle?: string): void {
+    const check = async () => {
+      if (this.stopped || this.editorBootstrapCheckInFlight || this.editorBootstrapAttemptInFlight) return;
+      this.editorBootstrapCheckInFlight = true;
+      try {
+        const status = await request(this.port, '/api/editor/status', this.sessionToken);
+        if (status.status === 200 && /"editorConnected"\s*:\s*true/i.test(status.text)) {
+          // A later UEFN restart needs a fresh readiness window while this
+          // Transaction Manager session remains open.
+          this.editorBootstrapAttemptCount = 0;
+          this.nextEditorBootstrapAttemptAt = 0;
+          this.editorBootstrapExhausted = false;
+          return;
+        }
+        const openProject = projectIsOpen(projectFile, this.writeDiagnostic);
+        if (!openProject) {
+          const now = Date.now();
+          if (now - this.lastEditorBootstrapWaitDiagnosticAt >= 5000) {
+            this.lastEditorBootstrapWaitDiagnosticAt = now;
+            this.writeDiagnostic('Automatic UEFN connector is waiting for the linked project to finish opening.');
+          }
+          return;
+        }
+
+        const retryDelays = [0, 2_000, 5_000, 10_000, 20_000, 40_000, 80_000, 120_000];
+        if (this.editorBootstrapExhausted) return;
+        if (this.editorBootstrapAttemptCount >= retryDelays.length) {
+          this.editorBootstrapExhausted = true;
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'UEFN did not confirm the connector handshake during the automatic readiness window.' }));
+          return;
+        }
+        if (Date.now() < this.nextEditorBootstrapAttemptAt) return;
+
+        this.editorBootstrapAttemptCount += 1;
+        this.nextEditorBootstrapAttemptAt = Date.now() + retryDelays[this.editorBootstrapAttemptCount]!;
+        this.writeDiagnostic(`Automatic UEFN connector found the linked project: pid=${openProject.processId}; bootstrap attempt ${this.editorBootstrapAttemptCount}/${retryDelays.length}`);
+        this.editorBootstrapAttemptInFlight = true;
+        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, managerWindow);
+      } catch (error) {
+        this.writeDiagnostic(`Automatic UEFN connector readiness check did not complete: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        this.editorBootstrapCheckInFlight = false;
+        this.editorBootstrapAttemptInFlight = false;
+      }
+    };
+
+    // The editor can be launched after UTM. Poll for the exact configured project
+    // so startup ordering does not strand a valid session in the disconnected state.
+    this.editorBootstrapWatcher = setInterval(() => void check(), 1000);
+    this.editorBootstrapWatcher.unref?.();
+    void check();
   }
 
   private async bootstrapOpenEditor(windowTitle: string | undefined, managerWindow: BrowserWindow) {
@@ -279,6 +339,8 @@ export class BridgeSession {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    if (this.editorBootstrapWatcher) clearInterval(this.editorBootstrapWatcher);
+    this.editorBootstrapWatcher = undefined;
     try {
       if (this.child.exitCode === null) {
         try {

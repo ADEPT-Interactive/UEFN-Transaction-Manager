@@ -279,7 +279,7 @@ try {
   const electronPath = path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
   child = spawn(electronPath, [`--remote-debugging-port=${cdpPort}`, '.'], {
     cwd: root,
-    env: { ...process.env, LOCALAPPDATA: showcaseStateRoot, UEM_SHOWCASE_MODE: '1' },
+    env: { ...process.env, APPDATA: showcaseStateRoot, LOCALAPPDATA: showcaseStateRoot, UEM_SHOWCASE_MODE: '1', UEM_SHOWCASE_STATE_ROOT: showcaseStateRoot, UEM_TEST_MODE: '1' },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
