@@ -27,7 +27,7 @@
     "UTM is a Windows desktop application for visually managing UEFN in-island transactions.",
     "UTM supports entitlements, offers, bundles, storefronts, dynamic transactions, icons, validation, and generated Verse.",
     "Agent Integration is optional.",
-    "Agents use UTM MCP for transaction data and Unreal MCP for editor work.",
+    "Agents use UTM MCP for transaction data and UEFN MCP for editor work.",
     "Creators retain project-specific gameplay and business logic."
   ]
 }

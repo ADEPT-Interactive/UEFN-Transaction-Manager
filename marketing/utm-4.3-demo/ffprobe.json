@@ -1,4 +1,4 @@
-{
+﻿{
     "streams": [
         {
             "index": 0,
@@ -31,7 +31,7 @@
             "start_time": "0.000000",
             "duration_ts": 626176,
             "duration": "40.766667",
-            "bit_rate": "1037960",
+            "bit_rate": "1003869",
             "bits_per_raw_sample": "8",
             "nb_frames": "1223",
             "extradata_size": 48,
@@ -116,7 +116,7 @@
         }
     ],
     "format": {
-        "filename": "utm-4.3-demo.mp4",
+        "filename": "O:\\UEFN Entitlement Manager\\marketing\\utm-4.3-demo\\utm-4.3-demo.mp4",
         "nb_streams": 2,
         "nb_programs": 0,
         "nb_stream_groups": 0,
@@ -124,8 +124,8 @@
         "format_long_name": "QuickTime / MOV",
         "start_time": "0.000000",
         "duration": "40.850000",
-        "size": "5936664",
-        "bit_rate": "1162626",
+        "size": "5762621",
+        "bit_rate": "1128542",
         "probe_score": 100,
         "tags": {
             "major_brand": "isom",

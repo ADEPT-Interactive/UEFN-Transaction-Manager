@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
-  <title id="title">UTM and Unreal MCP workflow</title>
-  <desc id="desc">A coding agent connects to UTM MCP for transaction catalog work and Unreal MCP for UEFN editor work; both meet in the same UEFN project.</desc>
+  <title id="title">UTM and UEFN MCP workflow</title>
+  <desc id="desc">A coding agent connects to UTM MCP for transaction catalog work and UEFN MCP for UEFN editor work; both meet in the same UEFN project.</desc>
   <defs>
     <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#55E6F0"/>
@@ -39,7 +39,7 @@
     <text x="130" y="427" fill="#f8fafc" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700">Transactions</text>
     <text x="130" y="454" fill="#b5c5d8" font-family="Segoe UI,Arial,sans-serif" font-size="16">Catalog · validation · icons</text>
     <text x="130" y="480" fill="#b5c5d8" font-family="Segoe UI,Arial,sans-serif" font-size="16">Generated integration contract</text>
-    <text x="730" y="396" fill="#b49bff" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="800">Unreal MCP</text>
+    <text x="730" y="396" fill="#b49bff" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="800">UEFN MCP</text>
     <text x="730" y="427" fill="#f8fafc" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700">UEFN editor</text>
     <text x="730" y="454" fill="#c1c8dd" font-family="Segoe UI,Arial,sans-serif" font-size="16">Verse · assets · devices</text>
     <text x="730" y="480" fill="#c1c8dd" font-family="Segoe UI,Arial,sans-serif" font-size="16">Compile · supported editor actions</text>

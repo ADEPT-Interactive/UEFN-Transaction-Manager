@@ -1,6 +1,6 @@
 # UEFN Transaction Manager distribution and update infrastructure
 
-Transaction Manager 4.2.0 separates human downloads from machine updates and keeps portable upgrades in-place.
+Transaction Manager 4.3.0 separates human downloads from machine updates and keeps portable upgrades in-place.
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
@@ -28,11 +28,11 @@ The reserved future beta path is `uem/beta/`; Transaction Manager 4.1.0 has no b
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Transaction-Manager-Setup-4.2.0.exe
-uem/stable/UEFN-Transaction-Manager-Setup-4.2.0.exe.blockmap
-uem/stable/manifests/4.2.0.yml
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.0.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.0.exe.blockmap
+uem/stable/manifests/4.3.0.yml
 uem/stable/portable-latest.json
-uem/stable/UEFN-Transaction-Manager-4.2.0-Portable.zip
+uem/stable/UEFN-Transaction-Manager-4.3.0-Portable.zip
 ```
 
 Versioned artifacts and manifest history are immutable and retained. `latest.yml` and `portable-latest.json` are the two mutable pointers; their referenced versioned artifacts are immutable.
@@ -84,7 +84,7 @@ The 4.0.0, 4.0.1, and 4.1.0 releases remain historical compatibility releases. N
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The 4.2.0 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing, MCP integration, and Agent Skill work remain outside this release.
+The 4.3.0 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work are part of this release.
 
 ## Rename compatibility boundary
 

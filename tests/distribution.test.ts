@@ -28,6 +28,21 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   assert.doesNotMatch(read('scripts/verify-release.ps1'), /4\.0\.0/);
 });
 
+test('creator-facing MCP terminology stays on the current UEFN MCP name', () => {
+  const creatorFacingFiles = [
+    'README.md',
+    'README-USER.txt',
+    'docs/AGENT_INTEGRATION.md',
+    'docs/assets/utm-mcp-workflow.svg',
+    'docs/assets/utm-mcp-workflow-mobile.svg',
+    'docs/RELEASE-DISTRIBUTION.md',
+    'docs/DISTRIBUTION.md',
+  ];
+  for (const file of creatorFacingFiles) assert.doesNotMatch(read(file), /Unreal MCP/);
+  assert.match(read('README.md'), /UEFN MCP/);
+  assert.match(read('docs/AGENT_INTEGRATION.md'), /`unreal-mcp`/);
+});
+
 test('Discord README identity is static metadata, not a hardcoded presence count', () => {
   const readme = read('README.md');
   assert.match(readme, /https:\/\/discord\.gg\/playadept/);

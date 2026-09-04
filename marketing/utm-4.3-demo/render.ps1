@@ -208,7 +208,7 @@ $Scene7 = @"
 [bg][agent]overlay=x=117:y=290:format=auto:shortest=1[tmp];
 [tmp][diagram]overlay=x='779+3*sin(t*0.38)':y=320:format=auto:shortest=1,
  drawtext=fontfile='$BoldFont':text='AGENT-READY. STILL VISUAL-FIRST.':fontcolor=0xf8fafc:fontsize=49:x=92:y=69,
- drawtext=fontfile='$RegularFont':text='UTM MCP owns transactions. Unreal MCP owns editor automation. Your gameplay stays yours.':fontcolor=0xa8bad1:fontsize=25:x=95:y=136,
+ drawtext=fontfile='$RegularFont':text='UTM MCP manages transaction data. UEFN MCP supports editor work. Your gameplay stays yours.':fontcolor=0xa8bad1:fontsize=25:x=95:y=136,
  drawbox=x=92:y=195:w=217:h=46:color=0x0d3342@0.90:t=fill,
  drawtext=fontfile='$BoldFont':text='AGENTS OPTIONAL':fontcolor=0x72e5ed:fontsize=17:x=114:y=208,
  drawtext=fontfile='$BoldFont':text='EXISTING-PROJECT MIGRATION':fontcolor=0xb99cff:fontsize=18:x=1491:y=957,
