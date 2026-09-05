@@ -54,7 +54,7 @@ interface BridgeHandle {
   close: () => Promise<void>;
 }
 
-async function startBridge(options: { pythonEnabled: boolean; openedProject?: 'same' | 'different'; initialized?: boolean; assetPresent?: boolean }): Promise<BridgeHandle> {
+async function startBridge(options: { pythonEnabled: boolean; openedProject?: 'same' | 'different'; projectEvidence?: 'opened' | 'selected-only'; initialized?: boolean; assetPresent?: boolean }): Promise<BridgeHandle> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-release-readiness-'));
   const projectDirectory = path.join(root, 'ReadinessProject');
   const contentRoot = path.join(projectDirectory, 'Content');
@@ -66,7 +66,10 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
   fs.writeFileSync(projectFile, JSON.stringify({ fileVersion: 15, title: 'Readiness Project', plugins: [{ name: 'ReadinessProject', bIsRoot: true }], bEnablePythonForProject: options.pythonEnabled }));
   const openedProject = options.openedProject === 'different' ? path.join(root, 'OtherProject', 'OtherProject.uefnproject') : projectFile;
   const normalizedOpenedProject = openedProject.replace(/\\/g, '/');
-  fs.writeFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), `Successfully opened project '${normalizedOpenedProject}'\n[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`);
+  const projectLog = options.projectEvidence === 'selected-only'
+    ? `[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`
+    : `Successfully opened project '${normalizedOpenedProject}'\n[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`;
+  fs.writeFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), projectLog);
   if (options.initialized) {
     const document = catalogDocument(contentRoot);
     fs.writeFileSync(path.join(contentRoot, document.config.targetVerseFileName), generateVerseCode(document.entitlements, document.bundles, document.config, document.storefrontMembership, document.retiredVerseKeys));
@@ -138,6 +141,19 @@ test('Case A: closed UEFN blocks first mutation without creating managed Verse',
   const bridge = await startBridge({ pythonEnabled: true });
   try {
     const opened = await openCatalog(bridge);
+    const result = await createOffer(bridge, opened.body.catalog.revision);
+    assert.equal(result.status, 409);
+    assert.equal(result.body.code, 'PROJECT_NOT_READY');
+    assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
+  } finally { await bridge.close(); }
+});
+
+test('Case A2: project-browser selection does not count as an open editor project', async () => {
+  const bridge = await startBridge({ pythonEnabled: true, projectEvidence: 'selected-only' });
+  try {
+    const opened = await openCatalog(bridge);
+    const editorStatus = await bridge.request('/api/editor/status');
+    assert.equal(editorStatus.body.projectActive, false);
     const result = await createOffer(bridge, opened.body.catalog.revision);
     assert.equal(result.status, 409);
     assert.equal(result.body.code, 'PROJECT_NOT_READY');

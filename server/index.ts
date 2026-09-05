@@ -145,10 +145,10 @@ function latestProjectOpenedByUefn(): string | undefined {
     // project-open records belonging to the latest startup block.
     const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
     if (latestStartup >= 0) text = text.slice(latestStartup);
-    const matches = [
-      ...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi),
-      ...text.matchAll(/Selected Project \(Direct\):\s*\{[\s\S]*?"path"\s*:\s*"([^"]+\.uefnproject)"/gi),
-    ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+    // The project browser emits "Selected Project (Direct)" before the editor
+    // has actually opened the project. Only the editor's successful-open record
+    // is strong enough to establish project readiness.
+    const matches = [...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
     return matches.length ? matches[matches.length - 1][1] : undefined;
   } catch {
     return undefined;
