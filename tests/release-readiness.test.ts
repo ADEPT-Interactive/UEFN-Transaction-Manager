@@ -65,7 +65,8 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
   fs.mkdirSync(logDirectory, { recursive: true });
   fs.writeFileSync(projectFile, JSON.stringify({ fileVersion: 15, title: 'Readiness Project', plugins: [{ name: 'ReadinessProject', bIsRoot: true }], bEnablePythonForProject: options.pythonEnabled }));
   const openedProject = options.openedProject === 'different' ? path.join(root, 'OtherProject', 'OtherProject.uefnproject') : projectFile;
-  fs.writeFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), `Successfully opened project '${openedProject.replace(/\\/g, '/')}'\n`);
+  const normalizedOpenedProject = openedProject.replace(/\\/g, '/');
+  fs.writeFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), `Successfully opened project '${normalizedOpenedProject}'\n[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`);
   if (options.initialized) {
     const document = catalogDocument(contentRoot);
     fs.writeFileSync(path.join(contentRoot, document.config.targetVerseFileName), generateVerseCode(document.entitlements, document.bundles, document.config, document.storefrontMembership, document.retiredVerseKeys));

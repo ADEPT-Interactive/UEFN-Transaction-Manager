@@ -708,7 +708,12 @@ export function generateVerseCode(
       `    Await${pascal}RemovedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_RemovedSignal.Await()`,
       `    Await${pascal}ReconciledEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ReconciledSignal.Await()`,
       ...(item.itemType === 'consumable'
-        ? [`    ${pascal}_ConsumedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`, `    Await${pascal}ConsumedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ConsumedSignal.Await()`]
+        ? [
+          `    ${pascal}_ConsumedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
+          `    Await${pascal}ConsumedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ConsumedSignal.Await()`,
+          `    var ${pascal}_PendingConsumeIntents:[player][]tuple(int, int) = map{}`,
+          `    var ${pascal}_NextConsumeRequestIds:[player]int = map{}`,
+        ]
         : []),
     );
   }
@@ -761,6 +766,7 @@ export function generateVerseCode(
     '        LogDebug("Player removed; releasing runtime state.")',
     '        RemovePlayerSubscription(Player)',
     '        ReleaseMarketplaceUI(Player)',
+    ...entitlements.filter(item => item.itemType === 'consumable').map(item => `        Clear${toVerseApiStem(item.verseKey)}ConsumeIntents(Player)`),
     '',
     '    RemovePlayerSubscription(Player:player):void =',
     '        if (Subscription := EntitlementChangeSubscriptions[Player]?):',
@@ -796,6 +802,15 @@ export function generateVerseCode(
   for (const item of entitlements) {
     push(`                if (${entModule}.${item.verseKey}_entitlement[ChangedEntitlement]):`, `                    Process${toVerseApiStem(item.verseKey)}Removal(Player, 0 - EntitlementChange.Change)`);
   }
+  for (const item of entitlements.filter(candidate => candidate.itemType === 'consumable')) {
+    const pascal = toVerseApiStem(item.verseKey);
+    push(
+      `                if (${entModule}.${item.verseKey}_entitlement[ChangedEntitlement]):`,
+      `                    Matched${pascal} := Match${pascal}ConsumeIntents(Player, 0 - EntitlementChange.Change)`,
+      `                    if (Matched${pascal} > 0):`,
+      `                        ${pascal}_ConsumedSignal.Signal((Player, Matched${pascal}))`,
+    );
+  }
   push('');
 
   push(
@@ -807,8 +822,9 @@ export function generateVerseCode(
   push(
     '    # Grant and Consume return the native Marketplace operation result; true does not mean gameplay state has already been processed.',
     '    # Direct grants bypass offer disclosures and the purchase flow. Use them only for deliberate free grants.',
-    '    # Inventory-bearing items may use Granted/Removed or current-state helpers. Immediate-use consumables must use the Consumed event, which fires only after this generated Consume helper succeeds.',
-    '    # A native entitlement removal can have causes other than this helper; do not use Removed as proof of successful consumption.',
+    '    # Inventory-bearing items may use Granted/Removed or current-state helpers. Immediate-use consumables must use the Consumed event.',
+    '    # Consumed is correlated to a pending generated consume intent and emitted only for the matching authoritative negative entitlement delta.',
+    '    # A native entitlement removal can have causes other than this helper; unmatched decreases remain Removed only.',
     '',
   );
 
@@ -830,13 +846,61 @@ export function generateVerseCode(
     );
     if (item.itemType === 'consumable') {
       push(
+        `    Queue${pascal}ConsumeIntent(Player:player, Quantity:int):int =`,
+        '        var NextId:int = 1',
+        `        if (CurrentId := ${pascal}_NextConsumeRequestIds[Player]):`,
+        '            set NextId = CurrentId + 1',
+        `        if (set ${pascal}_NextConsumeRequestIds[Player] = NextId) {}`,
+        '        var Pending:[]tuple(int, int) = array{}',
+        `        if (Current := ${pascal}_PendingConsumeIntents[Player]):`,
+        '            set Pending = Current',
+        '        set Pending += array{(NextId, Quantity)}',
+        `        if (set ${pascal}_PendingConsumeIntents[Player] = Pending) {}`,
+        '        NextId',
+        '',
+        `    Remove${pascal}ConsumeIntent(Player:player, RequestId:int):void =`,
+        '        var Updated:[]tuple(int, int) = array{}',
+        `        if (Pending := ${pascal}_PendingConsumeIntents[Player]):`,
+        '            for (Request : Pending, Request(0) <> RequestId):',
+        '                set Updated += array{Request}',
+        `            if (set ${pascal}_PendingConsumeIntents[Player] = Updated) {}`,
+        '',
+        `    Match${pascal}ConsumeIntents(Player:player, Quantity:int):int =`,
+        '        var Remaining:int = Quantity',
+        '        var Matched:int = 0',
+        '        var Updated:[]tuple(int, int) = array{}',
+        `        if (Pending := ${pascal}_PendingConsumeIntents[Player]):`,
+        '            for (Request : Pending):',
+        '                Requested := Request(1)',
+        '                if (Remaining > 0):',
+        '                    MatchedNow := if (Requested < Remaining) then Requested else Remaining',
+        '                    set Matched += MatchedNow',
+        '                    set Remaining -= MatchedNow',
+        '                    if (Requested > MatchedNow):',
+        '                        set Updated += array{(Request(0), Requested - MatchedNow)}',
+        '                else:',
+        '                    set Updated += array{Request}',
+        `            if (set ${pascal}_PendingConsumeIntents[Player] = Updated) {}`,
+        '        Matched',
+        '',
+        `    Clear${pascal}ConsumeIntents(Player:player):void =`,
+        `        if (set ${pascal}_PendingConsumeIntents[Player] = array{}) {}`,
+        `        if (set ${pascal}_NextConsumeRequestIds[Player] = 0) {}`,
+        '',
+        `    Expire${pascal}ConsumeIntent(Player:player, RequestId:int)<suspends>:void =`,
+        '        Sleep(30.0)',
+        `        Remove${pascal}ConsumeIntent(Player, RequestId)`,
+        '',
+      );
+      push(
         `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
         '        if (Quantity > 0):',
+        `            RequestId := Queue${pascal}ConsumeIntent(Player, Quantity)`,
+        `            spawn{Expire${pascal}ConsumeIntent(Player, RequestId)}`,
         `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-        '            if (Result?):',
-        `                ${pascal}_ConsumedSignal.Signal((Player, Quantity))`,
-        '            else:',
-        `                LogError("Consume${pascal} returned false for ${printableName}.")`,
+        '            if (not Result?):',
+        `                Remove${pascal}ConsumeIntent(Player, RequestId)`,
+        `                LogError("Consume${pascal} returned false for ${printableName}; no Consumed event will be emitted.")`,
         '            return Result',
         `        LogWarning("Consume${pascal} called with a non-positive quantity.")`,
         '        return false',

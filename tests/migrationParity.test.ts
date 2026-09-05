@@ -79,6 +79,15 @@ test('migration parity rejects metadata loss and premature immediate-use mapping
   assert.ok(report.issues.some(issue => issue.field === 'consequenceBoundary'));
 });
 
+test('migration parity rejects silently changing the legacy immediate-use classification', () => {
+  const report = validateMigrationParityTable([parityEntry({
+    immediateConsume: { legacy: true, proposed: false },
+    autoConsume: { legacy: true, proposed: true },
+  })], [], true);
+  assert.equal(report.valid, false);
+  assert.ok(report.issues.some(issue => issue.field === 'immediateConsume'));
+});
+
 test('migration parity requires explicit stable operation coverage', () => {
   const report = validateMigrationParityTable([parityEntry()], [{ type: 'create_entitlement', data: { name: 'No stable id' } }], true);
   assert.equal(report.valid, false);

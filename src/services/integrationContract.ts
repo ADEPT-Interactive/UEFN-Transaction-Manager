@@ -147,7 +147,7 @@ export function describeIntegrationContract(
       'Project Verse owns gameplay and business calculations; the generated file owns transaction plumbing.',
       'Grant and Consume return Marketplace operation status, not gameplay ownership state.',
       'Use Granted/Removed or ownership/count helpers for inventory state; use the consumable Consumed event for effects that represent successful use.',
-      'The Consumed event is emitted only by a generated Consume helper after native ConsumeEntitlement succeeds; Removed is not proof of explicit consumption.',
+      'The Consumed event is emitted only for the matched portion of an authoritative negative entitlement delta correlated to a generated Consume helper intent; Removed is not proof of explicit consumption.',
       'Immediate-use legacy transactions must be mapped to consumable autoConsume and their gameplay consequence must wait for the Consumed event.',
       'Runtime price and quantity options must be calculated by external project Verse.',
       'Regeneration replaces the managed file; external Verse must remain outside the managed file.',

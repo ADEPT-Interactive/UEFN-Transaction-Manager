@@ -113,7 +113,7 @@ test('custom notification signals remain private and use native Await semantics'
   assert.doesNotMatch(source, /Subscribe to the generated entitlement delta events from your own Verse/);
 });
 
-test('Grant returns the native result while Consume signals only after native success', () => {
+test('Grant returns the native result while Consume waits for an authoritative decrease', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Grant${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
   for (const stem of ['CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Consume${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
@@ -134,8 +134,15 @@ test('Grant returns the native result while Consume signals only after native su
     assert.notEqual(start, -1, `missing ${declaration}`);
     const nextDeclaration = source.slice(start + 1).search(/\n    [A-Za-z_][A-Za-z0-9_]*(?:<|\()/);
     const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
-    assert.match(body, /if \(Result\?\):[\s\S]+_ConsumedSignal\.Signal\(\(Player, Quantity\)\)/);
+    assert.match(body, /RequestId := Queue/);
+    assert.match(body, /if \(not Result\?\):[\s\S]+Remove[\s\S]+no Consumed event will be emitted/);
+    assert.doesNotMatch(body, /_ConsumedSignal\.Signal/);
   }
+  assert.match(source, /MatchedCoinPack := MatchCoinPackConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /CoinPack_ConsumedSignal\.Signal\(\(Player, MatchedCoinPack\)\)/);
+  assert.match(source, /MatchedMysteryItem := MatchMysteryItemConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /MysteryItem_ConsumedSignal\.Signal\(\(Player, MatchedMysteryItem\)\)/);
+  assert.doesNotMatch(source, /EntitlementChange\.Change < 0[\s\S]+ConsumedSignal\.Signal\(\(Player, 0 - EntitlementChange\.Change\)\)/);
 });
 
 test('canonical ownership query helpers are public, suspending, and entitlement-scoped', () => {

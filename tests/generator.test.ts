@@ -151,7 +151,7 @@ test('runtime logging policy separates routine debug noise from always-visible f
   assert.match(grant, /LogWarning\("GrantVipPass called with a non-positive quantity\."\)/);
   assert.match(grant, /LogError\("GrantVipPass returned false for VIP \\"Pass\\"\."\)/);
   assert.match(consume, /LogWarning\("ConsumeMysteryCrate called with a non-positive quantity\."\)/);
-  assert.match(consume, /LogError\("ConsumeMysteryCrate returned false for Mystery Crate\."\)/);
+  assert.match(consume, /LogError\("ConsumeMysteryCrate returned false for Mystery Crate; no Consumed event will be emitted\."\)/);
   assert.doesNotMatch(grant, /EnableDebugLogging/);
   assert.doesNotMatch(consume, /EnableDebugLogging/);
 
@@ -169,6 +169,20 @@ test('runtime logging policy separates routine debug noise from always-visible f
   }], config);
   assert.match(invalidDynamicSource, /LogError\("Invalid Dynamic has an invalid dynamic remaining configuration\."\)/);
   assert.match(generateVerseCode([], [], config), /LogWarning\("No transaction offers are configured\."\)/);
+});
+
+test('consumption signals are correlated to authoritative negative deltas', () => {
+  const source = generateVerseCode(items, bundles, config);
+  const consume = generatedFunctionBlock(source, 'ConsumeMysteryCrate');
+  assert.match(source, /var MysteryCrate_PendingConsumeIntents:\[player\]\[\]tuple\(int, int\) = map\{\}/);
+  assert.match(consume, /RequestId := QueueMysteryCrateConsumeIntent\(Player, Quantity\)/);
+  assert.match(consume, /spawn\{ExpireMysteryCrateConsumeIntent\(Player, RequestId\)\}/);
+  assert.match(consume, /if \(not Result\?\):[\s\S]+RemoveMysteryCrateConsumeIntent\(Player, RequestId\)/);
+  assert.doesNotMatch(consume, /_ConsumedSignal\.Signal/);
+  assert.match(source, /MatchedMysteryCrate := MatchMysteryCrateConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /MysteryCrate_ConsumedSignal\.Signal\(\(Player, MatchedMysteryCrate\)\)/);
+  assert.match(source, /MatchedNow := if \(Requested < Remaining\) then Requested else Remaining/);
+  assert.match(source, /if \(Requested > MatchedNow\):/);
 });
 
 test('Marketplace UI execution is unified and acquired before spawning', () => {

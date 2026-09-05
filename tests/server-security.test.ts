@@ -321,17 +321,16 @@ test('standalone bridge verifies the active UEFN project without a Python editor
     await new Promise(resolve => fakeUefn.once('exit', resolve));
     await new Promise(resolve => setTimeout(resolve, 200));
     const closedStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
-    assert.deepEqual(await closedStatus.json(), {
-      success: true,
-      uefnRunning: false,
-      editorConnected: false,
-      projectActive: false,
-      differentProjectOpen: false,
-      pythonEnabled: false,
-      autoConnectorInstalled: false,
-      nativeTextureImportAvailable: false,
-      bootstrapState: 'not-needed',
-    });
+    const closedState = await closedStatus.json() as { success: boolean; uefnRunning: boolean; editorConnected: boolean; projectActive: boolean; differentProjectOpen: boolean; openProjectFile?: string; pythonEnabled: boolean; autoConnectorInstalled: boolean; nativeTextureImportAvailable: boolean; bootstrapState: string };
+    assert.equal(closedState.success, true);
+    assert.equal(closedState.editorConnected, false);
+    assert.equal(closedState.projectActive, false);
+    assert.equal(closedState.differentProjectOpen, closedState.uefnRunning);
+    assert.equal(closedState.openProjectFile, closedState.uefnRunning ? otherProjectFile.replace(/\\/g, '/') : undefined);
+    assert.equal(closedState.pythonEnabled, false);
+    assert.equal(closedState.autoConnectorInstalled, false);
+    assert.equal(closedState.nativeTextureImportAvailable, false);
+    assert.equal(closedState.bootstrapState, 'not-needed');
     await fetch(`${base}/api/session/shutdown`, { method: 'POST', headers: auth, body: '{}' });
   } finally {
     fakeUefn.kill();

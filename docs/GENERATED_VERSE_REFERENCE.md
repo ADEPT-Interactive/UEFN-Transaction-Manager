@@ -65,7 +65,7 @@ CheckAccess(Player:player)<suspends>:void =
     OwnedCount := Transactions.GetAccessPassCount(Player)
 ```
 
-`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` are suspending helpers that return the Marketplace operation result as `logic`. A successful `Consume<StableKeyStem>` also emits `Await<StableKeyStem>ConsumedEvent()` after native consumption succeeds. A successful operation result is not a replacement for handling the generated state notifications.
+`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` are suspending helpers that return the Marketplace operation result as `logic`. A consume helper records intent before calling Marketplace; `Await<StableKeyStem>ConsumedEvent()` is emitted only when a matching authoritative negative entitlement delta arrives. A successful operation result is not a replacement for handling the generated state notifications.
 
 ## Grant, removal, and reconciliation events
 
@@ -78,7 +78,7 @@ WatchAccess()<suspends>:void =
         HandleAccessGranted(Grant)
 ```
 
-The generated device provides matching `Await<StableKeyStem>RemovedEvent()` and `Await<StableKeyStem>ReconciledEvent()` functions. Consumable entitlements additionally provide `Await<StableKeyStem>ConsumedEvent()`. Each returns the generated `(player, int)` notification value. A grant represents a positive entitlement delta, a removal represents a negative delta, reconciliation reports the current count, including zero, and `Consumed` represents only a successful call through the generated consume helper.
+The generated device provides matching `Await<StableKeyStem>RemovedEvent()` and `Await<StableKeyStem>ReconciledEvent()` functions. Consumable entitlements additionally provide `Await<StableKeyStem>ConsumedEvent()`. Each returns the generated `(player, int)` notification value. A grant represents a positive entitlement delta, a removal represents a negative delta, reconciliation reports the current count, including zero, and `Consumed` represents only the portion of an authoritative negative delta correlated to a still-pending generated consume intent. Refunds, corrections, and unrelated removals remain `Removed` only.
 
 For an immediate-use legacy purchase, configure the entitlement as a consumable with `autoConsume` enabled and apply the gameplay consequence from `Consumed`, not from `Granted` or a generic `Removed` delta:
 

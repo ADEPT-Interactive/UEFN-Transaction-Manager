@@ -145,7 +145,10 @@ function latestProjectOpenedByUefn(): string | undefined {
     // project-open records belonging to the latest startup block.
     const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
     if (latestStartup >= 0) text = text.slice(latestStartup);
-    const matches = [...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
+    const matches = [
+      ...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi),
+      ...text.matchAll(/Selected Project \(Direct\):\s*\{[\s\S]*?"path"\s*:\s*"([^"]+\.uefnproject)"/gi),
+    ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
     return matches.length ? matches[matches.length - 1][1] : undefined;
   } catch {
     return undefined;
@@ -166,7 +169,7 @@ function processIdIsRunning(processId: number): boolean {
 
 function uefnIsRunning(): boolean {
   if (editorSessionIsFresh()) return true;
-  if (launchedUefnProcessId > 0) return processIdIsRunning(launchedUefnProcessId);
+  if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
   if (Date.now() - cachedUefnProcessSnapshot.checkedAt < 1000) return cachedUefnProcessSnapshot.running;
   let running = false;
   if (process.platform === 'win32') {

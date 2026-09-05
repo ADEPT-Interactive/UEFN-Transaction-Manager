@@ -8,6 +8,7 @@ import koffi from 'koffi';
 import type { ProjectCandidate, ProjectSource } from './contracts.js';
 
 const OPENED_PROJECT_PATTERN = /Successfully opened project '([^']+\.uefnproject)'/gi;
+const SELECTED_PROJECT_PATTERN = /Selected Project \(Direct\):\s*\{[\s\S]*?"path"\s*:\s*"([^"]+\.uefnproject)"/gi;
 const TITLE_PATTERN = /"title"\s*:\s*"([^"]+)"/i;
 const ROOT_PLUGIN_PATTERN = /\{[^{}]*"name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"[^{}]*"bIsRoot"\s*:\s*true[^{}]*\}/is;
 const PYTHON_ENABLED_PATTERN = /"bEnablePythonForProject"\s*:\s*true/i;
@@ -217,9 +218,11 @@ function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter): str
     // launched editor is not mistaken for the already-open project.
     const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
     if (latestStartup >= 0) text = text.slice(latestStartup);
-    let latest: string | null = null;
-    for (const match of text.matchAll(OPENED_PROJECT_PATTERN)) latest = match[1];
-    return latest;
+    const matches = [
+      ...Array.from(text.matchAll(OPENED_PROJECT_PATTERN)),
+      ...Array.from(text.matchAll(SELECTED_PROJECT_PATTERN)),
+    ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+    return matches.at(-1)?.[1] ?? null;
   } catch (error) {
     writeDiagnostic(`The current UEFN log could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
     return null;

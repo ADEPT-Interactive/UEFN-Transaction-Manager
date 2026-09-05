@@ -128,8 +128,14 @@ export function validateMigrationParityTable(entries: MigrationParityEntry[], op
 
     const immediate = pair(entry, 'immediateConsume');
     const proposedAutoConsume = pair(entry, 'autoConsume');
-    if (immediate && proposedAutoConsume && typeof immediate.legacy === 'boolean' && typeof proposedAutoConsume.proposed === 'boolean' && immediate.legacy !== proposedAutoConsume.proposed) {
+    if (immediate && !sameValue(immediate.legacy, immediate.proposed)) {
+      issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'immediateConsume', message: 'The proposed immediate-use classification differs from the confirmed legacy behavior.' });
+    }
+    if (proposedAutoConsume && immediate && typeof immediate.legacy === 'boolean' && typeof proposedAutoConsume.proposed === 'boolean' && immediate.legacy !== proposedAutoConsume.proposed) {
       issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'autoConsume', message: `autoConsume must match the proven legacy immediate-use behavior (${String(immediate.legacy)}).` });
+    }
+    if (proposedAutoConsume && typeof proposedAutoConsume.legacy === 'boolean' && typeof proposedAutoConsume.proposed === 'boolean' && proposedAutoConsume.legacy !== proposedAutoConsume.proposed) {
+      issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'autoConsume', message: 'The proposed auto-consume behavior differs from the confirmed legacy behavior.' });
     }
     const type = pair(entry, 'itemType');
     const maxCount = pair(entry, 'maxCount');

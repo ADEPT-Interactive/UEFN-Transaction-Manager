@@ -77,7 +77,7 @@ Await<Stem>ReconciledEvent<public>()<suspends>:tuple(player, int) = <Stem>_Recon
 Await<Stem>ConsumedEvent<public>()<suspends>:tuple(player, int) = <Stem>_ConsumedSignal.Await()
 ```
 
-The `Consumed` signal and await helper are generated only for consumable entitlements. They are emitted only by the generated `Consume<Stem>` helper after native `ConsumeEntitlement` returns success. A direct/native removal can have other causes, so `Removed` is not a proof of explicit successful consumption. Immediate-use migration consequences must await `Consumed`; inventory-bearing consumables should not be auto-consumed.
+The `Consumed` signal and await helper are generated only for consumable entitlements. The generated `Consume<Stem>` helper queues a player/entitlement/quantity intent before calling native `ConsumeEntitlement`; the signal is emitted only when the authoritative entitlement-change stream reports a matching negative delta. A failed or expired request is removed without emitting `Consumed`, and a direct/native removal can have other causes, so `Removed` is not a proof of explicit successful consumption. Immediate-use migration consequences must await `Consumed`; inventory-bearing consumables should not be auto-consumed.
 
 The generated implementation signals only the private backing events. External Verse waits for the next recurring notification with `.Await()`:
 
@@ -88,9 +88,9 @@ WatchGranted()<suspends>:void =
         HandleGranted(Grant)
 ```
 
-Transaction Manager custom notification values use the generated await functions, backed by native `.Await()`, and do not use `.Subscribe()`. Epic-provided Creative device/listenable events such as button, trigger, and playspace events are separate APIs and may support `.Subscribe()`. One positive delta signals only the `Granted` backing event. One negative delta signals only the `Removed` backing event. Reconciliation signals only the `Reconciled` backing event, with the current owned count, including zero. A successful call through `Consume<Stem>` signals only the consumable's `Consumed` backing event. No redundant player-only event families are generated.
+Transaction Manager custom notification values use the generated await functions, backed by native `.Await()`, and do not use `.Subscribe()`. Epic-provided Creative device/listenable events such as button, trigger, and playspace events are separate APIs and may support `.Subscribe()`. One positive delta signals only the `Granted` backing event. One negative delta signals the generic `Removed` backing event and, only for the matched portion of a pending generated consume intent, the consumable's `Consumed` backing event. Reconciliation signals only the `Reconciled` backing event, with the current owned count, including zero. No redundant player-only event families are generated.
 
-`Grant<Stem>` and consumable `Consume<Stem>` are suspending public helpers returning the native Marketplace operation result as `logic`. Non-positive quantities return `false` without calling Marketplace. A `true` result reports the Marketplace operation boundary; `Consume<Stem>` additionally emits `Consumed` only after that successful operation. Gameplay should use the canonical notification for its semantic boundary rather than a grant result.
+`Grant<Stem>` and consumable `Consume<Stem>` are suspending public helpers returning the native Marketplace operation result as `logic`. Non-positive quantities return `false` without calling Marketplace. A `true` result reports the Marketplace operation boundary; `Consume<Stem>` additionally creates a pending correlation that can emit `Consumed` only for a matching authoritative decrease. Gameplay should use the canonical notification for its semantic boundary rather than a grant or consume result.
 
 `Get<Stem>Count` queries current Marketplace state for the concrete entitlement and returns zero when no matching result exists. `Has<Stem>` returns whether that current count is greater than zero. Alternate offers share the parent entitlement queries; bundles and storefronts do not get ownership queries.
 
