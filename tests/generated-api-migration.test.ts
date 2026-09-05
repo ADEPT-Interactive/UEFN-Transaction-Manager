@@ -36,7 +36,7 @@ test('clean, old-schema, and temporary-metadata projects converge on one canonic
   const expected = generateVerseCode(clean.entitlements, clean.bundles, publicApiConfig, clean.offerDisplayGroups, clean.retiredVerseKeys);
   assert.equal(generateVerseCode(oldManifest.entitlements, oldManifest.bundles, publicApiConfig, oldManifest.offerDisplayGroups, oldManifest.retiredVerseKeys), expected);
   assert.equal(generateVerseCode(temporaryManifest.entitlements, temporaryManifest.bundles, publicApiConfig, temporaryManifest.offerDisplayGroups, temporaryManifest.retiredVerseKeys), expected);
-  assert.equal(publicDeclarationCount(expected), 96);
+  assert.equal(publicDeclarationCount(expected), 98);
   assert.deepEqual(temporaryManifest.projectDataDiagnostics, []);
   assert.equal('purchaseEventName' in temporaryManifest.entitlements[0], false);
   assert.equal('restoreOnJoin' in temporaryManifest.entitlements[0], false);
@@ -54,7 +54,7 @@ test('generated files reopen into the same canonical API without compatibility s
   assert.equal(parsed.managed, true);
   assert.equal(parsed.error, undefined);
   assert.equal(parsed.projectDataDiagnostics.length, 0);
-  assert.equal(publicDeclarationCount(generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, parsed.offerDisplayGroups, parsed.retiredVerseKeys)), 96);
+  assert.equal(publicDeclarationCount(generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, parsed.offerDisplayGroups, parsed.retiredVerseKeys)), 98);
   assert.doesNotMatch(source, /PromptBuy|ShowStorefront|OpenStorefront|OwnershipVerifiedEvent|QuantityDecreasedEvent|PurchaseEvent/);
 });
 

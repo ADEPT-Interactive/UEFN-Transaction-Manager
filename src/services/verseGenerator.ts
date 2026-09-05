@@ -707,6 +707,9 @@ export function generateVerseCode(
       `    Await${pascal}GrantedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_GrantedSignal.Await()`,
       `    Await${pascal}RemovedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_RemovedSignal.Await()`,
       `    Await${pascal}ReconciledEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ReconciledSignal.Await()`,
+      ...(item.itemType === 'consumable'
+        ? [`    ${pascal}_ConsumedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`, `    Await${pascal}ConsumedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ConsumedSignal.Await()`]
+        : []),
     );
   }
   push('');
@@ -804,7 +807,8 @@ export function generateVerseCode(
   push(
     '    # Grant and Consume return the native Marketplace operation result; true does not mean gameplay state has already been processed.',
     '    # Direct grants bypass offer disclosures and the purchase flow. Use them only for deliberate free grants.',
-    '    # Apply gameplay changes from the generated entitlement delta events or current-state query helpers in external Verse.',
+    '    # Inventory-bearing items may use Granted/Removed or current-state helpers. Immediate-use consumables must use the Consumed event, which fires only after this generated Consume helper succeeds.',
+    '    # A native entitlement removal can have causes other than this helper; do not use Removed as proof of successful consumption.',
     '',
   );
 
@@ -829,7 +833,9 @@ export function generateVerseCode(
         `    Consume${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
         '        if (Quantity > 0):',
         `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
-        '            if (not Result?):',
+        '            if (Result?):',
+        `                ${pascal}_ConsumedSignal.Signal((Player, Quantity))`,
+        '            else:',
         `                LogError("Consume${pascal} returned false for ${printableName}.")`,
         '            return Result',
         `        LogWarning("Consume${pascal} called with a non-positive quantity.")`,

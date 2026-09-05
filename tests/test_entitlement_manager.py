@@ -1,10 +1,21 @@
 import json
 import os
+import struct
 import sys
 import tempfile
 import types
 import unittest
+import zlib
 from unittest import mock
+
+
+def rgba_png(width, height, pixels):
+    raw = b"".join(b"\x00" + bytes(channel for pixel in pixels[y * width:(y + 1) * width] for channel in pixel) for y in range(height))
+
+    def chunk(kind, payload):
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
+
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
 class EntitlementManagerPathTests(unittest.TestCase):
@@ -244,15 +255,24 @@ class EntitlementManagerPathTests(unittest.TestCase):
                     tasks[0].imported_object_paths = ["/ProjectMount/EntitlementIcons/VipPass.VipPass"]
                     imported_paths.append(tasks[0].filename)
 
-            class RenderingLibrary:
+            class TextureExporterPNG:
+                pass
+
+            class AssetExportTask:
+                pass
+
+            class Exporter:
                 @staticmethod
-                def export_texture2d(_world, _texture, directory, filename):
-                    with open(os.path.join(directory, filename + ".png"), "wb") as exported:
-                        exported.write(b"png")
+                def run_asset_export_task(task):
+                    with open(task.filename, "wb") as exported:
+                        exported.write(rgba_png(2, 1, [(242, 124, 18, 0), (242, 124, 18, 255)]))
+                    return True
 
             unreal = types.SimpleNamespace(
                 EditorAssetLibrary=EditorAssetLibrary,
-                RenderingLibrary=RenderingLibrary,
+                TextureExporterPNG=TextureExporterPNG,
+                AssetExportTask=AssetExportTask,
+                Exporter=Exporter,
                 AssetImportTask=AssetImportTask,
                 AssetToolsHelpers=types.SimpleNamespace(get_asset_tools=lambda: AssetTools()),
                 log=lambda _message: None,
@@ -267,6 +287,39 @@ class EntitlementManagerPathTests(unittest.TestCase):
                 })
             self.assertEqual(result["assetObjectPath"], "/ProjectMount/EntitlementIcons/VipPass.VipPass")
             self.assertEqual(imported_paths, [source_path])
+            with open(source_path, "rb") as exported:
+                exported_bytes = exported.read()
+            self.assertEqual(exported_bytes[25], 6, "adopted Texture2D export must retain the PNG RGBA channel")
+
+    def test_existing_texture_adoption_fails_closed_without_alpha_safe_png_exporter(self):
+        import entitlement_manager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = os.path.join(temp_dir, "adopted.png")
+
+            class TextureClass:
+                @staticmethod
+                def get_name():
+                    return "Texture2D"
+
+            class Texture:
+                @staticmethod
+                def get_class():
+                    return TextureClass()
+
+            unreal = types.SimpleNamespace(
+                EditorAssetLibrary=types.SimpleNamespace(load_asset=lambda _path: Texture()),
+                RenderingLibrary=types.SimpleNamespace(export_texture2d=lambda *_args: None),
+            )
+            with mock.patch.dict(sys.modules, {"unreal": unreal}):
+                with self.assertRaisesRegex(RuntimeError, "alpha-safe TextureExporterPNG"):
+                    entitlement_manager.import_texture_job({
+                        "assetFolderName": "EntitlementIcons",
+                        "assetName": "VipPass",
+                        "sourcePath": source_path,
+                        "sourceKind": "uefn-texture",
+                        "sourceAssetPath": "/ProjectMount/OldShopIcons/Vip.Vip",
+                    })
 
     def test_editor_bridge_requests_use_the_editor_session_header(self):
         import entitlement_manager

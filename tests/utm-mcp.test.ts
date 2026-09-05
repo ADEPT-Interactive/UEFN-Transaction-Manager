@@ -70,9 +70,10 @@ test('UTM MCP uses unauthenticated local Streamable HTTP with clear identity and
     assert.equal(listed.status, 200);
     const listBody = await mcpJson(listed) as { result: { tools: Array<{ name: string }> } };
     const names = listBody.result.tools.map(tool => tool.name);
-    assert.equal(names.length, 20);
+    assert.equal(names.length, 21);
     assert.ok(names.includes('get_catalog_snapshot'));
     assert.ok(names.includes('apply_catalog_patch'));
+    assert.ok(names.includes('validate_migration_parity'));
     assert.ok(names.includes('adopt_icon'));
     assert.ok(names.includes('save_catalog'));
     const snapshot = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Host: `127.0.0.1:${port}`, 'Mcp-Session-Id': sessionId! }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_catalog_snapshot', arguments: {} } }) });
@@ -101,7 +102,7 @@ test('UTM MCP is consumable through the official local Streamable HTTP client', 
     assert.equal(client.getServerVersion()?.version, '4.3.0');
     assert.equal(client.getServerVersion()?.title, 'UEFN Transaction Manager');
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 20);
+    assert.equal(listed.tools.length, 21);
     const snapshot = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
     assert.match(JSON.stringify(snapshot), /"revision":"1"/);
     const context = await client.callTool({ name: 'get_project_context', arguments: {} });
@@ -184,6 +185,37 @@ test('migration patches preserve unmatched existing UTM records unless deletion 
     assert.match(JSON.stringify(blocked), /preserve existing UTM records/i);
     assert.equal(catalog.currentRevision, existing.snapshot.revision);
     assert.equal(catalog.snapshot().entitlements.some(item => item.id === 'existing-utm'), true);
+  } finally {
+    await client.close().catch(() => undefined);
+    await host.stop();
+  }
+});
+
+test('existing-project migration patches require a pre-apply parity table', async () => {
+  const catalog = makeCatalog();
+  const port = await freePort();
+  const host = new UTMcpHost({
+    version: '4.3.0',
+    catalog,
+    getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Demo', projectFile: 'C:/Demo/Demo.uefnproject', contentRoot: 'C:/Demo/Content', assetMount: '/Demo', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false }),
+    adoptIcon: async () => ({ success: false, error: 'not used' }),
+    saveCatalog: async () => ({ success: true, contentHash: 'g'.repeat(64), fileName: 'managed_transactions.verse' }),
+  });
+  const client = new Client({ name: 'migration-parity-required-test', version: '1.0.0' });
+  try {
+    await host.start(port);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+    const blocked = await client.callTool({ name: 'apply_catalog_patch', arguments: {
+      expectedRevision: '1', dryRun: true,
+      migration: { mode: 'existing-project', preserveUnmatchedExisting: true },
+      operations: [{ type: 'create_entitlement', data: { id: 'legacy-item', name: 'Legacy Item' } }],
+    } });
+    assert.equal(blocked.isError, true);
+    assert.match(JSON.stringify(blocked), /MIGRATION_PARITY_REQUIRED/);
+    assert.equal(catalog.currentRevision, '1');
+    const validation = await client.callTool({ name: 'validate_migration_parity', arguments: { entries: [] } });
+    assert.equal(validation.isError, true);
+    assert.match(JSON.stringify(validation), /one parity row/i);
   } finally {
     await client.close().catch(() => undefined);
     await host.stop();

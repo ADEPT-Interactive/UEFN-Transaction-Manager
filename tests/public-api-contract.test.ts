@@ -23,9 +23,12 @@ function expectedPublicDeclarations(): string[] {
     'starter_bundle_offer<public> := class(bundle_offer):', 'nested_bundle_offer<public> := class(bundle_offer):', 'dynamic_bundle_offer<public> := class(bundle_offer):',
     'dynamic_bundle_dynamic_offer<public> := class(bundle_offer):',
   );
-  for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) declarations.push(
-    `Await${stem}GrantedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}RemovedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}ReconciledEvent<public>()<suspends>:tuple(player, int) = …`,
-  );
+  for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
+    declarations.push(
+      `Await${stem}GrantedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}RemovedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}ReconciledEvent<public>()<suspends>:tuple(player, int) = …`,
+    );
+    if (stem === 'CoinPack' || stem === 'MysteryItem') declarations.push(`Await${stem}ConsumedEvent<public>()<suspends>:tuple(player, int) = …`);
+  }
   declarations.push(
     'GrantAccessPass<public>(Player:player, Quantity:int)<suspends>:logic = …', 'GrantSeasonPass<public>(Player:player, Quantity:int)<suspends>:logic = …',
     'ConsumeCoinPack<public>(Player:player, Quantity:int)<suspends>:logic = …', 'GrantCoinPack<public>(Player:player, Quantity:int)<suspends>:logic = …',
@@ -44,7 +47,7 @@ function expectedPublicDeclarations(): string[] {
 test('complex generated output has one locked canonical public declaration baseline', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   assert.deepEqual(publicDeclarations(source), expectedPublicDeclarations());
-  assert.equal(publicDeclarations(source).length, 96);
+  assert.equal(publicDeclarations(source).length, 98);
   assert.match(source, /phase4_public_api_device := class\(creative_device\):/);
   assert.doesNotMatch(source, /phase4_public_api_device<public>/);
 });
@@ -99,14 +102,18 @@ test('custom notification signals remain private and use native Await semantics'
     assert.match(source, new RegExp(`${stem}_RemovedSignal:event\\(tuple\\(player, int\\)\\)`));
     assert.match(source, new RegExp(`${stem}_ReconciledSignal:event\\(tuple\\(player, int\\)\\)`));
   }
+  for (const stem of ['CoinPack', 'MysteryItem']) {
+    assert.match(source, new RegExp(`${stem}_ConsumedSignal:event\\(tuple\\(player, int\\)\\)`));
+    assert.match(source, new RegExp(`Await${stem}ConsumedEvent<public>\\(\\)<suspends>:tuple\\(player, int\\) = ${stem}_ConsumedSignal\\.Await\\(\\)`));
+  }
   assert.match(source, /AccessPass_GrantedSignal\.Signal\(\(Player, Quantity\)\)/);
   assert.match(source, /AccessPass_RemovedSignal\.Signal\(\(Player, Quantity\)\)/);
   assert.match(source, /AccessPass_ReconciledSignal\.Signal\(\(Player, AccessPassOwnedCount\)\)/);
-  assert.doesNotMatch(source, /GrantedEvent\.Signal|RemovedEvent\.Signal|ReconciledEvent\.Signal/);
+  assert.doesNotMatch(source, /GrantedEvent\.Signal|RemovedEvent\.Signal|ReconciledEvent\.Signal|ConsumedEvent\.Signal/);
   assert.doesNotMatch(source, /Subscribe to the generated entitlement delta events from your own Verse/);
 });
 
-test('Grant and Consume return native Marketplace results without signaling directly', () => {
+test('Grant returns the native result while Consume signals only after native success', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Grant${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
   for (const stem of ['CoinPack', 'MysteryItem']) assert.match(source, new RegExp(`Consume${stem}<public>\\(Player:player, Quantity:int\\)<suspends>:logic`));
@@ -115,12 +122,19 @@ test('Grant and Consume return native Marketplace results without signaling dire
   assert.match(source, /ConsumeCoinPack called with a non-positive quantity/);
   assert.match(source, /ProcessMysteryItemGrant\(Player:player, Quantity:int\):void =\n[\s\S]+spawn\{AutoConsumeMysteryItem\(Player, Quantity\)\}/);
   assert.match(source, /AutoConsumeMysteryItem\(Player:player, Quantity:int\)<suspends>:void =\n        ConsumeMysteryItem\(Player, Quantity\)/);
-  for (const declaration of ['GrantAccessPass', 'ConsumeCoinPack', 'GrantMysteryItem', 'ConsumeMysteryItem']) {
+  for (const declaration of ['GrantAccessPass', 'GrantMysteryItem']) {
     const start = source.indexOf(`    ${declaration}<public>`);
     assert.notEqual(start, -1, `missing ${declaration}`);
     const nextDeclaration = source.slice(start + 1).search(/\n    [A-Za-z_][A-Za-z0-9_]*(?:<|\()/);
     const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
     assert.doesNotMatch(body, /\.Signal\(/, `${declaration} must not signal entitlement events directly`);
+  }
+  for (const declaration of ['ConsumeCoinPack', 'ConsumeMysteryItem']) {
+    const start = source.indexOf(`    ${declaration}<public>`);
+    assert.notEqual(start, -1, `missing ${declaration}`);
+    const nextDeclaration = source.slice(start + 1).search(/\n    [A-Za-z_][A-Za-z0-9_]*(?:<|\()/);
+    const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
+    assert.match(body, /if \(Result\?\):[\s\S]+_ConsumedSignal\.Signal\(\(Player, Quantity\)\)/);
   }
 });
 

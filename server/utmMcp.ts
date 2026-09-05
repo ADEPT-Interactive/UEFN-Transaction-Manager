@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { CatalogDocument, CatalogPatchOperation, CatalogSession } from '../src/services/catalogSession';
 import { CatalogDomainError, catalogForMcp } from '../src/services/catalogSession';
 import { describeIntegrationContract } from '../src/services/integrationContract';
+import { validateMigrationParityTable, type MigrationParityEntry } from '../src/services/migrationParity';
 
 export interface UTMProjectContext {
   productVersion: string;
@@ -75,10 +76,32 @@ type McpResponse = {
 const expectedRevision = z.string().min(1).describe('Opaque catalog revision returned by get_catalog_snapshot.');
 const data = z.record(z.unknown()).optional().describe('Fields to create or patch. Internal IDs are allocated by UTM unless explicitly supplied.');
 const targetId = z.string().min(1);
+const migrationParityEntrySchema = z.object({
+  legacySourceIdentity: z.string().min(1),
+  proposedId: z.string().min(1),
+  kind: z.enum(['entitlement', 'alternate_offer', 'bundle']),
+  status: z.enum(['confirmed', 'inferred', 'ambiguous', 'absent']),
+  name: z.object({ legacy: z.string(), proposed: z.string() }),
+  description: z.object({ legacy: z.string(), proposed: z.string() }),
+  shortDescription: z.object({ legacy: z.string(), proposed: z.string() }),
+  itemType: z.object({ legacy: z.enum(['durable', 'consumable']), proposed: z.enum(['durable', 'consumable']) }),
+  maxCount: z.object({ legacy: z.number(), proposed: z.number() }),
+  immediateConsume: z.object({ legacy: z.boolean(), proposed: z.boolean() }),
+  autoConsume: z.object({ legacy: z.boolean(), proposed: z.boolean() }),
+  priceVBucks: z.object({ legacy: z.number(), proposed: z.number() }),
+  restrictions: z.object({ legacy: z.unknown(), proposed: z.unknown() }),
+  iconSource: z.object({ legacy: z.string(), proposed: z.string() }),
+  gameplayConsequence: z.object({ legacy: z.string(), proposed: z.string() }),
+  consequenceBoundary: z.object({ legacy: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']), proposed: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']) }),
+  repeatedPurchaseBehavior: z.object({ legacy: z.string(), proposed: z.string() }),
+  relationships: z.object({ legacy: z.string(), proposed: z.string() }),
+});
 const migrationPolicy = z.object({
   preserveUnmatchedExisting: z.boolean().default(true).describe('Keep existing UTM records unless replacement is proven or deletion is explicitly authorized.'),
   authorizedDeletionIds: z.array(z.string().min(1)).default([]).describe('IDs explicitly authorized for deletion during this migration.'),
-}).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [] });
+  mode: z.enum(['new-catalog', 'existing-project']).default('new-catalog').describe('Use existing-project for a legacy transaction migration; that mode requires an explicit parity table.'),
+  parity: z.array(migrationParityEntrySchema).optional().describe('Required in existing-project mode. One explicit legacy-to-UTM comparison row per migrated transaction or offer.'),
+}).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [], mode: 'new-catalog' });
 const patchOperationSchema = z.object({
   type: z.enum([
     'create_entitlement', 'update_entitlement', 'delete_entitlement',
@@ -172,6 +195,19 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
     inputSchema: { candidate: z.record(z.unknown()).optional().describe('Reserved for a future dry-run candidate; omit to validate the live draft.') },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   }, async () => jsonResult({ revision: catalog.currentRevision, issues: catalog.validateCurrent() }));
+
+  server.registerTool('validate_migration_parity', {
+    title: 'Validate migration parity',
+    description: 'Read-only. Validates the required legacy-to-UTM semantic parity table before an existing-project patch. It does not mutate, save, or compile anything.',
+    inputSchema: {
+      entries: z.array(migrationParityEntrySchema),
+      operations: z.array(patchOperationSchema).default([]),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async args => {
+    const report = validateMigrationParityTable(args.entries as MigrationParityEntry[], args.operations as CatalogPatchOperation[]);
+    return jsonResult({ revision: catalog.currentRevision, ...report }, !report.valid);
+  });
 
   server.registerTool('describe_integration_contract', {
     title: 'Describe integration contract',
@@ -282,6 +318,11 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
     try {
       assertProjectReady();
       assertMigrationDeletionPolicy(args.operations as CatalogPatchOperation[], args.migration);
+      if (args.migration.mode === 'existing-project') {
+        if (!args.migration.parity?.length) throw new CatalogDomainError('MIGRATION_PARITY_REQUIRED', 'Existing-project migration requires a pre-apply semantic parity table. Call validate_migration_parity with one row for every migrated transaction or offer, then include the same table here.', {}, 422);
+        const parity = validateMigrationParityTable(args.migration.parity as MigrationParityEntry[], args.operations as CatalogPatchOperation[], true);
+        if (!parity.valid) throw new CatalogDomainError('MIGRATION_PARITY_FAILED', 'The migration parity table is incomplete or changes legacy commercial/gameplay semantics. Resolve every issue before applying the patch.', { parity }, 422);
+      }
       if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
       const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true).snapshot;
       await assertCatalogReady(proposed);

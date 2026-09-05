@@ -12,6 +12,24 @@ async function png(width: number, height: number): Promise<Buffer> {
   return sharp({ create: { width, height, channels: 4, background: { r: 24, g: 180, b: 220, alpha: 1 } } }).png().toBuffer();
 }
 
+async function rgbaPng(width: number, height: number, data: Buffer): Promise<Buffer> {
+  return sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
+}
+
+function transparentBorderPixels(width: number, height: number): Buffer {
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 242;
+      data[offset + 1] = 124;
+      data[offset + 2] = 18;
+      data[offset + 3] = x === 0 || y === 0 || x === width - 1 || y === height - 1 ? 0 : 255;
+    }
+  }
+  return data;
+}
+
 test('power-of-two images bypass normalization byte-for-byte', async () => {
   const original = await png(256, 512);
   assert.strictEqual(await normalizePngToPowerOfTwo(original), original);
@@ -33,12 +51,39 @@ test('power-of-two images bypass normalization byte-for-byte', async () => {
   assert.deepEqual([largePowerOfTwo.targetWidth, largePowerOfTwo.targetHeight], [8192, 4096]);
 });
 
+test('RGBA PNG pixels retain their alpha channel byte-for-byte on the native-size path', async () => {
+  const source = await rgbaPng(2, 2, Buffer.from([
+    242, 124, 18, 0, 242, 124, 18, 255,
+    242, 124, 18, 128, 242, 124, 18, 0,
+  ]));
+  const normalized = await normalizeImageToPowerOfTwo(source);
+  assert.strictEqual(normalized, source);
+  const { data, info } = await sharp(normalized).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(info.channels, 4);
+  assert.deepEqual([...data.filter((_value, index) => index % 4 === 3)], [0, 255, 128, 0]);
+});
+
+test('non-power-of-two RGBA normalization retains transparent borders and opaque pixels', async () => {
+  const normalized = await normalizeImageToPowerOfTwo(await rgbaPng(3, 5, transparentBorderPixels(3, 5)));
+  const { data, info } = await sharp(normalized).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(info.channels, 4);
+  const alpha = [...data.filter((_value, index) => index % 4 === 3)];
+  assert.equal(Math.min(...alpha), 0);
+  assert.equal(Math.max(...alpha), 255);
+  assert.ok(alpha.some(value => value === 0), 'transparent padding/source pixels must remain transparent');
+  assert.ok(alpha.some(value => value > 0), 'opaque source pixels must remain visible');
+});
+
 test('accepted non-PNG images are converted to canonical PNG', async () => {
   const jpeg = await sharp({ create: { width: 300, height: 500, channels: 3, background: { r: 24, g: 180, b: 220 } } }).jpeg().toBuffer();
   const normalized = await normalizeImageToPowerOfTwo(jpeg);
   const metadata = await sharp(normalized).metadata();
   assert.equal(metadata.format, 'png');
   assert.deepEqual([metadata.width, metadata.height], [256, 512]);
+});
+
+test('HDR input is rejected before an RGB-only conversion can lose alpha semantics', async () => {
+  await assert.rejects(() => normalizeImageToPowerOfTwo(Buffer.from('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n', 'ascii')), /HDR.*RGBA alpha channel/i);
 });
 
 test('non-power-of-two images use the closest shape and preserve their aspect ratio', async () => {

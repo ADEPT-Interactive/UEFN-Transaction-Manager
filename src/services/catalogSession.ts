@@ -26,6 +26,8 @@ export const CATALOG_ERROR_CODES = {
   managedFileChanged: 'MANAGED_FILE_CHANGED',
   assetAdoptionFailed: 'ASSET_ADOPTION_FAILED',
   editorConnectionRequired: 'EDITOR_CONNECTION_REQUIRED',
+  migrationParityRequired: 'MIGRATION_PARITY_REQUIRED',
+  migrationParityFailed: 'MIGRATION_PARITY_FAILED',
 } as const;
 
 export type CatalogErrorCode = typeof CATALOG_ERROR_CODES[keyof typeof CATALOG_ERROR_CODES];

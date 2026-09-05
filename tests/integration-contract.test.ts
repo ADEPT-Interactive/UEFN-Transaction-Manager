@@ -17,6 +17,9 @@ test('integration contract is derived from generator naming for static, alternat
   assert.equal(contract.generatorVersion, '4.3.0');
   assert.equal(contract.managedVerseFile, 'managed_transactions.verse');
   assert.ok(contract.entitlements.some(item => item.primaryPurchaseHelper?.name === 'OpenSeasonPassPurchase'));
+  const coinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
+  assert.equal((coinsContract?.awaitEvents as { consumed?: string }).consumed, 'AwaitCoinsConsumedEvent');
+  assert.equal((contract.entitlements.find(item => item.stableId === 'ent-1')?.awaitEvents as { consumed?: string }).consumed, undefined);
   assert.ok(contract.alternateOffers.some(item => item.purchaseHelper === 'OpenSeasonPassDiscountPurchase'));
   assert.ok(contract.bundles.some(item => item.purchaseHelper === 'OpenStarterPackPurchase'));
   assert.ok(contract.bundles.some(item => item.runtimeOptionsType === 'RuntimePackRuntimeOptions'));

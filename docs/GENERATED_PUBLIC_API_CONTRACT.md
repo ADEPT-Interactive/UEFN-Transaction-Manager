@@ -20,12 +20,12 @@ The live Verse Workflow Server was used for release verification. The current so
 
 ## Representative inventory
 
-The representative fixture in `tests/public-api-fixture.ts` contains four entitlements, one alternate offer, three bundles including a dynamic bundle, two focused storefronts, restrictions, bindings, and auto-consume. It generates 96 explicit `<public>` declarations, 7 UEFN-exposed `@editable` binding arrays, and one private device-level `@editable` runtime debug toggle. The binding arrays use stable role names such as `AccessPass_PurchaseTriggers`, `AccessPass_PurchaseButtons`, `AllOffersStore_OpenButtons`, and `CoinStore_OpenTriggers`.
+The representative fixture in `tests/public-api-fixture.ts` contains four entitlements, one alternate offer, three bundles including a dynamic bundle, two focused storefronts, restrictions, bindings, and auto-consume. It generates 98 explicit `<public>` declarations, 7 UEFN-exposed `@editable` binding arrays, and one private device-level `@editable` runtime debug toggle. The binding arrays use stable role names such as `AccessPass_PurchaseTriggers`, `AccessPass_PurchaseButtons`, `AllOffersStore_OpenButtons`, and `CoinStore_OpenTriggers`.
 
 | Category | Fixture count | Supported surface |
 | --- | ---: | --- |
 | Icon, metadata, entitlement, price, and offer declarations | 59 | Generated Marketplace plumbing. Public in the current source, but not supported Transaction Manager integration API |
-| Entitlement events | 12 | Three public suspending await functions per entitlement with private native event backings |
+| Entitlement events | 14 | Three public suspending await functions per entitlement, plus `Consumed` for each consumable, with private native event backings |
 | Grant and consume helpers | 6 | `Grant<Stem>` and consumable `Consume<Stem>`, returning `logic` |
 | Ownership query helpers | 8 | `Get<Stem>Count` and `Has<Stem>` per entitlement |
 | Purchase helpers | 8 | `Open<Stem>Purchase` for entitlements, alternates, and bundles |
@@ -48,7 +48,7 @@ The representative complex fixture emits these top-level declarations:
 | `UEMLogChannel` | Internal class | Provides the generated device logger channel | No |
 | `<DeviceClass>` | No `<public>` class declaration | Placeable creative device that owns runtime state and the supported public methods and events | Yes, through the generated device instance |
 
-For the representative fixture, the 59 non-device public declarations are 1 icon module, 33 metadata declarations, 6 entitlement declarations, 9 price declarations, and 10 offer declarations. The generated device contributes the remaining 37 public events and methods. The total is 96 explicit `<public>` declarations.
+For the representative fixture, the 59 non-device public declarations are 1 icon module, 33 metadata declarations, 6 entitlement declarations, 9 price declarations, and 10 offer declarations. The generated device contributes the remaining 39 public events and methods. The total is 98 explicit `<public>` declarations.
 
 The inventory applies to the configured module names, so a project may show names such as `ManagedEntitlements`, `ManagedOffers`, `ManagedTransactionPrices`, and `ManagedEntitlementInfo`, or the names configured for that project. The classification does not depend on those names.
 
@@ -73,7 +73,11 @@ Transaction Manager's generated notification API uses native user-created Verse 
 Await<Stem>GrantedEvent<public>()<suspends>:tuple(player, int) = <Stem>_GrantedSignal.Await()
 Await<Stem>RemovedEvent<public>()<suspends>:tuple(player, int) = <Stem>_RemovedSignal.Await()
 Await<Stem>ReconciledEvent<public>()<suspends>:tuple(player, int) = <Stem>_ReconciledSignal.Await()
+<Stem>_ConsumedSignal:event(tuple(player, int))
+Await<Stem>ConsumedEvent<public>()<suspends>:tuple(player, int) = <Stem>_ConsumedSignal.Await()
 ```
+
+The `Consumed` signal and await helper are generated only for consumable entitlements. They are emitted only by the generated `Consume<Stem>` helper after native `ConsumeEntitlement` returns success. A direct/native removal can have other causes, so `Removed` is not a proof of explicit successful consumption. Immediate-use migration consequences must await `Consumed`; inventory-bearing consumables should not be auto-consumed.
 
 The generated implementation signals only the private backing events. External Verse waits for the next recurring notification with `.Await()`:
 
@@ -84,9 +88,9 @@ WatchGranted()<suspends>:void =
         HandleGranted(Grant)
 ```
 
-Transaction Manager custom notification values use the generated await functions, backed by native `.Await()`, and do not use `.Subscribe()`. Epic-provided Creative device/listenable events such as button, trigger, and playspace events are separate APIs and may support `.Subscribe()`. One positive delta signals only the `Granted` backing event. One negative delta signals only the `Removed` backing event. Reconciliation signals only the `Reconciled` backing event, with the current owned count, including zero. No redundant player-only event families are generated.
+Transaction Manager custom notification values use the generated await functions, backed by native `.Await()`, and do not use `.Subscribe()`. Epic-provided Creative device/listenable events such as button, trigger, and playspace events are separate APIs and may support `.Subscribe()`. One positive delta signals only the `Granted` backing event. One negative delta signals only the `Removed` backing event. Reconciliation signals only the `Reconciled` backing event, with the current owned count, including zero. A successful call through `Consume<Stem>` signals only the consumable's `Consumed` backing event. No redundant player-only event families are generated.
 
-`Grant<Stem>` and consumable `Consume<Stem>` are suspending public helpers returning the native Marketplace operation result as `logic`. Non-positive quantities return `false` without calling Marketplace. A `true` result reports the Marketplace operation boundary, not completed gameplay processing, so gameplay should continue to await the canonical notifications.
+`Grant<Stem>` and consumable `Consume<Stem>` are suspending public helpers returning the native Marketplace operation result as `logic`. Non-positive quantities return `false` without calling Marketplace. A `true` result reports the Marketplace operation boundary; `Consume<Stem>` additionally emits `Consumed` only after that successful operation. Gameplay should use the canonical notification for its semantic boundary rather than a grant result.
 
 `Get<Stem>Count` queries current Marketplace state for the concrete entitlement and returns zero when no matching result exists. `Has<Stem>` returns whether that current count is greater than zero. Alternate offers share the parent entitlement queries; bundles and storefronts do not get ownership queries.
 

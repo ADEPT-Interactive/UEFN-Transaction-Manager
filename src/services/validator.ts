@@ -569,6 +569,10 @@ export function validateEntireProject(
     registerMember(`Await${pascal}GrantedEvent`, item, 'verseKey');
     registerMember(`Await${pascal}RemovedEvent`, item, 'verseKey');
     registerMember(`Await${pascal}ReconciledEvent`, item, 'verseKey');
+    if (item.itemType === 'consumable') {
+      registerMember(`${pascal}_ConsumedSignal`, item, 'verseKey');
+      registerMember(`Await${pascal}ConsumedEvent`, item, 'verseKey');
+    }
     registerMember(`Get${pascal}Count`, item, 'verseKey');
     registerMember(`Has${pascal}`, item, 'verseKey');
     registerMember(`Process${pascal}Grant`, item, 'verseKey');

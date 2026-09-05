@@ -43,6 +43,7 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       granted: `Await${stem}GrantedEvent`,
       removed: `Await${stem}RemovedEvent`,
       reconciled: `Await${stem}ReconciledEvent`,
+      ...(item.itemType === 'consumable' ? { consumed: `Await${stem}ConsumedEvent` } : {}),
     },
     editableFields: {
       purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey).purchaseTriggers : undefined,
@@ -145,7 +146,9 @@ export function describeIntegrationContract(
     runtimeConstraints: [
       'Project Verse owns gameplay and business calculations; the generated file owns transaction plumbing.',
       'Grant and Consume return Marketplace operation status, not gameplay ownership state.',
-      'Use delta events or ownership/count helpers for gameplay state.',
+      'Use Granted/Removed or ownership/count helpers for inventory state; use the consumable Consumed event for effects that represent successful use.',
+      'The Consumed event is emitted only by a generated Consume helper after native ConsumeEntitlement succeeds; Removed is not proof of explicit consumption.',
+      'Immediate-use legacy transactions must be mapped to consumable autoConsume and their gameplay consequence must wait for the Consumed event.',
       'Runtime price and quantity options must be calculated by external project Verse.',
       'Regeneration replaces the managed file; external Verse must remain outside the managed file.',
     ],

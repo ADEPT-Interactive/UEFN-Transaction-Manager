@@ -31,7 +31,7 @@ test('explicit All Offers membership is exact and excludes unselected offers', (
     allOffers: [{ entitlementId: 'access' }, { entitlementId: 'season' }, { entitlementId: 'coins' }, { entitlementId: 'random' }, { entitlementId: 'random', offerVerseKey: 'mystery_item_mobile' }, { bundleId: 'starter' }, { bundleId: 'nested' }],
     focused: publicApiDisplayGroups,
   });
-  assert.equal(publicDeclarationCount(baseline), 96);
+  assert.equal(publicDeclarationCount(baseline), 98);
 });
 
 test('alternate offers have independent global and focused membership', () => {

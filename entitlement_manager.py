@@ -178,7 +178,7 @@ def _bridge_request(port, token, route, method="GET", payload=None):
 
 
 def _export_existing_texture(job, unreal):
-    """Export a verified Texture2D through Unreal's editor API, never by reading .uasset bytes."""
+    """Export a verified Texture2D as an alpha-safe PNG through Unreal's editor API."""
     source_asset_path = str(job.get("sourceAssetPath", ""))
     if not source_asset_path.startswith("/") or "." not in source_asset_path.rsplit("/", 1)[-1]:
         raise RuntimeError("The existing source must be a project Texture2D object path.")
@@ -192,23 +192,66 @@ def _export_existing_texture(job, unreal):
     texture_class = str(getattr(getattr(texture, "get_class", lambda: "")(), "get_name", lambda: "")())
     if texture_class and texture_class.lower() != "texture2d":
         raise RuntimeError(f"The selected asset is {texture_class}, not a Texture2D.")
-    rendering_library = getattr(unreal, "RenderingLibrary", None)
-    export_texture = getattr(rendering_library, "export_texture2d", None) if rendering_library else None
-    if not export_texture:
-        raise RuntimeError("UEFN does not expose RenderingLibrary.export_texture2d for this editor session.")
     destination = str(job.get("sourcePath", ""))
     directory = os.path.dirname(destination)
-    filename = os.path.splitext(os.path.basename(destination))[0]
-    export_texture(None, texture, directory, filename)
-    # UEFN 6.0 may honor the basename literally and emit no extension, while
-    # older editor builds append .png or .hdr. Accept only these exporter-owned
-    # paths; never fall back to reading a project .uasset file.
-    candidates = [destination, os.path.join(directory, filename), os.path.join(directory, filename + ".png"), os.path.join(directory, filename + ".hdr")]
+    if not directory or not destination.lower().endswith(".png"):
+        raise RuntimeError("The Texture2D adoption staging path must be an explicit PNG file.")
+
+    # RenderingLibrary.export_texture2d is not suitable here: on supported
+    # editor versions it exports Radiance HDR, which has no alpha channel and
+    # causes the old RGB-only decoder to alter both transparency and color.
+    # TextureExporterPNG + AssetExportTask stays inside Unreal's exporter and
+    # writes the source Texture2D as an actual RGBA PNG. Do not fall back to
+    # HDR or to arbitrary filesystem/.uasset reads if this API is unavailable.
+    exporter_class = getattr(unreal, "TextureExporterPNG", None)
+    export_task_class = getattr(unreal, "AssetExportTask", None)
+    exporter_api = getattr(unreal, "Exporter", None)
+    run_export_task = getattr(exporter_api, "run_asset_export_task", None) if exporter_api else None
+    if not exporter_class or not export_task_class or not run_export_task:
+        raise RuntimeError("UEFN does not expose the alpha-safe TextureExporterPNG AssetExportTask required for Texture2D adoption.")
+
+    # Only clear exporter-owned files in the private staging directory. This
+    # prevents a failed retry from accidentally accepting stale output.
+    for candidate in (destination, destination + ".png"):
+        try:
+            if os.path.isfile(candidate):
+                os.remove(candidate)
+        except OSError as error:
+            raise RuntimeError(f"UEFN could not prepare the Texture2D adoption staging path: {error}") from error
+
+    task = export_task_class()
+    task.object = texture
+    task.filename = destination
+    task.exporter = exporter_class()
+    task.automated = True
+    task.prompt = False
+    task.replace_identical = True
+    export_result = run_export_task(task)
+    if export_result is False:
+        raise RuntimeError(f"UEFN's TextureExporterPNG failed for {source_asset_path}.")
+
+    # TextureExporterPNG should honor the explicit .png filename. Accept one
+    # exporter-added .png suffix for editor-version compatibility, but never
+    # accept HDR, a bare unknown file, or project .uasset bytes.
+    candidates = [destination, destination + ".png"]
     exported = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
     if not exported:
-        raise RuntimeError(f"UEFN did not export Texture2D {source_asset_path} to the adoption staging path.")
+        raise RuntimeError(f"UEFN did not export Texture2D {source_asset_path} as a PNG to the adoption staging path.")
     if exported != destination:
         os.replace(exported, destination)
+
+    try:
+        with open(destination, "rb") as exported_file:
+            header = exported_file.read(33)
+        # PNG color type 6 is RGBA. Requiring it makes an alpha-bearing source
+        # fail closed instead of silently becoming an RGB/DXT1 import. The
+        # Unreal PNG exporter emits this channel-safe representation for opaque
+        # textures too, which keeps the opaque path supported without forcing a
+        # UEFN compression setting.
+        if len(header) < 33 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR" or header[25] != 6:
+            raise RuntimeError("UEFN's TextureExporterPNG did not produce an RGBA PNG; adoption stopped before import.")
+    except OSError as error:
+        raise RuntimeError(f"UEFN's exported Texture2D PNG could not be inspected: {error}") from error
 
 
 def import_texture_job(job, normalize_adopted_texture=None):

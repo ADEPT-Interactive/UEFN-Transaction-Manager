@@ -65,7 +65,7 @@ CheckAccess(Player:player)<suspends>:void =
     OwnedCount := Transactions.GetAccessPassCount(Player)
 ```
 
-`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` are suspending helpers that return the Marketplace operation result as `logic`. A successful operation result is not a replacement for handling the generated state notifications.
+`Grant<StableKeyStem>` and consumable `Consume<StableKeyStem>` are suspending helpers that return the Marketplace operation result as `logic`. A successful `Consume<StableKeyStem>` also emits `Await<StableKeyStem>ConsumedEvent()` after native consumption succeeds. A successful operation result is not a replacement for handling the generated state notifications.
 
 ## Grant, removal, and reconciliation events
 
@@ -78,7 +78,19 @@ WatchAccess()<suspends>:void =
         HandleAccessGranted(Grant)
 ```
 
-The generated device provides matching `Await<StableKeyStem>RemovedEvent()` and `Await<StableKeyStem>ReconciledEvent()` functions. Each returns the generated `(player, int)` notification value. A grant represents a positive entitlement delta, a removal represents a negative delta, and reconciliation reports the current count, including zero.
+The generated device provides matching `Await<StableKeyStem>RemovedEvent()` and `Await<StableKeyStem>ReconciledEvent()` functions. Consumable entitlements additionally provide `Await<StableKeyStem>ConsumedEvent()`. Each returns the generated `(player, int)` notification value. A grant represents a positive entitlement delta, a removal represents a negative delta, reconciliation reports the current count, including zero, and `Consumed` represents only a successful call through the generated consume helper.
+
+For an immediate-use legacy purchase, configure the entitlement as a consumable with `autoConsume` enabled and apply the gameplay consequence from `Consumed`, not from `Granted` or a generic `Removed` delta:
+
+```verse
+WatchImmediateUse()<suspends>:void =
+    loop:
+        Used := Transactions.AwaitTossLevelsConsumedEvent()
+        (Player, Quantity) := Used
+        ApplyTossLevels(Player, Quantity)
+```
+
+Inventory-bearing consumables must leave `autoConsume` disabled and should apply their gameplay behavior from the project’s deliberate inventory/use flow. A direct native `ConsumeEntitlement` call outside the generated helper cannot emit the generated `Consumed` signal, so migrated callers should use the helper.
 
 Use `.Await()` through these generated helpers for Transaction Manager notifications. Epic-provided device events such as Button, Trigger, and playspace events are separate APIs and may use `.Subscribe()`.
 
