@@ -207,11 +207,13 @@ test('Case D: a reported import without the exact package fails closed', async (
 test('Case E: a different open project blocks first setup', async () => {
   const bridge = await startBridge({ pythonEnabled: true, openedProject: 'different' });
   try {
-    assert.equal((await bridge.connectEditor()).status, 200);
+    const editorStatus = await bridge.request('/api/editor/status');
+    assert.equal(editorStatus.body.projectActive, false);
     const opened = await openCatalog(bridge);
     const result = await createOffer(bridge, opened.body.catalog.revision);
     assert.equal(result.status, 409);
-    assert.match(result.body.error, /not the project currently open/i);
+    assert.match(result.body.error, /open the selected project|verified editor connector/i);
+    assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
   } finally { await bridge.close(); }
 });
 

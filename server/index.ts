@@ -207,7 +207,11 @@ function projectPythonIsEnabled(): boolean {
 }
 
 function selectedProjectIsActiveInUefn(): boolean {
-  return uefnIsRunning() && pathsEqual(latestProjectOpenedByUefn(), configuredProjectFile);
+  // A fresh editor session has already passed the exact Content-root, asset-
+  // mount, and live-process checks in /api/editor/session. Once that
+  // authenticated evidence exists it is stronger than the optional retained
+  // log window, which may have rotated or no longer contain the open record.
+  return editorSessionIsFresh() || (uefnIsRunning() && pathsEqual(latestProjectOpenedByUefn(), configuredProjectFile));
 }
 
 function sha256(content: string | Buffer): string {

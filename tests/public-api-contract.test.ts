@@ -136,12 +136,16 @@ test('Grant returns the native result while Consume waits for an authoritative d
     const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
     assert.match(body, /RequestId := Queue/);
     assert.match(body, /if \(not Result\?\):[\s\S]+Remove[\s\S]+no Consumed event will be emitted/);
+    assert.match(body, /else:\n                Confirm/);
     assert.doesNotMatch(body, /_ConsumedSignal\.Signal/);
   }
-  assert.match(source, /MatchedCoinPack := MatchCoinPackConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
-  assert.match(source, /CoinPack_ConsumedSignal\.Signal\(\(Player, MatchedCoinPack\)\)/);
-  assert.match(source, /MatchedMysteryItem := MatchMysteryItemConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
-  assert.match(source, /MysteryItem_ConsumedSignal\.Signal\(\(Player, MatchedMysteryItem\)\)/);
+  assert.match(source, /RecordCoinPackConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /RecordMysteryItemConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /ConfirmCoinPackConsumeIntent\(Player:player, RequestId:int\):void/);
+  assert.match(source, /ConfirmMysteryItemConsumeIntent\(Player:player, RequestId:int\):void/);
+  assert.match(source, /var CoinPack_PendingConsumeIntents:\[player\]\[\]tuple\(int, int, logic, int\) = map\{\}/);
+  assert.match(source, /var MysteryItem_PendingConsumeIntents:\[player\]\[\]tuple\(int, int, logic, int\) = map\{\}/);
+  assert.match(source, /Consumed is correlated to a pending generated consume intent and emitted only after native success and a matching authoritative negative entitlement delta/);
   assert.doesNotMatch(source, /EntitlementChange\.Change < 0[\s\S]+ConsumedSignal\.Signal\(\(Player, 0 - EntitlementChange\.Change\)\)/);
 });
 

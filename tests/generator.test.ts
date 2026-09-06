@@ -88,6 +88,61 @@ function generatedFunctionBlock(source: string, name: string): string {
   return source.slice(start, next < 0 ? source.length : start + 1 + next);
 }
 
+type PendingConsume = { requestId: number; remaining: number; succeeded: boolean; buffered: number };
+
+class ConsumeCorrelationModel {
+  private nextRequestId = 0;
+  private pending: PendingConsume[] = [];
+  readonly emitted: number[] = [];
+
+  queue(quantity: number): number {
+    const requestId = ++this.nextRequestId;
+    this.pending.push({ requestId, remaining: quantity, succeeded: false, buffered: 0 });
+    return requestId;
+  }
+
+  operationSucceeded(requestId: number): void {
+    const updated: PendingConsume[] = [];
+    for (const request of this.pending) {
+      if (request.requestId !== requestId) {
+        updated.push(request);
+        continue;
+      }
+      if (request.buffered > 0) this.emitted.push(request.buffered);
+      if (request.remaining > 0) updated.push({ ...request, succeeded: true, buffered: 0 });
+    }
+    this.pending = updated;
+  }
+
+  operationFailed(requestId: number): void {
+    this.pending = this.pending.filter(request => request.requestId !== requestId);
+  }
+
+  authoritativeDelta(quantity: number): void {
+    let remaining = quantity;
+    const updated: PendingConsume[] = [];
+    for (const request of this.pending) {
+      const matched = Math.min(request.remaining, remaining);
+      const next = { ...request, remaining: request.remaining - matched, buffered: request.buffered + matched };
+      remaining -= matched;
+      if (next.succeeded && next.buffered > 0) {
+        this.emitted.push(next.buffered);
+        next.buffered = 0;
+      }
+      if (next.remaining > 0 || next.buffered > 0 || !next.succeeded) updated.push(next);
+    }
+    this.pending = updated;
+  }
+
+  expire(requestId: number): void {
+    this.operationFailed(requestId);
+  }
+
+  get pendingRequests(): readonly PendingConsume[] {
+    return this.pending;
+  }
+}
+
 test('generated Verse embeds a lossless managed manifest', () => {
   const source = generateVerseCode(items, bundles, config);
   const parsed = parseVerseCode(source);
@@ -174,15 +229,86 @@ test('runtime logging policy separates routine debug noise from always-visible f
 test('consumption signals are correlated to authoritative negative deltas', () => {
   const source = generateVerseCode(items, bundles, config);
   const consume = generatedFunctionBlock(source, 'ConsumeMysteryCrate');
-  assert.match(source, /var MysteryCrate_PendingConsumeIntents:\[player\]\[\]tuple\(int, int\) = map\{\}/);
+  assert.match(source, /var MysteryCrate_PendingConsumeIntents:\[player\]\[\]tuple\(int, int, logic, int\) = map\{\}/);
+  assert.match(source, /Each request stores \(id, authoritative quantity still expected, native success, matched quantity awaiting success\)/);
   assert.match(consume, /RequestId := QueueMysteryCrateConsumeIntent\(Player, Quantity\)/);
   assert.match(consume, /spawn\{ExpireMysteryCrateConsumeIntent\(Player, RequestId\)\}/);
   assert.match(consume, /if \(not Result\?\):[\s\S]+RemoveMysteryCrateConsumeIntent\(Player, RequestId\)/);
+  assert.match(consume, /else:\n                ConfirmMysteryCrateConsumeIntent\(Player, RequestId\)/);
   assert.doesNotMatch(consume, /_ConsumedSignal\.Signal/);
-  assert.match(source, /MatchedMysteryCrate := MatchMysteryCrateConsumeIntents\(Player, 0 - EntitlementChange\.Change\)/);
-  assert.match(source, /MysteryCrate_ConsumedSignal\.Signal\(\(Player, MatchedMysteryCrate\)\)/);
-  assert.match(source, /MatchedNow := if \(Requested < Remaining\) then Requested else Remaining/);
-  assert.match(source, /if \(Requested > MatchedNow\):/);
+  assert.match(source, /RecordMysteryCrateConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);
+  assert.match(source, /ConfirmMysteryCrateConsumeIntent\(Player:player, RequestId:int\):void/);
+  assert.match(source, /OperationSucceeded := Request\(2\)/);
+  assert.match(source, /BufferedMatched := Request\(3\)/);
+  assert.match(source, /if \(OperationSucceeded\?, BufferedMatched > 0\):/);
+  assert.match(source, /MysteryCrate_ConsumedSignal\.Signal\(\(Player, BufferedMatched\)\)/);
+  assert.match(source, /if \(RequestedRemaining > 0 or BufferedMatched > 0 or not OperationSucceeded\?\):/);
+  assert.match(source, /set Updated \+= array\{\(RequestId, RequestedRemaining, true, 0\)\}/);
+  assert.doesNotMatch(source, /MatchedMysteryCrate := MatchMysteryCrateConsumeIntents/);
+});
+
+test('two-sided consumption correlation handles both orderings, failure, FIFO quantities, and expiry', () => {
+  const resultFirst = new ConsumeCorrelationModel();
+  const resultFirstRequest = resultFirst.queue(1);
+  resultFirst.operationSucceeded(resultFirstRequest);
+  assert.deepEqual(resultFirst.emitted, []);
+  resultFirst.authoritativeDelta(1);
+  assert.deepEqual(resultFirst.emitted, [1]);
+  assert.deepEqual(resultFirst.pendingRequests, []);
+
+  const deltaFirst = new ConsumeCorrelationModel();
+  const deltaFirstRequest = deltaFirst.queue(1);
+  deltaFirst.authoritativeDelta(1);
+  assert.deepEqual(deltaFirst.emitted, []);
+  deltaFirst.operationSucceeded(deltaFirstRequest);
+  assert.deepEqual(deltaFirst.emitted, [1]);
+
+  const failedAfterEarlyDelta = new ConsumeCorrelationModel();
+  const failedRequest = failedAfterEarlyDelta.queue(1);
+  failedAfterEarlyDelta.authoritativeDelta(1);
+  failedAfterEarlyDelta.operationFailed(failedRequest);
+  assert.deepEqual(failedAfterEarlyDelta.emitted, []);
+
+  const quantity = new ConsumeCorrelationModel();
+  const quantityRequest = quantity.queue(5);
+  quantity.authoritativeDelta(2);
+  quantity.operationSucceeded(quantityRequest);
+  quantity.authoritativeDelta(3);
+  assert.deepEqual(quantity.emitted, [2, 3]);
+  assert.deepEqual(quantity.pendingRequests, []);
+
+  const fifo = new ConsumeCorrelationModel();
+  const first = fifo.queue(2);
+  const second = fifo.queue(3);
+  fifo.operationSucceeded(first);
+  fifo.operationSucceeded(second);
+  fifo.authoritativeDelta(4);
+  fifo.authoritativeDelta(1);
+  assert.deepEqual(fifo.emitted, [2, 2, 1]);
+  assert.deepEqual(fifo.pendingRequests, []);
+
+  const overlappingFailure = new ConsumeCorrelationModel();
+  const failedFirst = overlappingFailure.queue(2);
+  const survivingSecond = overlappingFailure.queue(2);
+  overlappingFailure.authoritativeDelta(3);
+  overlappingFailure.operationFailed(failedFirst);
+  overlappingFailure.operationSucceeded(survivingSecond);
+  assert.deepEqual(overlappingFailure.emitted, [1]);
+
+  const timeout = new ConsumeCorrelationModel();
+  const timeoutRequest = timeout.queue(1);
+  timeout.authoritativeDelta(1);
+  timeout.expire(timeoutRequest);
+  assert.deepEqual(timeout.emitted, []);
+  const noDeltaTimeout = new ConsumeCorrelationModel();
+  const noDeltaRequest = noDeltaTimeout.queue(1);
+  noDeltaTimeout.operationSucceeded(noDeltaRequest);
+  noDeltaTimeout.expire(noDeltaRequest);
+  assert.deepEqual(noDeltaTimeout.emitted, []);
+
+  const unrelatedRemoval = new ConsumeCorrelationModel();
+  unrelatedRemoval.authoritativeDelta(1);
+  assert.deepEqual(unrelatedRemoval.emitted, []);
 });
 
 test('Marketplace UI execution is unified and acquired before spawning', () => {
