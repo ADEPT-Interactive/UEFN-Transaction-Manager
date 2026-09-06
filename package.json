@@ -68,5 +68,10 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.15",
+    "fast-uri": "^3.1.7",
+    "qs": "^6.16.0"
   }
 }
