@@ -9,6 +9,7 @@ import urllib.request
 
 TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
+BRIDGE_REQUEST_TIMEOUT_SECONDS = 5.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -173,7 +174,7 @@ def _bridge_request(port, token, route, method="GET", payload=None):
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=1.5) as response:
+    with urllib.request.urlopen(request, timeout=BRIDGE_REQUEST_TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

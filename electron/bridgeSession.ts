@@ -86,7 +86,10 @@ function request(port: number, pathname: string, token?: string, method = 'GET',
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: '127.0.0.1', port, path: pathname, method,
-      timeout: 1500,
+      // Windows process-identity validation can briefly exceed the old
+      // 1.5-second deadline while UEFN is loading a large project. Keep the
+      // bridge fail-closed, but allow the verified local handshake to finish.
+      timeout: 5000,
       headers: {
         ...(token ? { 'X-UEM-Token': token } : {}),
         ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}),
