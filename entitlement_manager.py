@@ -9,7 +9,10 @@ import urllib.request
 
 TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
-BRIDGE_REQUEST_TIMEOUT_SECONDS = 5.0
+# Native Texture2D export/import runs on the UEFN editor thread and can exceed
+# the short readiness-handshake window on a loaded project. Keep the request
+# bounded, but allow the real editor job to finish before the connector fails.
+BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

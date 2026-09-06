@@ -357,6 +357,7 @@ class EntitlementManagerPathTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("X-uem-editor-token"), "editor-secret")
         self.assertIsNone(request.get_header("X-uem-token"))
+        self.assertEqual(entitlement_manager.BRIDGE_REQUEST_TIMEOUT_SECONDS, 30.0)
         self.assertEqual(urlopen.call_args.kwargs["timeout"], entitlement_manager.BRIDGE_REQUEST_TIMEOUT_SECONDS)
 
     def test_python_connector_attaches_to_matching_standalone_session(self):
