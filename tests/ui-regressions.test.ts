@@ -14,7 +14,7 @@ test('UEFN discovery accepts normal post-open project-browser selection but stay
   const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-project-discovery-'));
   const logDirectory = path.join(localAppData, 'UnrealEditorFortnite', 'Saved', 'Logs');
   fs.mkdirSync(logDirectory, { recursive: true });
-  const projectFile = 'C:/Users/test/Documents/UEFN Projects/TaB/TaB.uefnproject';
+  const projectFile = path.join(localAppData, 'TaB', 'TaB.uefnproject').replaceAll('\\', '/');
   const logPath = path.join(logDirectory, 'UnrealEditorFortnite.log');
   try {
     process.env.LOCALAPPDATA = localAppData;
