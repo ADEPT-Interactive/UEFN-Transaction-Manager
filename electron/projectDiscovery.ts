@@ -207,7 +207,7 @@ export function listUefnProcesses(writeDiagnostic: DiagnosticWriter = () => unde
   }
 }
 
-function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter): string | null {
+export function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter = () => undefined): string | null {
   const logPath = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   if (!fs.existsSync(logPath)) return null;
   try {
@@ -217,16 +217,12 @@ function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter): str
     // launched editor is not mistaken for the already-open project.
     const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
     if (latestStartup >= 0) text = text.slice(latestStartup);
-    // The project browser emits "Selected Project (Direct)" before the editor
-    // has actually opened the project. Only the editor's successful-open record
-    // is strong enough to establish project readiness.
+    // The project browser emits "Selected Project (Direct)" during normal
+    // project initialization, including after the successful-open record. Only
+    // the editor's successful-open record in the current startup block is strong
+    // enough to establish a candidate for connector bootstrap.
     const latestOpen = Array.from(text.matchAll(OPENED_PROJECT_PATTERN)).at(-1);
     if (!latestOpen) return null;
-    // Returning to the project browser emits a newer selector record while
-    // retaining the same UEFN process and old successful-open line. Do not
-    // relabel the browser as an active project or trigger connector bootstrap.
-    const latestSelection = text.lastIndexOf('LogValkyrieProjectBrowser: Selected Project (Direct):');
-    if (latestSelection > (latestOpen.index ?? -1)) return null;
     return latestOpen[1] ?? null;
   } catch (error) {
     writeDiagnostic(`The current UEFN log could not be inspected: ${error instanceof Error ? error.message : String(error)}`);

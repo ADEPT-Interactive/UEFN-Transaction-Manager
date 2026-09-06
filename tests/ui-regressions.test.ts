@@ -1,11 +1,33 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isNewCreationRequest } from '../src/services/creationIntent';
+import { readActiveProjectFromCurrentLog } from '../electron/projectDiscovery';
 
 const root = path.resolve(import.meta.dirname, '..');
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+
+test('UEFN discovery accepts normal post-open project-browser selection but stays fail-closed without an open record', () => {
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-project-discovery-'));
+  const logDirectory = path.join(localAppData, 'UnrealEditorFortnite', 'Saved', 'Logs');
+  fs.mkdirSync(logDirectory, { recursive: true });
+  const projectFile = 'C:/Users/test/Documents/UEFN Projects/TaB/TaB.uefnproject';
+  const logPath = path.join(logDirectory, 'UnrealEditorFortnite.log');
+  try {
+    process.env.LOCALAPPDATA = localAppData;
+    fs.writeFileSync(logPath, `Successfully opened project '${projectFile}'\nLogValkyrieProjectBrowser: Selected Project (Direct): {}`);
+    assert.equal(readActiveProjectFromCurrentLog(), projectFile);
+    fs.writeFileSync(logPath, 'LogValkyrieProjectBrowser: Selected Project (Direct): {}');
+    assert.equal(readActiveProjectFromCurrentLog(), null);
+  } finally {
+    if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previousLocalAppData;
+    fs.rmSync(localAppData, { recursive: true, force: true });
+  }
+});
 
 test('interactive confirmations are app-rendered rather than browser-native', () => {
   const componentSources = fs.readdirSync(path.join(root, 'src', 'components'))
