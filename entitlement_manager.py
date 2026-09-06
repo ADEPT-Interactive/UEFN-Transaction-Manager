@@ -328,7 +328,48 @@ def import_texture_job(job, normalize_adopted_texture=None):
     }
 
 
-def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mount=None):
+def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_mount=None):
+    """Return true only when the current editor thread has the expected project world."""
+    if not expected_project_file:
+        return False
+    try:
+        paths = getattr(unreal, "Paths", None)
+        expected_project = os.path.normcase(os.path.realpath(str(expected_project_file)))
+        project_file_path = getattr(paths, "project_file_path", None) if paths else None
+        project_dir = getattr(paths, "project_dir", None) if paths else None
+        if callable(project_file_path):
+            current_project = os.path.normcase(os.path.realpath(str(project_file_path())))
+            if current_project != expected_project:
+                return False
+        elif not callable(project_dir):
+            return False
+
+        editor_level_library = getattr(unreal, "EditorLevelLibrary", None)
+        get_editor_world = getattr(editor_level_library, "get_editor_world", None) if editor_level_library else None
+        editor_world = get_editor_world() if callable(get_editor_world) else None
+        subsystem_class = getattr(unreal, "UnrealEditorSubsystem", None)
+        get_editor_subsystem = getattr(unreal, "get_editor_subsystem", None)
+        subsystem_world = None
+        if subsystem_class and callable(get_editor_subsystem):
+            subsystem = get_editor_subsystem(subsystem_class)
+            get_world = getattr(subsystem, "get_editor_world", None)
+            subsystem_world = get_world() if callable(get_world) else None
+        world = editor_world or subsystem_world
+        if world is None:
+            return False
+        if expected_asset_mount:
+            get_path_name = getattr(world, "get_path_name", None)
+            world_path = str(get_path_name() if callable(get_path_name) else world).replace("\\", "/")
+            mount = str(expected_asset_mount).rstrip("/")
+            first_asset_path = world_path[world_path.find("/"):] if "/" in world_path else world_path
+            if not first_asset_path.casefold().startswith(f"{mount.casefold()}/"):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mount=None, project_file=None):
     """Keep a project import bridge alive without blocking the UEFN editor thread.
 
     Network polling runs on a daemon worker. The Slate callback only performs
@@ -363,6 +404,8 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
         "shutdown_requested": False,
         "last_error": None,
         "last_identity_report": 0.0,
+        "project_ready": False,
+        "last_project_ready": None,
     }
     handle_holder = {"value": None}
 
@@ -376,7 +419,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
                         editor_token,
                         "/api/editor/session",
                         "POST",
-                        {"contentRoot": content_dir, "assetMount": asset_mount, "processId": os.getpid()},
+                        {"contentRoot": content_dir, "assetMount": asset_mount, "projectReady": state["project_ready"], "processId": os.getpid()},
                     )
                     state["last_identity_report"] = now
                 response = _bridge_request(port, editor_token, "/api/texture/import/next")
@@ -408,6 +451,11 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
 
     def on_editor_tick(delta_seconds):
         del delta_seconds
+        next_project_ready = _editor_project_is_ready(unreal, project_file, asset_mount)
+        if state["last_project_ready"] is None or state["last_project_ready"] != next_project_ready:
+            unreal.log(f"[TransactionManager] Verified project readiness changed: {next_project_ready}")
+            state["last_project_ready"] = next_project_ready
+        state["project_ready"] = next_project_ready
         if state["shutdown_requested"]:
             stop_event.set()
             callback_handle = handle_holder["value"]
@@ -484,6 +532,7 @@ def attach_to_standalone_session(content_dir, asset_mount):
         editor_token = session.get("editorToken", "")
         linked_root = session.get("contentRoot", "")
         linked_mount = session.get("assetMount", "")
+        linked_project_file = session.get("projectFile", "")
         if session.get("schemaVersion") != 1 or not 1024 <= port <= 65535 or not isinstance(editor_token, str) or len(editor_token) < 32:
             return False
         if not verify_health(port):
@@ -497,7 +546,7 @@ def attach_to_standalone_session(content_dir, asset_mount):
                 "Restart Transaction Manager and choose this project from its boot menu before attaching editor imports."
             )
 
-        install_texture_import_bridge(port, editor_token, content_dir, asset_mount)
+        install_texture_import_bridge(port, editor_token, content_dir, asset_mount, linked_project_file)
         print("[TransactionManager] Optional editor connector attached to the existing standalone Transaction Manager window.")
         return True
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:

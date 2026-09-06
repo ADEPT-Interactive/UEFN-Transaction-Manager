@@ -22,6 +22,7 @@ UTM MCP manages the transaction catalog, validation, generated `managed_transact
 - Migrations are read-only until the inventory, required source-to-proposed semantic parity table, and dry run are reviewed. Use `validate_migration_parity` and then include the same table in `apply_catalog_patch` with `migration.mode: "existing-project"`; UTM rejects a missing, incomplete, inferred, ambiguous, absent, or contradictory table before any migration mutation. Preserve unmatched existing UTM records by default. Stop only when ambiguity could change what is sold, owned, granted, consumed, priced, restricted, or eligible.
 - A successful tool call is not verification. Use the full save/generate/compile/inspect/verify loop.
 - Never read or write arbitrary files or `.uasset` binaries through UTM. Internal UTM UI/editor bridge credentials remain private and must never enter project files, generated Verse, logs, prompts, or source control.
+- UEFN capability availability is not project readiness. The project browser may keep the UEFN process, Verse workflow server, Python runtime, or UEFN MCP listener alive; treat selector/loading states and retained connector heartbeats as not ready. Require UTM `get_project_context` to report the exact project active with `editorConnected=true` and native texture adoption available before first-run or asset mutations. Recheck after project close/browser transitions and after reconnects.
 
 ## Setup and connection
 

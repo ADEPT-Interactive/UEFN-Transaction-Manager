@@ -115,6 +115,30 @@ class EntitlementManagerPathTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"unreal": unreal}):
             self.assertEqual(entitlement_manager.get_uefn_asset_mount(), "/Asset_Sandbox")
 
+    def test_editor_project_readiness_uses_mounted_world_when_host_project_dir_is_reported(self):
+        import entitlement_manager
+
+        world = types.SimpleNamespace(get_path_name=lambda: "/TaB/TaB.TaB")
+        unreal = types.SimpleNamespace(
+            Paths=types.SimpleNamespace(
+                project_file_path=None,
+                project_dir=lambda: "../../../FortniteGame/",
+            ),
+            EditorLevelLibrary=types.SimpleNamespace(get_editor_world=lambda: world),
+        )
+
+        self.assertTrue(entitlement_manager._editor_project_is_ready(unreal, r"C:\TaB\TaB.uefnproject", "/TaB"))
+
+    def test_editor_project_readiness_fails_closed_without_a_mounted_project_world(self):
+        import entitlement_manager
+
+        unreal = types.SimpleNamespace(
+            Paths=types.SimpleNamespace(project_file_path=None, project_dir=lambda: "../../../FortniteGame/"),
+            EditorLevelLibrary=types.SimpleNamespace(get_editor_world=lambda: None),
+        )
+
+        self.assertFalse(entitlement_manager._editor_project_is_ready(unreal, r"C:\TaB\TaB.uefnproject", "/TaB"))
+
     def test_standard_unreal_project_uses_project_content_directory(self):
         import entitlement_manager
 
@@ -355,7 +379,7 @@ class EntitlementManagerPathTests(unittest.TestCase):
                 with mock.patch.object(entitlement_manager, "verify_health", return_value=True):
                     with mock.patch.object(entitlement_manager, "install_texture_import_bridge", return_value="handle") as install:
                         self.assertTrue(entitlement_manager.attach_to_standalone_session(content_dir, "/StandaloneTest"))
-                        install.assert_called_once_with(43210, "editor-secret".ljust(48, "x"), content_dir, "/StandaloneTest")
+                        install.assert_called_once_with(43210, "editor-secret".ljust(48, "x"), content_dir, "/StandaloneTest", "")
 
     def test_editor_tick_callback_is_retained_by_the_unreal_module(self):
         import entitlement_manager

@@ -96,18 +96,18 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const statusWithoutEditorIdentity = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
     assert.equal(statusWithoutEditorIdentity.status, 200);
     assert.equal((await statusWithoutEditorIdentity.json()).editorConnected, false);
-    const mismatchedEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/AnotherProject', processId: process.pid }) });
+    const mismatchedEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/AnotherProject', projectReady: true, processId: process.pid }) });
     assert.equal(mismatchedEditorIdentity.status, 409);
     const wrongRoot = path.join(root, 'DifferentContent');
     fs.mkdirSync(wrongRoot);
-    const wrongRootIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: wrongRoot, assetMount: '/SecurityTest', processId: process.pid }) });
+    const wrongRootIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: wrongRoot, assetMount: '/SecurityTest', projectReady: true, processId: process.pid }) });
     assert.equal(wrongRootIdentity.status, 409);
     const deadUefn = spawn(process.execPath, ['-e', 'setInterval(() => {}, 10000)'], { stdio: 'ignore' });
     deadUefn.kill();
     await new Promise<void>(resolve => deadUefn.once('exit', () => resolve()));
-    const deadProcessIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', processId: deadUefn.pid }) });
+    const deadProcessIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', projectReady: true, processId: deadUefn.pid }) });
     assert.equal(deadProcessIdentity.status, 409);
-    const matchingEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', processId: process.pid }) });
+    const matchingEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', projectReady: true, processId: process.pid }) });
     assert.equal(matchingEditorIdentity.status, 200);
     const statusWithEditorIdentity = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
     const editorStateWithIdentity = await statusWithEditorIdentity.json() as { editorConnected: boolean; projectActive: boolean };
@@ -118,7 +118,7 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const staleEditorState = await staleEditorStatus.json() as { editorConnected: boolean; projectActive: boolean };
     assert.equal(staleEditorState.projectActive, false);
     assert.equal(staleEditorState.editorConnected, false);
-    assert.equal((await (await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', processId: process.pid }) })).json()).success, true);
+    assert.equal((await (await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', projectReady: true, processId: process.pid }) })).json()).success, true);
 
     leaseController = new AbortController();
     const leaseResponse = await fetch(`${base}/api/session/lease`, { headers: { 'X-UEM-Token': token }, signal: leaseController.signal });
@@ -262,7 +262,7 @@ test('bridge exits after the browser lease closes', async () => {
   }
 });
 
-test('standalone bridge verifies the active UEFN project without a Python editor session', async () => {
+test('standalone bridge fails closed without an explicit editor project-readiness assertion', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-active-project-'));
   const projectDirectory = path.join(tempRoot, 'StandaloneProject');
   const contentRoot = path.join(projectDirectory, 'Content');
@@ -313,7 +313,7 @@ test('standalone bridge verifies the active UEFN project without a Python editor
       success: true,
       uefnRunning: true,
       editorConnected: false,
-      projectActive: true,
+      projectActive: false,
       differentProjectOpen: false,
       openProjectFile: projectFile.replace(/\\/g, '/'),
       pythonEnabled: false,
@@ -322,8 +322,8 @@ test('standalone bridge verifies the active UEFN project without a Python editor
       bootstrapState: 'not-needed',
     });
     const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', expectedHash: contentHash }) });
-    assert.equal(compile.status, 422);
-    assert.match(String((await compile.json()).error), /workflow server/i);
+    assert.equal(compile.status, 409);
+    assert.match(String((await compile.json()).error), /active editor matches this project/i);
     const otherProjectFile = path.join(tempRoot, 'OtherProject', 'OtherProject.uefnproject');
     fs.appendFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), `[Test] LogValkyrie: Display: Successfully opened project '${otherProjectFile.replace(/\\/g, '/')}' (took 1 sec)\n`);
     const differentStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });

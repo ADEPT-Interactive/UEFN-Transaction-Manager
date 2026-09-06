@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)] [string]$BaselineInstaller,
     [Parameter(Mandatory = $true)] [string]$CandidateInstaller,
     [Parameter(Mandatory = $true)] [string]$IsolationRoot,
+    [switch]$NaturalPath,
     [switch]$KeepTestFiles
 )
 
@@ -43,8 +44,9 @@ function Get-ProductVersion([string]$path) {
     return (Get-Item -LiteralPath $path).VersionInfo.ProductVersion
 }
 
-function Start-Installer([string]$path, [string]$installRoot) {
-    $process = Start-Process -FilePath $path -ArgumentList @('/S', "/D=$installRoot") -Wait -PassThru
+function Start-Installer([string]$path, [string]$installRoot, [switch]$useNaturalPath) {
+    $arguments = if ($useNaturalPath) { @('/S') } else { @('/S', "/D=$installRoot") }
+    $process = Start-Process -FilePath $path -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Installer exited with code $($process.ExitCode): $path" }
 }
 
@@ -87,7 +89,7 @@ function Invoke-Uninstall([object]$entry) {
 $baseline = Resolve-File $BaselineInstaller 'Baseline installer'
 $candidate = Resolve-File $CandidateInstaller 'Candidate installer'
 $root = [IO.Path]::GetFullPath($IsolationRoot)
-$installRoot = Join-Path $root 'install'
+$installRoot = if ($NaturalPath) { $null } else { Join-Path $root 'install' }
 $marker = Join-Path $env:APPDATA 'UEFN Transaction Manager\installer-upgrade-gate-marker.txt'
 $shortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\UEFN Transaction Manager.lnk'
 
@@ -105,13 +107,15 @@ $evidence = [ordered]@{
     steps = [ordered]@{}
 }
 
-New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+if (-not $NaturalPath) { New-Item -ItemType Directory -Path $installRoot -Force | Out-Null }
 try {
-    Start-Installer $baseline $installRoot
-    $baselineExe = Join-Path $installRoot 'UEFN Transaction Manager.exe'
-    if (-not (Test-Path -LiteralPath $baselineExe -PathType Leaf)) { throw 'The 4.2.0 installer did not create the expected application executable.' }
+    Start-Installer $baseline $installRoot -useNaturalPath:$NaturalPath
     $baselineEntry = @(Get-UtmUninstallEntries)
     $baselineShortcut = Get-UtmShortcut
+    if (-not $baselineShortcut) { throw 'The 4.2.0 installer did not create the expected Start Menu shortcut.' }
+    $baselineExe = if ($NaturalPath) { $baselineShortcut.Target } else { Join-Path $installRoot 'UEFN Transaction Manager.exe' }
+    if (-not (Test-Path -LiteralPath $baselineExe -PathType Leaf)) { throw 'The 4.2.0 installer did not create the expected application executable.' }
+    if ($NaturalPath) { $installRoot = Split-Path -Parent $baselineExe }
     if ($baselineEntry.Count -ne 1 -or -not $baselineShortcut -or $baselineShortcut.Target -ine $baselineExe) { throw 'The 4.2.0 install did not create exactly one matching Start Menu/uninstall identity.' }
     if ((Get-ProductVersion $baselineExe) -notmatch '^4\.2\.0') { throw "The baseline executable reports $(Get-ProductVersion $baselineExe), not 4.2.0." }
     New-Item -ItemType Directory -Path (Split-Path -Parent $marker) -Force | Out-Null
@@ -119,10 +123,11 @@ try {
     Stop-UtmProcess $baselineExe
     $evidence.steps.baseline = [ordered]@{ version = Get-ProductVersion $baselineExe; installRoot = $installRoot; shortcutTarget = $baselineShortcut.Target; uninstallDisplayVersion = $baselineEntry[0].DisplayVersion; markerCreated = Test-Path -LiteralPath $marker }
 
-    Start-Installer $candidate $installRoot
-    $candidateExe = Join-Path $installRoot 'UEFN Transaction Manager.exe'
+    Start-Installer $candidate $installRoot -useNaturalPath:$NaturalPath
     $candidateEntry = @(Get-UtmUninstallEntries)
     $candidateShortcut = Get-UtmShortcut
+    if (-not $candidateShortcut) { throw 'The 4.3.0 installer did not preserve the Start Menu shortcut.' }
+    $candidateExe = if ($NaturalPath) { $candidateShortcut.Target } else { Join-Path $installRoot 'UEFN Transaction Manager.exe' }
     $versionFile = Join-Path $installRoot 'resources\app\version.json'
     $mainBundle = Join-Path $installRoot 'resources\app\dist-electron\main.cjs'
     $serverBundle = Join-Path $installRoot 'resources\app\dist\server.cjs'
@@ -132,7 +137,8 @@ try {
     if ((Get-ProductVersion $candidateExe) -notmatch '^4\.3\.0') { throw "The upgraded executable reports $(Get-ProductVersion $candidateExe), not 4.3.0." }
     $version = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
     if ($version.version -ne '4.3.0') { throw "The upgraded bundled version is $($version.version), not 4.3.0." }
-    if ($candidateEntry.Count -ne 1 -or -not $candidateShortcut -or $candidateShortcut.Target -ine $candidateExe) { throw 'The upgrade did not leave exactly one matching Start Menu/uninstall identity.' }
+    if ($candidateEntry.Count -ne 1 -or $candidateShortcut.Target -ine $candidateExe) { throw 'The upgrade did not leave exactly one matching Start Menu/uninstall identity.' }
+    if ($NaturalPath -and ($candidateShortcut.Target -ine $baselineShortcut.Target -or $candidateEntry[0].Key -ine $baselineEntry[0].Key)) { throw 'The natural-path upgrade created a different installation identity.' }
     $serverText = Get-Content -LiteralPath $serverBundle -Raw
     $rendererText = Get-Content -LiteralPath $rendererBundle[0] -Raw
     $pythonText = Get-Content -LiteralPath $pythonBundle -Raw
@@ -141,7 +147,7 @@ try {
     }
     if ($pythonText -notmatch 'TextureExporterPNG') { throw 'The upgraded Python bridge is missing the expected texture import marker.' }
     Start-FromShortcut $candidateExe | Out-Null
-    $evidence.steps.upgrade = [ordered]@{ version = Get-ProductVersion $candidateExe; installRoot = $installRoot; shortcutTarget = $candidateShortcut.Target; uninstallDisplayVersion = $candidateEntry[0].DisplayVersion; userStateMarkerSurvives = Test-Path -LiteralPath $marker; mainBundleSha256 = (Get-FileHash -LiteralPath $mainBundle -Algorithm SHA256).Hash.ToLowerInvariant(); serverBundleSha256 = (Get-FileHash -LiteralPath $serverBundle -Algorithm SHA256).Hash.ToLowerInvariant(); rendererBundle = Split-Path -Leaf $rendererBundle[0] }
+    $evidence.steps.upgrade = [ordered]@{ version = Get-ProductVersion $candidateExe; installRoot = $installRoot; shortcutTarget = $candidateShortcut.Target; sameLogicalInstall = $candidateShortcut.Target -ieq $baselineShortcut.Target -and $candidateEntry[0].Key -ieq $baselineEntry[0].Key; uninstallDisplayVersion = $candidateEntry[0].DisplayVersion; userStateMarkerSurvives = Test-Path -LiteralPath $marker; mainBundleSha256 = (Get-FileHash -LiteralPath $mainBundle -Algorithm SHA256).Hash.ToLowerInvariant(); serverBundleSha256 = (Get-FileHash -LiteralPath $serverBundle -Algorithm SHA256).Hash.ToLowerInvariant(); rendererBundle = Split-Path -Leaf $rendererBundle[0] }
     if (-not (Test-Path -LiteralPath $marker)) { throw 'The 4.3.0 upgrade did not preserve the user-state marker.' }
 
     Invoke-Uninstall $candidateEntry[0]
@@ -152,7 +158,7 @@ try {
     Write-Output ($evidence | ConvertTo-Json -Depth 8)
 }
 finally {
-    Stop-UtmProcess (Join-Path $installRoot 'UEFN Transaction Manager.exe')
+    if ($installRoot) { Stop-UtmProcess (Join-Path $installRoot 'UEFN Transaction Manager.exe') }
     foreach ($entry in @(Get-UtmUninstallEntries | Where-Object { $_.UninstallString -like "*$root*" })) {
         if ($entry.UninstallString -match '^"(?<path>[^"]+)"' -and (Test-Path -LiteralPath $Matches.path -PathType Leaf)) {
             try { Invoke-Uninstall $entry } catch { }

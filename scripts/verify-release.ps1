@@ -195,7 +195,7 @@ try {
     if (-not $heartbeat.success) { throw "The authenticated release heartbeat failed." }
 
     $editorHeaders = @{ "X-UEM-Editor-Token" = $env:UEM_EDITOR_TOKEN }
-    $editorSessionBody = @{ contentRoot = $bridgeRoot; assetMount = "/ReleaseTest"; processId = $PID } | ConvertTo-Json
+    $editorSessionBody = @{ contentRoot = $bridgeRoot; assetMount = "/ReleaseTest"; projectReady = $true; processId = $PID } | ConvertTo-Json
     $editorSession = Invoke-RestMethod -Uri "$baseUri/api/editor/session" -Method Post -Headers $editorHeaders -ContentType "application/json" -Body $editorSessionBody -TimeoutSec 3
     if (-not $editorSession.success) { throw "The packaged release could not establish its verified editor test session." }
 

@@ -105,6 +105,7 @@ def install():
                 state["editorToken"],
                 state["contentRoot"],
                 state["assetMount"],
+                state.get("projectFile"),
             )
             attached_signature["value"] = signature
             unreal.log("[TransactionManager] Automatically attached native texture importing to the standalone Transaction Manager session.")

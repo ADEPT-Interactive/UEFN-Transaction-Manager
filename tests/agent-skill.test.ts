@@ -19,6 +19,8 @@ test('Agent Skill is discoverable, reference-driven, and does not hardcode gener
   assert.match(skill, /Existing-project migration/);
   assert.match(skill, /CATALOG_REVISION_CONFLICT/);
   assert.match(skill, /manual UEFN wiring/);
+  assert.match(skill, /capability availability is not project readiness/i);
+  assert.match(skill, /project browser/i);
   assert.doesNotMatch(skill, /Open[A-Z][A-Za-z]+Purchase\(Player/);
   for (const file of ['new-project-workflow.md', 'existing-project-adoption.md', 'transaction-semantics.md', 'dynamic-transactions.md', 'asset-adoption.md', 'verification.md', 'tool-discovery.md', 'agent-setup.md']) {
     assert.ok(fs.existsSync(path.join(skillRoot, 'references', file)), file);

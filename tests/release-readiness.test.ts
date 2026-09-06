@@ -68,7 +68,7 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
   const normalizedOpenedProject = openedProject.replace(/\\/g, '/');
   const projectLog = options.projectEvidence === 'selected-only'
     ? `[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`
-    : `Successfully opened project '${normalizedOpenedProject}'\n[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\n`;
+    : `[Test] LogValkyrieProjectBrowser: Selected Project (Direct): {\n  "path": "${normalizedOpenedProject}"\n}\nSuccessfully opened project '${normalizedOpenedProject}'\n`;
   fs.writeFileSync(path.join(logDirectory, 'UnrealEditorFortnite.log'), projectLog);
   if (options.initialized) {
     const document = catalogDocument(contentRoot);
@@ -84,7 +84,7 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
   const fakeUefn = spawn(process.execPath, ['-e', 'setInterval(() => {}, 10000)'], { stdio: 'ignore' });
   const server = spawn(process.execPath, ['dist/server.cjs'], {
     cwd: process.cwd(),
-    env: { ...process.env, LOCALAPPDATA: localAppData, UEM_AGENT_HOME: path.join(root, 'agent-home'), PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: contentRoot, UEM_ASSET_MOUNT: '/ReadinessProject', UEM_PROJECT_FILE: projectFile, UEM_IDLE_TIMEOUT_MS: '60000' },
+    env: { ...process.env, LOCALAPPDATA: localAppData, UEM_AGENT_HOME: path.join(root, 'agent-home'), PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: contentRoot, UEM_ASSET_MOUNT: '/ReadinessProject', UEM_PROJECT_FILE: projectFile, UEM_UEFN_PROCESS_ID: String(fakeUefn.pid), UEM_IDLE_TIMEOUT_MS: '60000' },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;
@@ -99,7 +99,7 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
     try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
     await sleep(50);
   }
-  const connectEditor = () => request('/api/editor/session', { method: 'POST', headers: { 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot, assetMount: '/ReadinessProject', processId: fakeUefn.pid }) });
+  const connectEditor = (projectReady = true) => request('/api/editor/session', { method: 'POST', headers: { 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot, assetMount: '/ReadinessProject', projectReady, processId: fakeUefn.pid }) });
   return {
     root, contentRoot, projectFile, token, editorToken, base, fakeUefn, server, request, connectEditor,
     close: async () => {
@@ -158,6 +158,22 @@ test('Case A2: project-browser selection does not count as an open editor projec
     assert.equal(result.status, 409);
     assert.equal(result.body.code, 'PROJECT_NOT_READY');
     assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
+  } finally { await bridge.close(); }
+});
+
+test('Case A3: returning to the project browser revokes a fresh matching editor session', async () => {
+  const bridge = await startBridge({ pythonEnabled: true });
+  try {
+    assert.equal((await bridge.connectEditor()).status, 200);
+    const ready = await bridge.request('/api/editor/status');
+    assert.equal(ready.body.editorConnected, true);
+    assert.equal(ready.body.projectActive, true);
+    await bridge.connectEditor(false);
+    const browser = await bridge.request('/api/editor/status');
+    assert.equal(browser.body.uefnRunning, true);
+    assert.equal(browser.body.projectActive, false);
+    assert.equal(browser.body.editorConnected, false);
+    assert.equal(browser.body.nativeTextureImportAvailable, false);
   } finally { await bridge.close(); }
 });
 

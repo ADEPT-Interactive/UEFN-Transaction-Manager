@@ -29,12 +29,14 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   const upgradeGate = read('scripts/verify-installer-upgrade.ps1');
   assert.match(upgradeGate, /BaselineInstaller/);
   assert.match(upgradeGate, /CandidateInstaller/);
+  assert.match(upgradeGate, /NaturalPath/);
   assert.match(upgradeGate, /Refusing to run the installer upgrade gate while a UTM installation/);
   assert.match(upgradeGate, /4\\\.2\\\.0/);
   assert.match(upgradeGate, /4\\\.3\\\.0/);
   assert.match(upgradeGate, /Start-FromShortcut/);
   assert.match(upgradeGate, /Invoke-Uninstall/);
   assert.match(upgradeGate, /PendingConsumeIntents/);
+  assert.match(read('scripts/verify-release.ps1'), /projectReady/);
 });
 
 test('creator-facing MCP terminology stays on the current UEFN MCP name', () => {

@@ -121,19 +121,19 @@ const distPath = path.join(__dirname, '..', 'dist');
 let lastUiActivity = Date.now();
 const uiLeases = new Set<express.Response>();
 let leaseShutdownTimer: NodeJS.Timeout | undefined;
-let editorSession: { contentRoot: string; assetMount: string; processId: number; reportedAt: number } | undefined;
+let editorSession: { contentRoot: string; assetMount: string; processId: number; projectReady: boolean; reportedAt: number } | undefined;
 let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = bootstrapEligible ? 'waiting' : 'not-needed';
 let bootstrapMessage: string | undefined;
 
 function editorSessionIsFresh(): boolean {
-  return Boolean(editorSession && Date.now() - editorSession.reportedAt <= 5000 && processIdIsRunning(editorSession.processId));
+  return Boolean(editorSession && editorSession.projectReady && Date.now() - editorSession.reportedAt <= 5000 && processIdIsRunning(editorSession.processId));
 }
 
-function latestProjectOpenedByUefn(): string | undefined {
-  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return undefined;
+function latestUefnProjectLifecycle(): { openedProject?: string; openedPosition: number; latestSelectionPosition: number } {
+  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return { openedPosition: -1, latestSelectionPosition: -1 };
   const logPath = path.join(process.env.LOCALAPPDATA, 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   try {
-    if (!fs.existsSync(logPath)) return undefined;
+    if (!fs.existsSync(logPath)) return { openedPosition: -1, latestSelectionPosition: -1 };
     const stats = fs.statSync(logPath);
     const bytesToRead = Math.min(stats.size, 4 * 1024 * 1024);
     const buffer = Buffer.alloc(bytesToRead);
@@ -149,16 +149,37 @@ function latestProjectOpenedByUefn(): string | undefined {
     // has actually opened the project. Only the editor's successful-open record
     // is strong enough to establish project readiness.
     const matches = [...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
-    return matches.length ? matches[matches.length - 1][1] : undefined;
+    const latestOpen = matches.at(-1);
+    return {
+      openedProject: latestOpen?.[1],
+      openedPosition: latestOpen?.index ?? -1,
+      latestSelectionPosition: text.lastIndexOf('LogValkyrieProjectBrowser: Selected Project (Direct):'),
+    };
   } catch {
-    return undefined;
+    return { openedPosition: -1, latestSelectionPosition: -1 };
   }
+}
+
+function latestProjectOpenedByUefn(): string | undefined {
+  return latestUefnProjectLifecycle().openedProject;
 }
 
 let cachedUefnProcessSnapshot = { checkedAt: 0, running: false };
 
 function processIdIsRunning(processId: number): boolean {
   if (!Number.isInteger(processId) || processId <= 0) return false;
+  if (process.platform === 'win32') {
+    try {
+      const output = childProcess.execFileSync(
+        'tasklist.exe',
+        ['/FI', `PID eq ${processId}`, '/FO', 'CSV', '/NH'],
+        { encoding: 'utf8', windowsHide: true, timeout: 1500 },
+      );
+      return new RegExp(`"${processId}"`).test(output);
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(processId, 0);
     return true;
@@ -207,11 +228,15 @@ function projectPythonIsEnabled(): boolean {
 }
 
 function selectedProjectIsActiveInUefn(): boolean {
-  // A fresh editor session has already passed the exact Content-root, asset-
-  // mount, and live-process checks in /api/editor/session. Once that
-  // authenticated evidence exists it is stronger than the optional retained
-  // log window, which may have rotated or no longer contain the open record.
-  return editorSessionIsFresh() || (uefnIsRunning() && pathsEqual(latestProjectOpenedByUefn(), configuredProjectFile));
+  if (!editorSessionIsFresh() || !uefnIsRunning()) return false;
+  const lifecycle = latestUefnProjectLifecycle();
+  if (lifecycle.openedProject && !pathsEqual(lifecycle.openedProject, configuredProjectFile)) return false;
+  // The connector's editor-thread assertion is authoritative for the current
+  // lifecycle. UEFN emits a later Selected Project (Direct) record during
+  // normal project initialization, so selector ordering alone cannot revoke a
+  // genuinely open project. A return to the browser is reported as
+  // projectReady=false and then becomes stale after the connector stops.
+  return true;
 }
 
 function sha256(content: string | Buffer): string {
@@ -227,8 +252,9 @@ const allowedOrigins = new Set([
 function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
-  const editorConnected = editorSessionIsFresh();
+  const sessionConnected = editorSessionIsFresh();
   const projectActive = selectedProjectIsActiveInUefn();
+  const editorConnected = sessionConnected && projectActive;
   const pythonEnabled = projectPythonIsEnabled();
   return {
     productVersion: versionInfo.version,
@@ -655,15 +681,15 @@ app.post('/api/editor/bootstrap-status', (req, res) => {
 
 app.post('/api/editor/session', requireEditorToken, (req, res) => {
   try {
-    if (typeof req.body.contentRoot !== 'string' || typeof req.body.assetMount !== 'string' || !Number.isInteger(req.body.processId) || req.body.processId <= 0) {
-      throw new Error('Editor session must include its Content root, asset mount, and UEFN process identity.');
+    if (typeof req.body.contentRoot !== 'string' || typeof req.body.assetMount !== 'string' || typeof req.body.projectReady !== 'boolean' || !Number.isInteger(req.body.processId) || req.body.processId <= 0) {
+      throw new Error('Editor session must include its Content root, asset mount, project readiness assertion, and UEFN process identity.');
     }
     const reportedRoot = fs.realpathSync(req.body.contentRoot);
     if (path.normalize(reportedRoot).toLowerCase() !== path.normalize(contentRoot).toLowerCase() || req.body.assetMount !== configuredAssetMount) {
       return res.status(409).json({ success: false, error: 'The active UEFN editor project does not match this manager session.' });
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
-    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, processId: req.body.processId, reportedAt: Date.now() };
+    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, processId: req.body.processId, projectReady: req.body.projectReady, reportedAt: Date.now() };
     res.json({ success: true, assetMount: configuredAssetMount });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Editor project identity could not be verified.' });
