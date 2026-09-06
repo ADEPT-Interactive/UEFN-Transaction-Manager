@@ -239,7 +239,7 @@ test('consumption signals are correlated to authoritative negative deltas', () =
   assert.match(source, /RecordMysteryCrateConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);
   assert.match(source, /ConfirmMysteryCrateConsumeIntent\(Player:player, RequestId:int\):void/);
   assert.match(source, /OperationSucceeded := Request\(2\)/);
-  assert.match(source, /BufferedMatched := Request\(3\)/);
+  assert.match(source, /var BufferedMatched:int = Request\(3\)/);
   assert.match(source, /if \(OperationSucceeded\?, BufferedMatched > 0\):/);
   assert.match(source, /MysteryCrate_ConsumedSignal\.Signal\(\(Player, BufferedMatched\)\)/);
   assert.match(source, /if \(RequestedRemaining > 0 or BufferedMatched > 0 or not OperationSucceeded\?\):/);
