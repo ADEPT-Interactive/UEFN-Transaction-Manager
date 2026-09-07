@@ -17,6 +17,8 @@ import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/cons
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
 import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
+import { createProjectBackup } from '../shared/projectBackups';
+import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -121,42 +123,48 @@ const distPath = path.join(__dirname, '..', 'dist');
 let lastUiActivity = Date.now();
 const uiLeases = new Set<express.Response>();
 let leaseShutdownTimer: NodeJS.Timeout | undefined;
-let editorSession: { contentRoot: string; assetMount: string; processId: number; projectReady: boolean; reportedAt: number } | undefined;
+type EditorSessionReport = {
+  contentRoot: string;
+  assetMount: string;
+  projectFile?: string;
+  processId: number;
+  projectReady: boolean;
+  readinessReason: string;
+  reportedAt: number;
+};
+
+let editorSession: EditorSessionReport | undefined;
 let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = bootstrapEligible ? 'waiting' : 'not-needed';
 let bootstrapMessage: string | undefined;
+let bootstrapDetails: { attemptNumber?: number; intendedProject?: string; uefnProcessId?: number; method?: string; commandAccepted?: boolean; handshakeConfirmed?: boolean } = {};
 
-function editorSessionIsFresh(): boolean {
-  return Boolean(editorSession && editorSession.projectReady && Date.now() - editorSession.reportedAt <= 5000 && processIdIsRunning(editorSession.processId));
+type ProcessProbe = { checkedAt: number; running: boolean; lastSuccessfulProbeAt: number };
+const processProbeCache = new Map<number, ProcessProbe>();
+
+function connectorHeartbeatIsFresh(now = Date.now()): boolean {
+  return isConnectorHeartbeatFresh(editorSession, now, editorSession ? processIdIsRunning(editorSession.processId) : false);
 }
 
-function latestUefnProjectLifecycle(): { openedProject?: string; openedPosition: number; latestSelectionPosition: number } {
-  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return { openedPosition: -1, latestSelectionPosition: -1 };
+function editorSessionIsFresh(): boolean {
+  return Boolean(editorSession?.projectReady && connectorHeartbeatIsFresh());
+}
+
+function latestUefnProjectLifecycle(): { openedProject?: string; openedPosition: number; closedPosition: number; latestSelectionPosition: number } {
+  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
   const logPath = path.join(process.env.LOCALAPPDATA, 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   try {
-    if (!fs.existsSync(logPath)) return { openedPosition: -1, latestSelectionPosition: -1 };
+    if (!fs.existsSync(logPath)) return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
     const stats = fs.statSync(logPath);
     const bytesToRead = Math.min(stats.size, 4 * 1024 * 1024);
     const buffer = Buffer.alloc(bytesToRead);
     const descriptor = fs.openSync(logPath, 'r');
     try { fs.readSync(descriptor, buffer, 0, bytesToRead, stats.size - bytesToRead); }
     finally { fs.closeSync(descriptor); }
-    let text = buffer.toString('utf8');
-    // UEFN may append a new editor startup before rotating its log. Only use
-    // project-open records belonging to the latest startup block.
-    const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
-    if (latestStartup >= 0) text = text.slice(latestStartup);
-    // The project browser emits "Selected Project (Direct)" before the editor
-    // has actually opened the project. Only the editor's successful-open record
-    // is strong enough to establish project readiness.
-    const matches = [...text.matchAll(/Successfully opened project '([^']+\.uefnproject)'/gi)];
-    const latestOpen = matches.at(-1);
-    return {
-      openedProject: latestOpen?.[1],
-      openedPosition: latestOpen?.index ?? -1,
-      latestSelectionPosition: text.lastIndexOf('LogValkyrieProjectBrowser: Selected Project (Direct):'),
-    };
+    // parseUefnProjectLifecycleLog applies the latestStartup boundary before
+    // project readiness is derived from the current UEFN lifecycle.
+    return parseUefnProjectLifecycleLog(buffer.toString('utf8'));
   } catch {
-    return { openedPosition: -1, latestSelectionPosition: -1 };
+    return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
   }
 }
 
@@ -164,10 +172,13 @@ function latestProjectOpenedByUefn(): string | undefined {
   return latestUefnProjectLifecycle().openedProject;
 }
 
-let cachedUefnProcessSnapshot = { checkedAt: 0, running: false };
+let cachedUefnProcessSnapshot = { checkedAt: 0, running: false, lastSuccessfulProbeAt: 0 };
 
 function processIdIsRunning(processId: number): boolean {
   if (!Number.isInteger(processId) || processId <= 0) return false;
+  const now = Date.now();
+  const cached = processProbeCache.get(processId);
+  if (cached && now - cached.checkedAt < PROCESS_PROBE_CACHE_MS) return cached.running;
   if (process.platform === 'win32') {
     try {
       const output = childProcess.execFileSync(
@@ -175,23 +186,33 @@ function processIdIsRunning(processId: number): boolean {
         ['/FI', `PID eq ${processId}`, '/FO', 'CSV', '/NH'],
         { encoding: 'utf8', windowsHide: true, timeout: 1500 },
       );
-      return new RegExp(`"${processId}"`).test(output);
+      const running = new RegExp(`"${processId}"`).test(output);
+      processProbeCache.set(processId, { checkedAt: now, running, lastSuccessfulProbeAt: now });
+      return running;
     } catch {
-      return false;
+      // tasklist can briefly fail while UEFN is starting or Windows is
+      // servicing the process table. Do not turn that probe failure into a
+      // false death while the same PID was verified moments ago.
+      const running = retainKnownRunningProcess(Boolean(cached?.running), cached?.lastSuccessfulProbeAt ?? 0, now);
+      processProbeCache.set(processId, { checkedAt: now, running, lastSuccessfulProbeAt: cached?.lastSuccessfulProbeAt ?? 0 });
+      return running;
     }
   }
   try {
     process.kill(processId, 0);
+    processProbeCache.set(processId, { checkedAt: now, running: true, lastSuccessfulProbeAt: now });
     return true;
   } catch {
+    processProbeCache.set(processId, { checkedAt: now, running: false, lastSuccessfulProbeAt: now });
     return false;
   }
 }
 
 function uefnIsRunning(): boolean {
-  if (editorSessionIsFresh()) return true;
+  if (connectorHeartbeatIsFresh()) return true;
   if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
-  if (Date.now() - cachedUefnProcessSnapshot.checkedAt < 1000) return cachedUefnProcessSnapshot.running;
+  const now = Date.now();
+  if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
   let running = false;
   if (process.platform === 'win32') {
     try {
@@ -202,10 +223,12 @@ function uefnIsRunning(): boolean {
       );
       running = /UnrealEditorFortnite-Win64-Shipping\.exe/i.test(output);
     } catch {
-      running = false;
+      running = retainKnownRunningProcess(cachedUefnProcessSnapshot.running, cachedUefnProcessSnapshot.lastSuccessfulProbeAt, now);
+      cachedUefnProcessSnapshot = { checkedAt: now, running, lastSuccessfulProbeAt: cachedUefnProcessSnapshot.lastSuccessfulProbeAt };
+      return running;
     }
   }
-  cachedUefnProcessSnapshot = { checkedAt: Date.now(), running };
+  cachedUefnProcessSnapshot = { checkedAt: now, running, lastSuccessfulProbeAt: now };
   return running;
 }
 
@@ -235,7 +258,7 @@ function selectedProjectIsActiveInUefn(): boolean {
   // lifecycle. UEFN emits a later Selected Project (Direct) record during
   // normal project initialization, so selector ordering alone cannot revoke a
   // genuinely open project. A return to the browser is reported as
-  // projectReady=false and then becomes stale after the connector stops.
+  // projectReady=false while its heartbeat remains separately observable.
   return true;
 }
 
@@ -252,6 +275,7 @@ const allowedOrigins = new Set([
 function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
+  const connectorAlive = connectorHeartbeatIsFresh();
   const sessionConnected = editorSessionIsFresh();
   const projectActive = selectedProjectIsActiveInUefn();
   const editorConnected = sessionConnected && projectActive;
@@ -267,6 +291,7 @@ function currentProjectContext(): UTMProjectContext {
     editorConnection: {
       editorConnected,
       projectActive,
+      connectorAlive,
       uefnRunning: uefnIsRunning(),
       processId: (editorSession?.processId ?? launchedUefnProcessId) || undefined,
     },
@@ -276,6 +301,9 @@ function currentProjectContext(): UTMProjectContext {
     projectReadiness: {
       editorConnected,
       projectActive,
+      connectorAlive,
+      readinessReason: editorSession?.readinessReason ?? (connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+      heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
       pythonEnabled,
       missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
     },
@@ -433,11 +461,7 @@ async function saveGeneratedCatalog(): Promise<SaveCatalogResult> {
   let temporaryPath = '';
   try {
     if (snapshot.config.autoBackup && fs.existsSync(filePath)) {
-      const backupDir = path.join(contentRoot, '.backups');
-      fs.mkdirSync(backupDir, { recursive: true });
-      assertExistingPathInsideRoot(contentRoot, backupDir);
-      backupPath = path.join(backupDir, `${fileName}.${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
-      fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+      backupPath = createProjectBackup(filePath, contentRoot, configuredProjectFile);
     }
     temporaryPath = path.join(contentRoot, `.${fileName}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
     fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', flag: 'wx' });
@@ -676,6 +700,14 @@ app.post('/api/editor/bootstrap-status', (req, res) => {
   }
   bootstrapState = req.body.state as typeof bootstrapState;
   bootstrapMessage = typeof req.body.message === 'string' ? req.body.message.slice(0, 500) : undefined;
+  bootstrapDetails = {
+    ...(Number.isInteger(req.body.attemptNumber) ? { attemptNumber: req.body.attemptNumber } : {}),
+    ...(typeof req.body.intendedProject === 'string' ? { intendedProject: req.body.intendedProject.slice(0, 500) } : {}),
+    ...(Number.isInteger(req.body.uefnProcessId) ? { uefnProcessId: req.body.uefnProcessId } : {}),
+    ...(typeof req.body.method === 'string' ? { method: req.body.method.slice(0, 80) } : {}),
+    ...(typeof req.body.commandAccepted === 'boolean' ? { commandAccepted: req.body.commandAccepted } : {}),
+    ...(typeof req.body.handshakeConfirmed === 'boolean' ? { handshakeConfirmed: req.body.handshakeConfirmed } : {}),
+  };
   res.json({ success: true });
 });
 
@@ -688,8 +720,12 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
     if (path.normalize(reportedRoot).toLowerCase() !== path.normalize(contentRoot).toLowerCase() || req.body.assetMount !== configuredAssetMount) {
       return res.status(409).json({ success: false, error: 'The active UEFN editor project does not match this manager session.' });
     }
+    if (typeof req.body.projectFile === 'string' && configuredProjectFile && !pathsEqual(req.body.projectFile, configuredProjectFile)) {
+      return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
+    }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
-    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, processId: req.body.processId, projectReady: req.body.projectReady, reportedAt: Date.now() };
+    const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
+    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, ...(typeof req.body.projectFile === 'string' ? { projectFile: req.body.projectFile } : {}), processId: req.body.processId, projectReady: req.body.projectReady, readinessReason, reportedAt: Date.now() };
     res.json({ success: true, assetMount: configuredAssetMount });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Editor project identity could not be verified.' });
@@ -697,6 +733,7 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
 });
 
 app.get('/api/editor/status', (_req, res) => {
+  const connectorAlive = connectorHeartbeatIsFresh();
   const sessionConnected = editorSessionIsFresh();
   const uefnRunning = uefnIsRunning();
   const openProjectFile = uefnRunning ? latestProjectOpenedByUefn() : undefined;
@@ -706,8 +743,13 @@ app.get('/api/editor/status', (_req, res) => {
   res.json({
     success: true,
     uefnRunning,
+    connectorAlive,
     editorConnected,
     projectActive,
+    projectReady: Boolean(connectorAlive && editorSession?.projectReady),
+    readinessReason: editorSession?.readinessReason ?? (connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+    heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
+    processId: editorSession?.processId ?? (launchedUefnProcessId || undefined),
     differentProjectOpen: Boolean(uefnRunning && openProjectFile && !pathsEqual(openProjectFile, configuredProjectFile)),
     openProjectFile: uefnRunning ? openProjectFile : undefined,
     pythonEnabled: projectPythonIsEnabled(),
@@ -715,6 +757,7 @@ app.get('/api/editor/status', (_req, res) => {
     nativeTextureImportAvailable: editorConnected && projectActive && projectPythonIsEnabled(),
     bootstrapState,
     bootstrapMessage,
+    bootstrapDetails,
   });
 });
 
@@ -804,12 +847,7 @@ app.post('/api/verse/save', (req, res) => {
     }
 
     if (createBackup && fs.existsSync(filePath)) {
-      const backupDir = path.join(contentRoot, '.backups');
-      fs.mkdirSync(backupDir, { recursive: true });
-      assertExistingPathInsideRoot(contentRoot, backupDir);
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      backupPath = path.join(backupDir, `${fileName}.${timestamp}.bak`);
-      fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+      backupPath = createProjectBackup(filePath, contentRoot, configuredProjectFile);
     }
 
     temporaryPath = path.join(contentRoot, `.${fileName}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
@@ -926,7 +964,7 @@ app.post('/api/verse/compile', async (req, res) => {
   } catch (error) {
     return res.status(400).json({ success: false, connected: false, error: error instanceof Error ? error.message : 'Compilation preflight failed.' });
   }
-  const result = await compileVerseProject({ projectFile: configuredProjectFile, preferredProcessId: launchedUefnProcessId || undefined });
+  const result = await compileVerseProject({ projectFile: configuredProjectFile, preferredProcessId: (editorSession?.processId ?? launchedUefnProcessId) || undefined });
   res.status(result.success ? 200 : 422).json({ ...result, fileName: req.body.fileName, contentHash: req.body.expectedHash, assetMount: configuredAssetMount });
 });
 

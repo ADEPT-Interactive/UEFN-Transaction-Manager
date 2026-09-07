@@ -13,6 +13,7 @@ SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
 # the short readiness-handshake window on a loaded project. Keep the request
 # bounded, but allow the real editor job to finish before the connector fails.
 BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
+EDITOR_HEARTBEAT_INTERVAL_SECONDS = 2.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -332,10 +333,10 @@ def import_texture_job(job, normalize_adopted_texture=None):
     }
 
 
-def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_mount=None):
-    """Return true only when the current editor thread has the expected project world."""
+def _editor_project_readiness(unreal, expected_project_file=None, expected_asset_mount=None):
+    """Return a fail-closed readiness result with a diagnostic reason."""
     if not expected_project_file:
-        return False
+        return {"ready": False, "reason": "expected-project-missing"}
     try:
         paths = getattr(unreal, "Paths", None)
         expected_project = os.path.normcase(os.path.realpath(str(expected_project_file)))
@@ -344,9 +345,9 @@ def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_
         if callable(project_file_path):
             current_project = os.path.normcase(os.path.realpath(str(project_file_path())))
             if current_project != expected_project:
-                return False
+                return {"ready": False, "reason": "project-path-mismatch"}
         elif not callable(project_dir):
-            return False
+            return {"ready": False, "reason": "project-path-unavailable"}
 
         editor_level_library = getattr(unreal, "EditorLevelLibrary", None)
         get_editor_world = getattr(editor_level_library, "get_editor_world", None) if editor_level_library else None
@@ -360,17 +361,23 @@ def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_
             subsystem_world = get_world() if callable(get_world) else None
         world = editor_world or subsystem_world
         if world is None:
-            return False
+            return {"ready": False, "reason": "editor-world-missing"}
         if expected_asset_mount:
             get_path_name = getattr(world, "get_path_name", None)
             world_path = str(get_path_name() if callable(get_path_name) else world).replace("\\", "/")
             mount = str(expected_asset_mount).rstrip("/")
             first_asset_path = world_path[world_path.find("/"):] if "/" in world_path else world_path
             if not first_asset_path.casefold().startswith(f"{mount.casefold()}/"):
-                return False
-        return True
-    except Exception:
-        return False
+                return {"ready": False, "reason": "editor-world-mount-mismatch", "worldPath": world_path}
+            return {"ready": True, "reason": "verified", "worldPath": world_path}
+        return {"ready": True, "reason": "verified", "worldPath": str(getattr(world, "get_path_name", lambda: world)())}
+    except Exception as error:
+        return {"ready": False, "reason": "readiness-check-error", "error": str(error)[:160]}
+
+
+def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_mount=None):
+    """Return true only when the current editor thread has the expected project world."""
+    return bool(_editor_project_readiness(unreal, expected_project_file, expected_asset_mount)["ready"])
 
 
 def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mount=None, project_file=None):
@@ -405,27 +412,36 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
     results = queue.Queue()
     state = {
         "bridge_failures": 0,
+        "heartbeat_failures": 0,
         "shutdown_requested": False,
         "last_error": None,
         "last_identity_report": 0.0,
         "project_ready": False,
+        "readiness_reason": "initializing",
         "last_project_ready": None,
+        "last_readiness_reason": None,
     }
     handle_holder = {"value": None}
+
+    def report_editor_session():
+        if not content_dir or not asset_mount:
+            return
+        identity_report = {
+            "contentRoot": content_dir,
+            "assetMount": asset_mount,
+            "projectReady": state["project_ready"],
+            "readinessReason": state["readiness_reason"],
+            "processId": os.getpid(),
+        }
+        if project_file:
+            identity_report["projectFile"] = project_file
+        _bridge_request(port, editor_token, "/api/editor/session", "POST", identity_report)
+        state["last_identity_report"] = time.monotonic()
+        state["heartbeat_failures"] = 0
 
     def bridge_worker():
         while not stop_event.is_set():
             try:
-                now = time.monotonic()
-                if content_dir and asset_mount and now - state["last_identity_report"] >= 2.0:
-                    _bridge_request(
-                        port,
-                        editor_token,
-                        "/api/editor/session",
-                        "POST",
-                        {"contentRoot": content_dir, "assetMount": asset_mount, "projectReady": state["project_ready"], "processId": os.getpid()},
-                    )
-                    state["last_identity_report"] = now
                 response = _bridge_request(port, editor_token, "/api/texture/import/next")
                 state["bridge_failures"] = 0
                 state["last_error"] = None
@@ -453,13 +469,31 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
                     break
             stop_event.wait(0.5)
 
+    def heartbeat_worker():
+        while not stop_event.is_set():
+            try:
+                report_editor_session()
+                state["last_error"] = None
+            except Exception as error:
+                state["last_error"] = str(error)
+                state["heartbeat_failures"] += 1
+                if state["heartbeat_failures"] >= 3:
+                    state["shutdown_requested"] = True
+                    stop_event.set()
+                    break
+            stop_event.wait(EDITOR_HEARTBEAT_INTERVAL_SECONDS)
+
     def on_editor_tick(delta_seconds):
         del delta_seconds
-        next_project_ready = _editor_project_is_ready(unreal, project_file, asset_mount)
-        if state["last_project_ready"] is None or state["last_project_ready"] != next_project_ready:
-            unreal.log(f"[TransactionManager] Verified project readiness changed: {next_project_ready}")
+        readiness = _editor_project_readiness(unreal, project_file, asset_mount)
+        next_project_ready = bool(readiness["ready"])
+        next_readiness_reason = readiness["reason"]
+        if state["last_project_ready"] is None or state["last_project_ready"] != next_project_ready or state["last_readiness_reason"] != next_readiness_reason:
+            unreal.log(f"[TransactionManager] Verified project readiness changed: ready={next_project_ready}, reason={next_readiness_reason}")
             state["last_project_ready"] = next_project_ready
+            state["last_readiness_reason"] = next_readiness_reason
         state["project_ready"] = next_project_ready
+        state["readiness_reason"] = next_readiness_reason
         if state["shutdown_requested"]:
             stop_event.set()
             callback_handle = handle_holder["value"]
@@ -473,6 +507,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
                 setattr(unreal, "_uem_texture_import_callback_handle", None)
                 setattr(unreal, "_uem_texture_import_stop_event", None)
                 setattr(unreal, "_uem_texture_import_worker", None)
+                setattr(unreal, "_uem_texture_heartbeat_worker", None)
             if state["last_error"]:
                 try:
                     unreal.log_warning(f"[TransactionManager] Texture import bridge stopped: {state['last_error']}")
@@ -508,7 +543,10 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
     setattr(unreal, "_uem_texture_import_stop_event", stop_event)
     worker = threading.Thread(target=bridge_worker, name="UEM-TextureBridge", daemon=True)
     setattr(unreal, "_uem_texture_import_worker", worker)
+    heartbeat = threading.Thread(target=heartbeat_worker, name="UEM-EditorHeartbeat", daemon=True)
+    setattr(unreal, "_uem_texture_heartbeat_worker", heartbeat)
     worker.start()
+    heartbeat.start()
     unreal.log("[TransactionManager] Texture import editor bridge registered.")
     return callback_handle
 

@@ -63,10 +63,14 @@ def install():
     """Start one background discovery worker and attach on the UEFN editor thread."""
     if unreal is None:
         return False
+    previous_thread = getattr(unreal, "_uem_auto_connector_thread", None)
+    previous_handle = getattr(unreal, "_uem_auto_connector_tick_handle", None)
+    if previous_thread is not None and previous_thread.is_alive() and previous_handle is not None:
+        unreal.log("[TransactionManager] Automatic standalone connector is already monitoring; retained the existing worker.")
+        return True
     previous_stop = getattr(unreal, "_uem_auto_connector_stop_event", None)
     if previous_stop is not None:
         previous_stop.set()
-    previous_handle = getattr(unreal, "_uem_auto_connector_tick_handle", None)
     if previous_handle is not None:
         try:
             unreal.unregister_slate_post_tick_callback(previous_handle)

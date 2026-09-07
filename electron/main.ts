@@ -222,7 +222,7 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
   sendLauncherState('Starting the authenticated project bridge…');
   try {
     if (!mainWindow) throw new Error('The manager window is unavailable.');
-    bridgeSession = await BridgeSession.start(appRoot, verified, mainWindow, diagnostic, showcaseMode);
+    bridgeSession = await BridgeSession.start(appRoot, verified, diagnostic, showcaseMode);
     mode = 'dashboard';
     allowedDashboardOrigin = new URL(bridgeSession.appUrl).origin;
     mainWindow.setMinimumSize(1240, 640);

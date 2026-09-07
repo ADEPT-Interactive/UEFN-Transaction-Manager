@@ -5,10 +5,11 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import type { BrowserWindow } from 'electron';
 import type { ProjectCandidate } from './contracts.js';
 import { projectIsOpen } from './projectDiscovery.js';
 import { sendUefnConnectorCommand } from './nativeWindows.js';
+import { createProjectBackup } from '../shared/projectBackups.js';
+import { BootstrapPolicy } from './bootstrapPolicy.js';
 
 export type DiagnosticWriter = (message: string) => void;
 
@@ -31,9 +32,7 @@ function installAutomaticConnector(appRoot: string, project: ProjectCandidate): 
   const alreadyInstalled = existing.includes(beginMarker) && existing.includes(endMarker);
   if (!alreadyInstalled) {
     if (fs.existsSync(initPath)) {
-      const backupDirectory = path.join(pythonDirectory, '.uem-backups');
-      fs.mkdirSync(backupDirectory, { recursive: true });
-      fs.copyFileSync(initPath, path.join(backupDirectory, `init_unreal.py.${new Date().toISOString().replace(/[-:.]/g, '')}.bak`), fs.constants.COPYFILE_EXCL);
+      createProjectBackup(initPath, project.contentDirectory, project.projectFile);
     }
     const managedBlock = [
       beginMarker,
@@ -144,9 +143,8 @@ export class BridgeSession {
   private editorBootstrapWatcher: NodeJS.Timeout | undefined;
   private editorBootstrapCheckInFlight = false;
   private editorBootstrapAttemptInFlight = false;
-  private editorBootstrapAttemptCount = 0;
-  private nextEditorBootstrapAttemptAt = 0;
-  private editorBootstrapExhausted = false;
+  private readonly editorBootstrapPolicy = new BootstrapPolicy();
+  private bootstrapHandshakeConfirmed = false;
   private lastEditorBootstrapWaitDiagnosticAt = 0;
 
   private constructor(
@@ -163,7 +161,7 @@ export class BridgeSession {
     this.processId = child.pid ?? 0;
   }
 
-  static async start(appRoot: string, project: ProjectCandidate, managerWindow: BrowserWindow, writeDiagnostic: DiagnosticWriter, showcaseMode = false): Promise<BridgeSession> {
+  static async start(appRoot: string, project: ProjectCandidate, writeDiagnostic: DiagnosticWriter, showcaseMode = false): Promise<BridgeSession> {
     const serverPath = path.join(appRoot, 'dist', 'server.cjs');
     if (!fs.existsSync(serverPath)) throw new Error(`The manager bridge build is missing: ${serverPath}`);
     let connector: ConnectorInstallResult = { installed: false, addedThisLaunch: false };
@@ -237,7 +235,7 @@ export class BridgeSession {
       statePath = writeActiveSession(port, editorToken, project, connectorScript);
       const session = new BridgeSession(child, port, sessionToken, editorToken, statePath, logPath, writeDiagnostic, `http://127.0.0.1:${port}/#${fragment}`);
       writeDiagnostic(`Bridge started: pid=${child.pid ?? 0}, port=${port}, project=${path.basename(project.projectFile)}`);
-      if (project.pythonEnabled && connector.installed) session.watchForEditorBootstrap(project.projectFile, managerWindow, openProject?.windowTitle);
+      if (project.pythonEnabled && connector.installed) session.watchForEditorBootstrap(project.projectFile, openProject?.windowTitle);
       return session;
     } catch (error) {
       if (statePath) fs.rmSync(statePath, { force: true });
@@ -246,21 +244,28 @@ export class BridgeSession {
     }
   }
 
-  private watchForEditorBootstrap(projectFile: string, managerWindow: BrowserWindow, initialWindowTitle?: string): void {
+  private watchForEditorBootstrap(projectFile: string, initialWindowTitle?: string): void {
     const check = async () => {
       if (this.stopped || this.editorBootstrapCheckInFlight || this.editorBootstrapAttemptInFlight) return;
       this.editorBootstrapCheckInFlight = true;
       try {
         const status = await request(this.port, '/api/editor/status', this.sessionToken);
-        if (status.status === 200 && /"editorConnected"\s*:\s*true/i.test(status.text)) {
-          // A later UEFN restart needs a fresh readiness window while this
-          // Transaction Manager session remains open.
-          this.editorBootstrapAttemptCount = 0;
-          this.nextEditorBootstrapAttemptAt = 0;
-          this.editorBootstrapExhausted = false;
+        let statusBody: { editorConnected?: boolean; connectorAlive?: boolean; readinessReason?: string } = {};
+        try { statusBody = JSON.parse(status.text) as typeof statusBody; } catch { /* the status endpoint is retried below */ }
+        if (status.status === 200 && statusBody.editorConnected) {
+          const decision = this.editorBootstrapPolicy.observe({ now: Date.now(), connectorAlive: Boolean(statusBody.connectorAlive), editorConnected: true });
+          if (!this.bootstrapHandshakeConfirmed) {
+            this.bootstrapHandshakeConfirmed = true;
+            this.writeDiagnostic(`Automatic UEFN connector handshake confirmed for ${decision.identity ?? 'the linked project'}.`);
+          }
           return;
         }
+        this.bootstrapHandshakeConfirmed = false;
         const openProject = projectIsOpen(projectFile, this.writeDiagnostic);
+        const decision = this.editorBootstrapPolicy.observe({ now: Date.now(), project: openProject ? { projectFile, processId: openProject.processId } : undefined, connectorAlive: Boolean(statusBody.connectorAlive), editorConnected: false });
+        if (decision.identityCleared) {
+          this.writeDiagnostic('Automatic UEFN connector bootstrap identity cleared because the linked project is no longer open.');
+        }
         if (!openProject) {
           const now = Date.now();
           if (now - this.lastEditorBootstrapWaitDiagnosticAt >= 5000) {
@@ -269,21 +274,27 @@ export class BridgeSession {
           }
           return;
         }
-
-        const retryDelays = [0, 2_000, 5_000, 10_000, 20_000, 40_000, 80_000, 120_000];
-        if (this.editorBootstrapExhausted) return;
-        if (this.editorBootstrapAttemptCount >= retryDelays.length) {
-          this.editorBootstrapExhausted = true;
-          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'UEFN did not confirm the connector handshake during the automatic readiness window.' }));
+        if (decision.identityChanged) {
+          this.writeDiagnostic(`Automatic UEFN connector bootstrap tracking linked project identity: project=${projectFile}, pid=${openProject.processId}, graceMs=4000.`);
+        }
+        if (decision.kind === 'waiting') {
+          const now = Date.now();
+          if (now - this.lastEditorBootstrapWaitDiagnosticAt >= 5000) {
+            this.lastEditorBootstrapWaitDiagnosticAt = now;
+            this.writeDiagnostic(`Automatic UEFN connector bootstrap is waiting: reason=${decision.reason}, project=${projectFile}, pid=${openProject.processId}${statusBody.readinessReason ? `, readiness=${statusBody.readinessReason}` : ''}.`);
+          }
           return;
         }
-        if (Date.now() < this.nextEditorBootstrapAttemptAt) return;
-
-        this.editorBootstrapAttemptCount += 1;
-        this.nextEditorBootstrapAttemptAt = Date.now() + retryDelays[this.editorBootstrapAttemptCount]!;
-        this.writeDiagnostic(`Automatic UEFN connector found the linked project: pid=${openProject.processId}; bootstrap attempt ${this.editorBootstrapAttemptCount}/${retryDelays.length}`);
+        if (decision.kind === 'exhausted') {
+          const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}.`;
+          this.writeDiagnostic(`Automatic UEFN connector bootstrap exhausted: ${message}`);
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber: decision.attemptNumber, intendedProject: projectFile, uefnProcessId: openProject.processId, method: 'uefn-python-console' }));
+          return;
+        }
+        if (decision.kind !== 'attempt') return;
+        this.writeDiagnostic(`Automatic UEFN connector found the linked project: project=${projectFile}, pid=${openProject.processId}; bootstrap attempt ${decision.attemptNumber}/${decision.maxAttempts}, reason=${decision.reason}, method=uefn-python-console, nextRetryAt=${new Date(decision.nextRetryAt).toISOString()}.`);
         this.editorBootstrapAttemptInFlight = true;
-        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, managerWindow);
+        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber);
       } catch (error) {
         this.writeDiagnostic(`Automatic UEFN connector readiness check did not complete: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
@@ -299,41 +310,41 @@ export class BridgeSession {
     void check();
   }
 
-  private async bootstrapOpenEditor(windowTitle: string | undefined, managerWindow: BrowserWindow) {
+  private async bootstrapOpenEditor(windowTitle: string | undefined, intendedProject: string, uefnProcessId: number, attemptNumber: number) {
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const status = await request(this.port, '/api/editor/status', this.sessionToken);
         if (/"editorConnected"\s*:\s*true/i.test(status.text)) return;
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'attempting' }));
-      const sent = await sendUefnConnectorCommand(windowTitle, 'import uefn_auto_connector; uefn_auto_connector.install()', managerWindow);
+      const command = 'import uefn_auto_connector; uefn_auto_connector.install()';
+      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'attempting', message: `Sending supported Python console command to UEFN pid=${uefnProcessId}.`, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', command }));
+      const sent = await sendUefnConnectorCommand(windowTitle, command);
       if (!sent) {
-        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'The verified UEFN window could not accept the automatic connector command.' }));
+        const message = `The verified UEFN window could not accept the supported automatic connector command for pid=${uefnProcessId}.`;
+        this.writeDiagnostic(`Automatic UEFN connector bootstrap attempt ${attemptNumber} failed before command delivery: ${message}`);
+        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: false }));
         return;
       }
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const status = await request(this.port, '/api/editor/status', this.sessionToken);
-        if (/"editorConnected"\s*:\s*true/i.test(status.text)) {
-          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'connected' }));
-          return;
-        }
-      }
-      const fallbackSent = await sendUefnConnectorCommand(windowTitle, 'py import uefn_auto_connector; uefn_auto_connector.install()', managerWindow);
-      if (!fallbackSent) {
-        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'The verified UEFN console did not accept either supported connector command form.' }));
-        return;
-      }
+      this.writeDiagnostic(`Automatic UEFN connector bootstrap command delivered: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}, method=uefn-python-console.`);
       for (let attempt = 0; attempt < 16; attempt += 1) {
         await new Promise(resolve => setTimeout(resolve, 500));
         const status = await request(this.port, '/api/editor/status', this.sessionToken);
-        if (/"editorConnected"\s*:\s*true/i.test(status.text)) {
-          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'connected' }));
+        if (status.status === 200 && /"editorConnected"\s*:\s*true/i.test(status.text)) {
+          this.writeDiagnostic(`Automatic UEFN connector bootstrap handshake confirmed: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}.`);
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'connected', message: 'Supported Python console command produced a verified connector handshake.', attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: true }));
+          return;
+        }
+        if (status.status === 200 && /"connectorAlive"\s*:\s*true/i.test(status.text)) {
+          const message = 'The connector heartbeat is alive; UTM is waiting for the verified project-readiness assertion.';
+          this.writeDiagnostic(`Automatic UEFN connector bootstrap command accepted without immediate readiness: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}.`);
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'waiting', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: false }));
           return;
         }
       }
-      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'UEFN did not confirm the connector handshake after the automatic command.' }));
+      const message = `UEFN did not confirm the connector handshake after supported command attempt ${attemptNumber}.`;
+      this.writeDiagnostic(`Automatic UEFN connector bootstrap attempt ${attemptNumber} failed after command delivery: ${message}`);
+      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: false }));
     } catch (error) {
       this.writeDiagnostic(`Automatic UEFN connector bootstrap did not complete: ${error instanceof Error ? error.message : String(error)}`);
     }

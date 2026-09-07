@@ -3,6 +3,7 @@ import os
 import struct
 import sys
 import tempfile
+import time
 import types
 import unittest
 import zlib
@@ -138,6 +139,33 @@ class EntitlementManagerPathTests(unittest.TestCase):
         )
 
         self.assertFalse(entitlement_manager._editor_project_is_ready(unreal, r"C:\TaB\TaB.uefnproject", "/TaB"))
+
+    def test_editor_project_readiness_reports_path_and_mount_reasons(self):
+        import entitlement_manager
+
+        mismatch = types.SimpleNamespace(
+            Paths=types.SimpleNamespace(project_file_path=lambda: r"C:\Other\Other.uefnproject"),
+            EditorLevelLibrary=types.SimpleNamespace(get_editor_world=lambda: object()),
+        )
+        self.assertEqual(entitlement_manager._editor_project_readiness(mismatch, r"C:\TaB\TaB.uefnproject", "/TaB")["reason"], "project-path-mismatch")
+
+        wrong_mount = types.SimpleNamespace(
+            Paths=types.SimpleNamespace(project_file_path=None, project_dir=lambda: r"C:\TaB"),
+            EditorLevelLibrary=types.SimpleNamespace(get_editor_world=lambda: types.SimpleNamespace(get_path_name=lambda: "/Other/Other.Other")),
+        )
+        readiness = entitlement_manager._editor_project_readiness(wrong_mount, r"C:\TaB\TaB.uefnproject", "/TaB")
+        self.assertEqual(readiness["reason"], "editor-world-mount-mismatch")
+        self.assertFalse(readiness["ready"])
+
+    def test_editor_project_readiness_reports_exceptions_without_claiming_ready(self):
+        import entitlement_manager
+
+        broken = types.SimpleNamespace(
+            Paths=types.SimpleNamespace(project_file_path=lambda: (_ for _ in ()).throw(RuntimeError("not loaded"))),
+        )
+        readiness = entitlement_manager._editor_project_readiness(broken, r"C:\TaB\TaB.uefnproject", "/TaB")
+        self.assertEqual(readiness["reason"], "readiness-check-error")
+        self.assertFalse(readiness["ready"])
 
     def test_standard_unreal_project_uses_project_content_directory(self):
         import entitlement_manager
@@ -397,6 +425,58 @@ class EntitlementManagerPathTests(unittest.TestCase):
                 self.assertTrue(callable(unreal._uem_texture_import_callback))
                 self.assertEqual(unreal._uem_texture_import_callback_handle, "callback-handle")
                 unreal._uem_texture_import_stop_event.set()
+
+    def test_editor_heartbeat_continues_while_texture_worker_waits_for_job(self):
+        import entitlement_manager
+
+        calls = []
+        unreal = types.SimpleNamespace(
+            register_slate_post_tick_callback=lambda _callback: "callback-handle",
+            log=lambda _message: None,
+            log_warning=lambda _message: None,
+        )
+
+        def bridge_request(_port, _token, endpoint, *_args, **_kwargs):
+            calls.append(endpoint)
+            if endpoint == "/api/texture/import/next":
+                return {"job": {"jobId": "blocked-import"}}
+            return {"success": True}
+
+        with mock.patch.object(entitlement_manager, "_bridge_request", side_effect=bridge_request):
+            with mock.patch.object(entitlement_manager, "EDITOR_HEARTBEAT_INTERVAL_SECONDS", 0.02):
+                with mock.patch.dict(sys.modules, {"unreal": unreal}):
+                    entitlement_manager.install_texture_import_bridge(43210, "editor-secret", "C:\\Project\\Content", "/Project", "C:\\Project\\Project.uefnproject")
+                    time.sleep(0.1)
+                    stop_event = unreal._uem_texture_import_stop_event
+                    stop_event.set()
+                    unreal._uem_texture_import_worker.join(timeout=1)
+                    unreal._uem_texture_heartbeat_worker.join(timeout=1)
+
+        session_reports = [endpoint for endpoint in calls if endpoint == "/api/editor/session"]
+        self.assertGreaterEqual(len(session_reports), 2)
+        self.assertIn("/api/texture/import/next", calls)
+
+    def test_auto_connector_install_is_idempotent_for_repeated_startup_imports(self):
+        import uefn_auto_connector
+
+        callbacks = []
+        logs = []
+        unreal = types.SimpleNamespace(
+            register_slate_post_tick_callback=lambda callback: callbacks.append(callback) or "auto-handle",
+            unregister_slate_post_tick_callback=lambda _handle: None,
+            log=lambda message: logs.append(message),
+            log_warning=lambda message: logs.append(message),
+        )
+        previous_unreal = uefn_auto_connector.unreal
+        try:
+            uefn_auto_connector.unreal = unreal
+            self.assertTrue(uefn_auto_connector.install())
+            self.assertTrue(uefn_auto_connector.install())
+            self.assertEqual(len(callbacks), 1)
+            self.assertTrue(any("already monitoring" in message for message in logs))
+            unreal._uem_auto_connector_stop_event.set()
+        finally:
+            uefn_auto_connector.unreal = previous_unreal
 
     def test_editor_tick_bridge_replaces_previous_callback_without_network_on_tick(self):
         import entitlement_manager

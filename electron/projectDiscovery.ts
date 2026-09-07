@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import koffi from 'koffi';
 import type { ProjectCandidate, ProjectSource } from './contracts.js';
+import { parseUefnProjectLifecycleLog } from '../shared/editorLifecycle.js';
 
-const OPENED_PROJECT_PATTERN = /Successfully opened project '([^']+\.uefnproject)'/gi;
 const TITLE_PATTERN = /"title"\s*:\s*"([^"]+)"/i;
 const ROOT_PLUGIN_PATTERN = /\{[^{}]*"name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"[^{}]*"bIsRoot"\s*:\s*true[^{}]*\}/is;
 const PYTHON_ENABLED_PATTERN = /"bEnablePythonForProject"\s*:\s*true/i;
@@ -211,19 +211,11 @@ export function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWrite
   const logPath = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   if (!fs.existsSync(logPath)) return null;
   try {
-    let text = fs.readFileSync(logPath, 'utf8');
-    // UEFN can append a new editor startup to the same log before rotating it.
-    // Ignore project-open records from an earlier editor process so a newly
-    // launched editor is not mistaken for the already-open project.
-    const latestStartup = text.lastIndexOf('LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit');
-    if (latestStartup >= 0) text = text.slice(latestStartup);
-    // The project browser emits "Selected Project (Direct)" during normal
-    // project initialization, including after the successful-open record. Only
-    // the editor's successful-open record in the current startup block is strong
-    // enough to establish a candidate for connector bootstrap.
-    const latestOpen = Array.from(text.matchAll(OPENED_PROJECT_PATTERN)).at(-1);
-    if (!latestOpen) return null;
-    return latestOpen[1] ?? null;
+    // The shared parser still applies the latestStartup boundary before it
+    // treats a later "Successfully opened project" record as current, and a
+    // close marker can revoke that record.
+    const lifecycle = parseUefnProjectLifecycleLog(fs.readFileSync(logPath, 'utf8'));
+    return lifecycle.openedProject ?? null;
   } catch (error) {
     writeDiagnostic(`The current UEFN log could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
     return null;

@@ -168,7 +168,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between mt-2">
             <div>
               <p className="text-xs font-bold text-white">Auto-Create Timestamped Backups</p>
-              <p className="text-[11px] text-slate-400">Creates a .bak file in .backups/ whenever writing over an existing Verse file.</p>
+              <p className="text-[11px] text-slate-400">Creates a timestamped private backup outside the project Content folder whenever writing over an existing Verse file.</p>
             </div>
             <input
               aria-label="Auto-create timestamped backups"

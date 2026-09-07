@@ -1,5 +1,4 @@
 import koffi from 'koffi';
-import type { BrowserWindow } from 'electron';
 
 const INPUT_KEYBOARD = 1;
 const KEYEVENTF_KEYUP = 0x0002;
@@ -40,6 +39,8 @@ const INPUT = koffi.struct('UEM_INPUT', {
 export const UEM_INPUT_SIZE = koffi.sizeof(INPUT);
 
 const FindWindowW = user32?.func('intptr_t __stdcall FindWindowW(const char16_t *className, const char16_t *windowName)');
+const GetForegroundWindow = user32?.func('intptr_t __stdcall GetForegroundWindow()');
+const IsIconic = user32?.func('bool __stdcall IsIconic(intptr_t window)');
 const SetForegroundWindow = user32?.func('bool __stdcall SetForegroundWindow(intptr_t window)');
 const ShowWindow = user32?.func('bool __stdcall ShowWindow(intptr_t window, int command)');
 const SendInput = user32?.func('unsigned int __stdcall SendInput(unsigned int inputCount, UEM_INPUT *inputs, int inputSize)');
@@ -68,13 +69,13 @@ const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolv
 export async function sendUefnConnectorCommand(
   windowTitle: string | undefined,
   command: string,
-  managerWindow: BrowserWindow,
 ): Promise<boolean> {
   if (!windowTitle || !FindWindowW || !ShowWindow || !SetForegroundWindow || !SendInput) return false;
   const editorWindow = FindWindowW(null, windowTitle);
   if (!editorWindow) return false;
+  const originalForegroundWindow = GetForegroundWindow?.() ?? 0;
   try {
-    ShowWindow(editorWindow, SW_RESTORE);
+    if (IsIconic?.(editorWindow)) ShowWindow(editorWindow, SW_RESTORE);
     if (!SetForegroundWindow(editorWindow)) return false;
     await delay(250);
     sendVirtualKey(VK_CONSOLE);
@@ -84,6 +85,8 @@ export async function sendUefnConnectorCommand(
     return true;
   } finally {
     await delay(150);
-    if (!managerWindow.isDestroyed()) managerWindow.focus();
+    // Restore the user's original foreground app. UTM must not steal focus or
+    // force its own window to the front after delivering the one-time command.
+    if (originalForegroundWindow && originalForegroundWindow !== editorWindow) SetForegroundWindow(originalForegroundWindow);
   }
 }

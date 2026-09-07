@@ -82,14 +82,18 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const firstHash = ((await firstSave.json()) as { contentHash: string }).contentHash;
     const secondSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'second', createBackup: true, expectedHash: firstHash }) });
     assert.equal(secondSave.status, 200);
-    const secondHash = ((await secondSave.json()) as { contentHash: string }).contentHash;
+    const secondSaveBody = (await secondSave.json()) as { contentHash: string; backupPath?: string };
+    const secondHash = secondSaveBody.contentHash;
     assert.equal(fs.readFileSync(path.join(root, 'manual.verse'), 'utf8'), 'second');
-    assert.equal(fs.readdirSync(path.join(root, '.backups')).length, 1);
+    assert.ok(secondSaveBody.backupPath);
+    assert.equal(fs.existsSync(secondSaveBody.backupPath), true);
+    assert.equal(path.relative(root, secondSaveBody.backupPath).startsWith('..'), true);
+    assert.equal(fs.existsSync(path.join(root, '.backups')), false);
 
     const staleSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'lost update', createBackup: true, expectedHash: firstHash }) });
     assert.equal(staleSave.status, 409);
     assert.equal(fs.readFileSync(path.join(root, 'manual.verse'), 'utf8'), 'second');
-    assert.equal(fs.readdirSync(path.join(root, '.backups')).length, 1);
+    assert.equal(fs.existsSync(path.join(root, '.backups')), false);
 
     const compileWithoutEditorIdentity = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', expectedHash: secondHash }) });
     assert.equal(compileWithoutEditorIdentity.status, 409);
@@ -113,7 +117,7 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const editorStateWithIdentity = await statusWithEditorIdentity.json() as { editorConnected: boolean; projectActive: boolean };
     assert.equal(editorStateWithIdentity.projectActive, true);
     assert.equal(editorStateWithIdentity.editorConnected, true);
-    await new Promise(resolve => setTimeout(resolve, 5100));
+    await new Promise(resolve => setTimeout(resolve, 8100));
     const staleEditorStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
     const staleEditorState = await staleEditorStatus.json() as { editorConnected: boolean; projectActive: boolean };
     assert.equal(staleEditorState.projectActive, false);
@@ -312,14 +316,19 @@ test('standalone bridge fails closed without an explicit editor project-readines
     assert.deepEqual(await editorStatus.json(), {
       success: true,
       uefnRunning: true,
+      connectorAlive: false,
       editorConnected: false,
       projectActive: false,
+      projectReady: false,
+      readinessReason: 'connector-heartbeat-stale',
+      processId: fakeUefn.pid,
       differentProjectOpen: false,
       openProjectFile: projectFile.replace(/\\/g, '/'),
       pythonEnabled: false,
       autoConnectorInstalled: false,
       nativeTextureImportAvailable: false,
       bootstrapState: 'not-needed',
+      bootstrapDetails: {},
     });
     const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', expectedHash: contentHash }) });
     assert.equal(compile.status, 409);
