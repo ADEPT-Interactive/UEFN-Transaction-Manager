@@ -12,6 +12,17 @@ import { UTMcpHost } from '../server/utmMcp';
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
+async function waitForProcessExit(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('The test UEFN process did not exit after termination.')), 5_000);
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
 async function freePort(): Promise<number> {
   const server = await import('node:net').then(({ createServer }) => createServer().listen(0, '127.0.0.1'));
   return await new Promise((resolve, reject) => {
@@ -266,6 +277,7 @@ test('Case H: disconnect between mutation and first save leaves the managed file
     await worker;
     assert.equal(result.status, 200);
     bridge.fakeUefn.kill();
+    await waitForProcessExit(bridge.fakeUefn);
     const saved = await bridge.request('/api/catalog/save', { method: 'POST', body: JSON.stringify({ expectedRevision: result.body.catalog.revision }) });
     assert.equal(saved.status, 409);
     assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
