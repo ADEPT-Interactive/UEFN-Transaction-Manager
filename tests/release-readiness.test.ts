@@ -278,6 +278,7 @@ test('Case H: disconnect between mutation and first save leaves the managed file
     assert.equal(result.status, 200);
     bridge.fakeUefn.kill();
     await waitForProcessExit(bridge.fakeUefn);
+    await sleep(1_000);
     const saved = await bridge.request('/api/catalog/save', { method: 'POST', body: JSON.stringify({ expectedRevision: result.body.catalog.revision }) });
     assert.equal(saved.status, 409);
     assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
