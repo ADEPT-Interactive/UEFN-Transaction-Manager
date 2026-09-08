@@ -187,6 +187,15 @@ test('generated runtime diagnostics use private debug-gated logger helpers', () 
   assert.equal(source.split(/\r?\n/).filter(line => /(?:EnableDebugLogging|UEMLogger|LogDebug|LogWarning|LogError)/.test(line) && line.includes('<public>')).length, 0);
 });
 
+test('generated purchase path exposes bounded prompt trace markers', () => {
+  const source = generateVerseCode(items, bundles, config);
+  assert.match(source, /\[UTM-PROMPT-TRACE\] P4 managed device received key=vip_pass/);
+  assert.match(source, /\[UTM-PROMPT-TRACE\] P5 key\/product resolved key=vip_pass/);
+  assert.match(source, /\[UTM-PROMPT-TRACE\] P6 generated purchase entered product=\{OfferLabel\}/);
+  assert.match(source, /\[UTM-PROMPT-TRACE\] P7 Marketplace invoked product=\{OfferLabel\}/);
+  assert.match(source, /\[UTM-PROMPT-TRACE\] P8 returned\/(?:accepted|rejected) product=\{OfferLabel\}/);
+});
+
 test('runtime logging policy separates routine debug noise from always-visible failures', () => {
   const source = generateVerseCode(items, bundles, config);
   for (const message of [
@@ -328,10 +337,10 @@ test('Marketplace UI execution is unified and acquired before spawning', () => {
     'OpenVipPassPurchase', 'OpenMysteryCratePurchase', 'OpenStarterBundlePurchase', 'OpenAllOffersStore', 'OpenCoinStore',
   ]) {
     const block = source.slice(source.indexOf(`    ${helper}<public>`), source.indexOf('\n\n', source.indexOf(`    ${helper}<public>`)));
-    assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):\\n            spawn\\{`));
+    assert.match(block, new RegExp(`${helper}<public>\\(Player:player\\):void =[\\s\\S]*?        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):\\n            spawn\\{`));
   }
 
-  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        LogDebug\("Opening purchase for \{OfferLabel\}\."\)\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(not WasPurchased\?\):\n            LogDebug\("Purchase was not completed for \{OfferLabel\}\."\)\n        ReleaseMarketplaceUI\(Player\)/);
+  assert.match(source, /ExecutePurchase\(Player:player, OfferToBuy:offer, OfferLabel:string\)<suspends>:void =\n        LogDebug\("Opening purchase for \{OfferLabel\}\."\)\n        LogDebug\("\[UTM-PROMPT-TRACE\] P6 generated purchase entered product=\{OfferLabel\}\."\)\n        LogDebug\("\[UTM-PROMPT-TRACE\] P7 Marketplace invoked product=\{OfferLabel\}\."\)\n        WasPurchased := BuyOffer\(Player, OfferToBuy\)\n        if \(WasPurchased\?\):\n            LogDebug\("\[UTM-PROMPT-TRACE\] P8 returned\/accepted product=\{OfferLabel\}\."\)\n        else:\n            LogDebug\("\[UTM-PROMPT-TRACE\] P8 returned\/rejected product=\{OfferLabel\}\."\)\n            LogDebug\("Purchase was not completed for \{OfferLabel\}\."\)\n        ReleaseMarketplaceUI\(Player\)/);
   assert.match(source, /ExecuteStorefront\(Player:player, OffersToShow:\[\]offer, Title:message\)<suspends>:void =\n        LogDebug\("Opening storefront\."\)\n        ShowOffersDialog\(Player, OffersToShow, \?Title := Title\)\n        LogDebug\("Storefront closed\."\)\n        ReleaseMarketplaceUI\(Player\)/);
   assert.match(source, /OnPlayerRemoved\(Player:player\):void =\n        LogDebug\("Player removed; releasing runtime state\."\)\n        RemovePlayerSubscription\(Player\)\n        ReleaseMarketplaceUI\(Player\)/);
 });
@@ -372,8 +381,8 @@ test('voluntary purchase flows are not guarded by creator-messaging restrictions
   for (const source of [regularSource, mixedSource]) {
     assert.equal(source.includes(directPromptRestrictionName), false);
   }
-  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =\n        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
-  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =\n        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
+  assert.match(regularSource, /OpenVipPassPurchase<public>\(Player:player\):void =[\s\S]*?        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
+  assert.match(mixedSource, /OpenMysteryCratePurchase<public>\(Player:player\):void =[\s\S]*?        Acquired := TryAcquireMarketplaceUI\(Player\)\n        if \(Acquired\?\):/);
   assert.equal(mixedSource.includes(paidRandomRestrictionName), false);
   assert.match(regularSource, /spawn\{ExecutePurchase\(Player, ManagedOffers\.vip_pass_offer\{\}, "VIP \\"Pass\\""\)\}/);
   assert.match(mixedSource, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.starter_bundle_offer\{\}\}, AllOffersStoreTitle\)/);
@@ -413,7 +422,7 @@ test('paid-random metadata, not a manual guard, covers every generated Marketpla
   assert.match(source, /vip_pass_entitlement<public> := class<concrete>/);
   assert.match(source, /PaidRandomItem<override>:logic = true/);
   for (const helper of ['OpenMysteryCratePurchase', 'OpenMysteryCrateMobilePurchase', 'OpenVipOnlyBundlePurchase', 'OpenRandomMultiBundlePurchase', 'OpenDynamicRandomBundlePurchase']) {
-    assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =\\n        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):`));
+    assert.match(source, new RegExp(`${helper}<public>\\(Player:player\\):void =[\\s\\S]*?        Acquired := TryAcquireMarketplaceUI\\(Player\\)\\n        if \\(Acquired\\?\\):`));
   }
   assert.match(source, /ExecutePurchase\(Player, DynamicOffer, "Dynamic Random Bundle"\)/);
   assert.match(source, /ExecuteStorefront\(Player, array\{ManagedOffers\.vip_pass_offer\{\}, ManagedOffers\.mystery_crate_offer\{\}, ManagedOffers\.mystery_crate_mobile_offer\{\}, ManagedOffers\.vip_only_bundle_offer\{\}, ManagedOffers\.random_multi_bundle_offer\{\}\}, AllOffersStoreTitle\)/);

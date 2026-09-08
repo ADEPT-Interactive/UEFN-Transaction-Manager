@@ -164,6 +164,14 @@ export interface EditorStatus {
   pythonEnabled: boolean;
   autoConnectorInstalled: boolean;
   nativeTextureImportAvailable: boolean;
+  transactionSetup?: {
+    status?: string;
+    fullyOperational?: boolean;
+    remediation?: string;
+    generatedSource?: { present?: boolean; classPresent?: boolean; contentHash?: string | null };
+    placedDevice?: { status?: string; reason?: string; devicePath?: string; linkedDevicePath?: string };
+    compile?: { status?: string; error?: string };
+  };
   bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed';
   bootstrapMessage?: string;
   error?: string;

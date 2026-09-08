@@ -167,6 +167,87 @@ class EntitlementManagerPathTests(unittest.TestCase):
         self.assertEqual(readiness["reason"], "readiness-check-error")
         self.assertFalse(readiness["ready"])
 
+    def test_transaction_device_readiness_confirms_placed_device_and_exact_project_reference(self):
+        import entitlement_manager
+
+        class FakeActor:
+            def __init__(self, name, path, properties):
+                self.name = name
+                self.path = path
+                self.properties = properties
+
+            def get_name(self):
+                return self.name
+
+            def get_path_name(self):
+                return self.path
+
+            def get_editor_property(self, name):
+                if name not in self.properties:
+                    raise AttributeError(name)
+                return self.properties[name]
+
+        managed = FakeActor(
+            "VDevice_ManagedTransactions",
+            "/TaB/TaB.TaB:PersistentLevel.ManagedTransactions",
+            {"enableDebugLogging": False},
+        )
+        caller = FakeActor(
+            "VDevice_InIslandTransactions",
+            "/TaB/TaB.TaB:PersistentLevel.InIslandTransactions",
+            {"transactions": managed},
+        )
+        unreal = types.SimpleNamespace(
+            EditorLevelLibrary=types.SimpleNamespace(get_all_level_actors=lambda: [managed, caller]),
+        )
+
+        readiness = entitlement_manager._transaction_device_readiness(unreal, "/TaB")
+
+        self.assertEqual(readiness["status"], "ready")
+        self.assertTrue(readiness["devicePlaced"])
+        self.assertTrue(readiness["callerFound"])
+        self.assertTrue(readiness["transactionsAssigned"])
+        self.assertEqual(readiness["linkedDevicePath"], managed.path)
+
+    def test_transaction_device_readiness_reports_missing_device_and_missing_wiring(self):
+        import entitlement_manager
+
+        class FakeActor:
+            def __init__(self, name, properties):
+                self.name = name
+                self.properties = properties
+
+            def get_name(self):
+                return self.name
+
+            def get_path_name(self):
+                return f"/TaB/TaB.TaB:PersistentLevel.{self.name}"
+
+            def get_editor_property(self, name):
+                if name not in self.properties:
+                    raise AttributeError(name)
+                return self.properties[name]
+
+        caller = FakeActor("VDevice_InIslandTransactions", {"transactions": None})
+        only_caller = types.SimpleNamespace(EditorLevelLibrary=types.SimpleNamespace(get_all_level_actors=lambda: [caller]))
+        self.assertEqual(entitlement_manager._transaction_device_readiness(only_caller)["status"], "missing-device")
+
+        managed = FakeActor("VDevice_ManagedTransactions", {"enableDebugLogging": False})
+        caller.properties["transactions"] = None
+        missing_wiring = types.SimpleNamespace(EditorLevelLibrary=types.SimpleNamespace(get_all_level_actors=lambda: [managed, caller]))
+        readiness = entitlement_manager._transaction_device_readiness(missing_wiring)
+        self.assertEqual(readiness["status"], "missing-wiring")
+        self.assertTrue(readiness["devicePlaced"])
+        self.assertFalse(readiness["transactionsAssigned"])
+
+    def test_transaction_device_readiness_fails_closed_when_actor_api_is_unavailable(self):
+        import entitlement_manager
+
+        readiness = entitlement_manager._transaction_device_readiness(types.SimpleNamespace())
+
+        self.assertEqual(readiness["status"], "not-verifiable")
+        self.assertEqual(readiness["reason"], "editor-actor-api-unavailable")
+
     def test_standard_unreal_project_uses_project_content_directory(self):
         import entitlement_manager
 

@@ -968,8 +968,13 @@ export function generateVerseCode(
   push(
     '    ExecutePurchase(Player:player, OfferToBuy:offer, OfferLabel:string)<suspends>:void =',
     '        LogDebug("Opening purchase for {OfferLabel}.")',
+    '        LogDebug("[UTM-PROMPT-TRACE] P6 generated purchase entered product={OfferLabel}.")',
+    '        LogDebug("[UTM-PROMPT-TRACE] P7 Marketplace invoked product={OfferLabel}.")',
     '        WasPurchased := BuyOffer(Player, OfferToBuy)',
-    '        if (not WasPurchased?):',
+    '        if (WasPurchased?):',
+    '            LogDebug("[UTM-PROMPT-TRACE] P8 returned/accepted product={OfferLabel}.")',
+    '        else:',
+    '            LogDebug("[UTM-PROMPT-TRACE] P8 returned/rejected product={OfferLabel}.")',
     '            LogDebug("Purchase was not completed for {OfferLabel}.")',
     '        ReleaseMarketplaceUI(Player)',
     '',
@@ -1018,6 +1023,8 @@ export function generateVerseCode(
     if (runtimePrice) {
       push(
         `    ${purchaseEntryName}<public>(Player:player, Options:${pascal}RuntimeOptions):void =`,
+        `        LogDebug("[UTM-PROMPT-TRACE] P4 managed device received key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
+        `        LogDebug("[UTM-PROMPT-TRACE] P5 key/product resolved key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
         `            spawn{ExecuteDynamicPurchase${pascal}(Player, Options)}`,
@@ -1033,6 +1040,8 @@ export function generateVerseCode(
     } else {
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
+        `        LogDebug("[UTM-PROMPT-TRACE] P4 managed device received key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
+        `        LogDebug("[UTM-PROMPT-TRACE] P5 key/product resolved key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
         `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,

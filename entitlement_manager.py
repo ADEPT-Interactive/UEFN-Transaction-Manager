@@ -14,6 +14,7 @@ SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
 # bounded, but allow the real editor job to finish before the connector fails.
 BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
 EDITOR_HEARTBEAT_INTERVAL_SECONDS = 2.0
+TRANSACTION_DEVICE_CHECK_INTERVAL_SECONDS = 2.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -380,6 +381,171 @@ def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_
     return bool(_editor_project_readiness(unreal, expected_project_file, expected_asset_mount)["ready"])
 
 
+TRANSACTION_DEVICE_MARKER_PROPERTIES = (
+    "enableDebugLogging",
+    "EnableDebugLogging",
+    "enable_debug_logging",
+)
+TRANSACTION_REFERENCE_PROPERTIES = (
+    "transactions",
+    "Transactions",
+    "transaction",
+)
+
+
+def _editor_object_identity(value):
+    """Return stable Unreal object identity strings without relying on repr()."""
+    if value is None or value is False:
+        return ""
+    for method_name in ("get_path_name", "get_name"):
+        method = getattr(value, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            identity = str(method()).strip()
+        except Exception:
+            continue
+        if identity and identity.casefold() not in {"none", "null", "invalid"}:
+            return identity.replace("\\", "/")
+    return ""
+
+
+def _read_editor_property(value, property_names):
+    """Read the first property exposed by Unreal, preserving API availability."""
+    getter = getattr(value, "get_editor_property", None)
+    if not callable(getter):
+        return False, None, ""
+    for property_name in property_names:
+        try:
+            return True, getter(property_name), property_name
+        except Exception:
+            continue
+    return False, None, ""
+
+
+def _editor_level_actors(unreal):
+    """Use supported editor actor APIs, with the legacy library as a fallback."""
+    get_editor_subsystem = getattr(unreal, "get_editor_subsystem", None)
+    subsystem_class = getattr(unreal, "EditorActorSubsystem", None)
+    if callable(get_editor_subsystem) and subsystem_class is not None:
+        try:
+            subsystem = get_editor_subsystem(subsystem_class)
+            get_all = getattr(subsystem, "get_all_level_actors", None)
+            if callable(get_all):
+                return True, list(get_all() or [])
+        except Exception:
+            pass
+
+    editor_level_library = getattr(unreal, "EditorLevelLibrary", None)
+    get_all = getattr(editor_level_library, "get_all_level_actors", None) if editor_level_library else None
+    if callable(get_all):
+        try:
+            return True, list(get_all() or [])
+        except Exception:
+            return False, []
+    return False, []
+
+
+def _editor_objects_match(left, right):
+    if left is right:
+        return True
+    left_identity = _editor_object_identity(left)
+    right_identity = _editor_object_identity(right)
+    return bool(left_identity and right_identity and left_identity.casefold() == right_identity.casefold())
+
+
+def _transaction_device_readiness(unreal, expected_asset_mount=None):
+    """Inspect placed UTM device and project wiring without changing editor state."""
+    del expected_asset_mount  # The editor world was already mount-checked by the caller.
+    api_available, actors = _editor_level_actors(unreal)
+    if not api_available:
+        return {
+            "status": "not-verifiable",
+            "devicePlaced": False,
+            "callerFound": False,
+            "transactionsAssigned": False,
+            "reason": "editor-actor-api-unavailable",
+        }
+
+    managed_devices = []
+    named_callers = []
+    for actor in actors:
+        actor_identity = _editor_object_identity(actor)
+        normalized_identity = actor_identity.casefold().replace("_", "")
+        marker_available, _marker_value, _marker_name = _read_editor_property(actor, TRANSACTION_DEVICE_MARKER_PROPERTIES)
+        if marker_available or "managedtransactions" in normalized_identity:
+            managed_devices.append(actor)
+        if "inislandtransactions" in normalized_identity:
+            named_callers.append(actor)
+
+    if len(managed_devices) == 0:
+        return {
+            "status": "missing-device",
+            "devicePlaced": False,
+            "callerFound": bool(named_callers),
+            "transactionsAssigned": False,
+            "reason": "managed-transactions-device-not-placed-in-current-level",
+        }
+    if len(managed_devices) > 1:
+        return {
+            "status": "ambiguous",
+            "devicePlaced": True,
+            "deviceCount": len(managed_devices),
+            "callerFound": bool(named_callers),
+            "transactionsAssigned": False,
+            "devicePath": _editor_object_identity(managed_devices[0]),
+            "reason": "multiple-managed-transactions-devices-found-in-current-level",
+        }
+
+    managed_device = managed_devices[0]
+    managed_path = _editor_object_identity(managed_device)
+    callers = list(named_callers)
+    reference_api_available = False
+    assigned_path = ""
+    transactions_assigned = False
+    for actor in actors:
+        property_available, reference, _property_name = _read_editor_property(actor, TRANSACTION_REFERENCE_PROPERTIES)
+        if property_available:
+            reference_api_available = True
+            if reference is not None and reference is not False:
+                callers.append(actor)
+                if _editor_objects_match(reference, managed_device):
+                    transactions_assigned = True
+                    assigned_path = _editor_object_identity(reference)
+
+    callers = list({id(actor): actor for actor in callers}.values())
+    if transactions_assigned:
+        return {
+            "status": "ready",
+            "devicePlaced": True,
+            "deviceCount": 1,
+            "callerFound": True,
+            "transactionsAssigned": True,
+            "devicePath": managed_path,
+            "linkedDevicePath": assigned_path or managed_path,
+            "reason": "managed-device-placed-and-linked",
+        }
+    if not reference_api_available and callers:
+        return {
+            "status": "not-verifiable",
+            "devicePlaced": True,
+            "deviceCount": 1,
+            "callerFound": True,
+            "transactionsAssigned": False,
+            "devicePath": managed_path,
+            "reason": "transaction-reference-property-unavailable",
+        }
+    return {
+        "status": "missing-wiring",
+        "devicePlaced": True,
+        "deviceCount": 1,
+        "callerFound": bool(callers),
+        "transactionsAssigned": False,
+        "devicePath": managed_path,
+        "reason": "in-island-transactions-device-reference-is-not-linked-to-managed-device",
+    }
+
+
 def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mount=None, project_file=None):
     """Keep a project import bridge alive without blocking the UEFN editor thread.
 
@@ -420,6 +586,14 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
         "readiness_reason": "initializing",
         "last_project_ready": None,
         "last_readiness_reason": None,
+        "transaction_device": {
+            "status": "not-checked",
+            "devicePlaced": False,
+            "callerFound": False,
+            "transactionsAssigned": False,
+            "reason": "awaiting-verified-editor-readiness",
+        },
+        "last_transaction_device_check": 0.0,
     }
     handle_holder = {"value": None}
 
@@ -432,6 +606,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             "projectReady": state["project_ready"],
             "readinessReason": state["readiness_reason"],
             "processId": os.getpid(),
+            "transactionDevice": state["transaction_device"],
         }
         if project_file:
             identity_report["projectFile"] = project_file
@@ -494,6 +669,18 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             state["last_readiness_reason"] = next_readiness_reason
         state["project_ready"] = next_project_ready
         state["readiness_reason"] = next_readiness_reason
+        now = time.monotonic()
+        if not next_project_ready:
+            state["transaction_device"] = {
+                "status": "not-checked",
+                "devicePlaced": False,
+                "callerFound": False,
+                "transactionsAssigned": False,
+                "reason": f"project-not-ready:{next_readiness_reason}",
+            }
+        elif now - state["last_transaction_device_check"] >= TRANSACTION_DEVICE_CHECK_INTERVAL_SECONDS:
+            state["transaction_device"] = _transaction_device_readiness(unreal, asset_mount)
+            state["last_transaction_device_check"] = now
         if state["shutdown_requested"]:
             stop_event.set()
             callback_handle = handle_holder["value"]

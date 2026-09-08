@@ -312,7 +312,7 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
   if (!status?.success) return null;
   const connected = status.editorConnected;
   const active = status.projectActive;
-  const tone = connected && active && status.pythonEnabled ? 'emerald' : active ? 'cyan' : 'amber';
+  let tone = connected && active && status.pythonEnabled ? 'emerald' : active ? 'cyan' : 'amber';
   let heading = 'UEFN is closed';
   let summary = `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN and UTM will reconnect automatically.`;
   let detail = 'Transaction Manager remains linked to this project while the editor is closed.';
@@ -326,11 +326,18 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
     summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
     detail = 'Enable Python Editor Scripting for this project, then keep UEFN open while Transaction Manager reconnects.';
   } else if (connected && active) {
-    heading = 'This project is open and fully connected';
-    summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
-    detail = status.autoConnectorInstalled
-      ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
-      : 'The authenticated editor connector is active for this session.';
+    if (status.transactionSetup && status.transactionSetup.fullyOperational === false) {
+      tone = 'amber';
+      heading = 'UEFN is connected; transaction device setup is incomplete';
+      summary = status.transactionSetup.remediation ?? 'UTM has not confirmed the generated device, project wiring, and current compile together.';
+      detail = 'Catalog editing remains separate from operational proof. Resolve this setup state before treating the purchase path as ready.';
+    } else {
+      heading = 'This project is open and fully connected';
+      summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
+      detail = status.autoConnectorInstalled
+        ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
+        : 'The authenticated editor connector is active for this session.';
+    }
   } else if (active) {
     heading = 'This project is open, but the editor connector is not attached';
     summary = 'Saving is available, but native Texture2D importing is unavailable until Python connects.';
