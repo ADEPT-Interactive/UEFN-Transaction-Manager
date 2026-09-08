@@ -2,7 +2,7 @@
 
 After catalog save, compile the generated managed Verse through Epic MCP and inspect structured diagnostics. A successful UTM save is not a compile result.
 
-Before calling a migrated transaction runtime operational, read UTM `get_project_context` and inspect `projectReadiness.transactionSetup`. It must separately account for generated source, the managed device class, a placed and correctly linked runtime device, and compile evidence; `fullyOperational` remains false until all of those checks pass. A static caller reference or a successful forced grant does not prove that a normal gameplay interaction reaches the Marketplace prompt.
+Before calling a migrated UTM runtime operational, read UTM `get_project_context` and inspect `projectReadiness.transactionSetup`. It must separately account for generated source/class presence, current generated source, one unambiguous placed managed-device instance, and compile evidence; `utmRuntimeReady` remains false until all of those checks pass. UTM does not verify arbitrary project caller wiring. A static caller reference or a successful forced grant does not prove that a normal gameplay interaction reaches the Marketplace prompt.
 
 For sessions, use:
 

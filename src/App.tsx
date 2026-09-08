@@ -326,11 +326,11 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
     summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
     detail = 'Enable Python Editor Scripting for this project, then keep UEFN open while Transaction Manager reconnects.';
   } else if (connected && active) {
-    if (status.transactionSetup && status.transactionSetup.fullyOperational === false) {
+    if (status.transactionSetup && status.transactionSetup.utmRuntimeReady === false) {
       tone = 'amber';
-      heading = 'UEFN is connected; transaction device setup is incomplete';
-      summary = status.transactionSetup.remediation ?? 'UTM has not confirmed the generated device, project wiring, and current compile together.';
-      detail = 'Catalog editing remains separate from operational proof. Resolve this setup state before treating the purchase path as ready.';
+      heading = 'UEFN is connected; managed transaction runtime setup is incomplete';
+      summary = status.transactionSetup.remediation ?? 'UTM has not confirmed generated source, managed-device placement, current source, and compile evidence together.';
+      detail = status.transactionSetup.guidance ?? 'Catalog editing remains separate from managed runtime readiness.';
     } else {
       heading = 'This project is open and fully connected';
       summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';

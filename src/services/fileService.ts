@@ -166,10 +166,11 @@ export interface EditorStatus {
   nativeTextureImportAvailable: boolean;
   transactionSetup?: {
     status?: string;
-    fullyOperational?: boolean;
+    utmRuntimeReady?: boolean;
     remediation?: string;
-    generatedSource?: { present?: boolean; classPresent?: boolean; contentHash?: string | null };
-    placedDevice?: { status?: string; reason?: string; devicePath?: string; linkedDevicePath?: string };
+    guidance?: string;
+    generatedSource?: { present?: boolean; classPresent?: boolean; current?: boolean; contentHash?: string | null };
+    managedDevice?: { status?: string; devicePlaced?: boolean; deviceCount?: number; reason?: string; devicePath?: string };
     compile?: { status?: string; error?: string };
   };
   bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed';

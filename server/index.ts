@@ -15,6 +15,7 @@ import { parseVerseCode } from '../src/services/verseParser';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/constants/placeholderIcon';
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
+import { summarizeManagedRuntimeSetup, type CompileEvidence, type ManagedDeviceReport, type ManagedRuntimeSetup } from './transactionReadiness';
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
 import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
 import { createProjectBackup } from '../shared/projectBackups';
@@ -131,36 +132,22 @@ type EditorSessionReport = {
   projectReady: boolean;
   readinessReason: string;
   reportedAt: number;
-  transactionDevice?: TransactionDeviceReport;
+  managedDevice?: ManagedDeviceReport;
 };
 
-type TransactionDeviceStatus = 'ready' | 'missing-device' | 'missing-wiring' | 'ambiguous' | 'not-verifiable' | 'not-checked';
+const managedDeviceStatuses = new Set<ManagedDeviceReport['status']>(['placed', 'missing-device', 'ambiguous', 'not-verifiable', 'not-checked']);
 
-type TransactionDeviceReport = {
-  status: TransactionDeviceStatus;
-  devicePlaced: boolean;
-  callerFound: boolean;
-  transactionsAssigned: boolean;
-  deviceCount?: number;
-  devicePath?: string;
-  linkedDevicePath?: string;
-  reason: string;
-  reportedAt: number;
-};
-
-const transactionDeviceStatuses = new Set<TransactionDeviceStatus>(['ready', 'missing-device', 'missing-wiring', 'ambiguous', 'not-verifiable', 'not-checked']);
-
-function normalizeTransactionDeviceReport(value: unknown): TransactionDeviceReport | undefined {
+function normalizeManagedDeviceReport(value: unknown): ManagedDeviceReport | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const status = record.status;
-  if (typeof status !== 'string' || !transactionDeviceStatuses.has(status as TransactionDeviceStatus)) return undefined;
-  if (typeof record.devicePlaced !== 'boolean' || typeof record.callerFound !== 'boolean' || typeof record.transactionsAssigned !== 'boolean' || typeof record.reason !== 'string') return undefined;
-  const normalized: TransactionDeviceReport = {
-    status: status as TransactionDeviceStatus,
+  if (typeof status !== 'string' || !managedDeviceStatuses.has(status as ManagedDeviceReport['status'])) return undefined;
+  if (typeof record.devicePlaced !== 'boolean' || typeof record.reason !== 'string') return undefined;
+  if ((status === 'placed' || status === 'ambiguous') && !record.devicePlaced) return undefined;
+  if ((status === 'missing-device' || status === 'not-verifiable' || status === 'not-checked') && record.devicePlaced) return undefined;
+  const normalized: ManagedDeviceReport = {
+    status: status as ManagedDeviceReport['status'],
     devicePlaced: record.devicePlaced,
-    callerFound: record.callerFound,
-    transactionsAssigned: record.transactionsAssigned,
     reason: record.reason.slice(0, 240),
     reportedAt: Date.now(),
   };
@@ -168,7 +155,7 @@ function normalizeTransactionDeviceReport(value: unknown): TransactionDeviceRepo
     if (!Number.isInteger(record.deviceCount) || Number(record.deviceCount) < 0) return undefined;
     normalized.deviceCount = Number(record.deviceCount);
   }
-  for (const key of ['devicePath', 'linkedDevicePath'] as const) {
+  for (const key of ['devicePath'] as const) {
     if (record[key] !== undefined) {
       if (typeof record[key] !== 'string') return undefined;
       normalized[key] = record[key].slice(0, 500);
@@ -178,7 +165,7 @@ function normalizeTransactionDeviceReport(value: unknown): TransactionDeviceRepo
 }
 
 let editorSession: EditorSessionReport | undefined;
-let lastCompileEvidence: { success: boolean; contentHash: string; reportedAt: number; error?: string } | undefined;
+let lastCompileEvidence: CompileEvidence | undefined;
 let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = bootstrapEligible ? 'waiting' : 'not-needed';
 let bootstrapMessage: string | undefined;
 let bootstrapDetails: { attemptNumber?: number; intendedProject?: string; uefnProcessId?: number; method?: string; commandAccepted?: boolean; handshakeConfirmed?: boolean } = {};
@@ -311,56 +298,15 @@ function sha256(content: string | Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function generatedTransactionSourceStatus(filePath: string, deviceClassName: string): { present: boolean; classPresent: boolean; contentHash: string | null } {
-  if (!fs.existsSync(filePath)) return { present: false, classPresent: false, contentHash: null };
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const classPattern = new RegExp(`(?:^|\\r?\\n)\\s*${escapeRegex(deviceClassName)}\\s*:=\\s*class\\(creative_device\\)`);
-    return { present: true, classPresent: classPattern.test(content), contentHash: sha256(content) };
-  } catch {
-    return { present: true, classPresent: false, contentHash: null };
-  }
-}
-
-function transactionSetupSummary(filePath: string, deviceClassName: string): Record<string, unknown> {
-  const generatedSource = generatedTransactionSourceStatus(filePath, deviceClassName);
-  const reportedDevice = editorSession?.transactionDevice;
-  const compile = lastCompileEvidence
-    ? {
-        status: lastCompileEvidence.contentHash === generatedSource.contentHash ? (lastCompileEvidence.success ? 'passed' : 'failed') : 'stale',
-        contentHash: lastCompileEvidence.contentHash,
-        reportedAt: lastCompileEvidence.reportedAt,
-        ...(lastCompileEvidence.error ? { error: lastCompileEvidence.error } : {}),
-      }
-    : { status: 'unknown' };
-  const deviceStatus = reportedDevice?.status ?? 'not-reported';
-  const fullyOperational = generatedSource.present
-    && generatedSource.classPresent
-    && deviceStatus === 'ready'
-    && compile.status === 'passed';
-  let remediation = 'Compile the generated Verse, place managed_transactions_device in the current level, and assign that instance to the in_island_transactions Transactions field.';
-  if (!generatedSource.present) remediation = 'Save the UTM catalog to generate managed_transactions.verse, then compile it in UEFN.';
-  else if (!generatedSource.classPresent) remediation = 'Reload the managed catalog so UTM can restore the generated managed_transactions_device class before compiling.';
-  else if (!reportedDevice) remediation = 'Keep the linked UEFN project open until the authenticated editor connector reports device placement and wiring.';
-  else if (deviceStatus === 'missing-device') remediation = 'Place the generated managed_transactions_device in the current level, then save the level.';
-  else if (deviceStatus === 'missing-wiring') remediation = 'Assign the placed managed_transactions_device to the in_island_transactions Transactions editable, then save the level.';
-  else if (deviceStatus === 'ambiguous') remediation = 'Keep one managed_transactions_device instance in the current level and remove or relink duplicates.';
-  else if (deviceStatus === 'not-verifiable') remediation = 'UTM cannot verify the editor actor API. Keep the linked project open and update UEFN/UTM before treating the device as operational.';
-  else if (deviceStatus === 'ready' && compile.status !== 'passed') remediation = compile.status === 'failed'
-    ? 'Resolve the authoritative UEFN Verse compile errors, then compile the current generated file again.'
-    : 'Run the authoritative UEFN Verse compile for the current generated file.';
-  return {
-    status: fullyOperational ? 'ready' : deviceStatus,
-    fullyOperational,
-    generatedSource: { ...generatedSource },
-    placedDevice: reportedDevice ?? { status: 'not-reported', reason: 'editor-connector-has-not-reported-transaction-device-state' },
-    compile,
-    remediation,
-  };
+function transactionSetupSummary(filePath: string, deviceClassName: string): ManagedRuntimeSetup {
+  const snapshot = catalogSession.snapshot();
+  return summarizeManagedRuntimeSetup({
+    filePath,
+    deviceClassName,
+    savedFileHash: snapshot.managedFileHash,
+    managedDevice: editorSession?.managedDevice,
+    compileEvidence: lastCompileEvidence,
+  });
 }
 
 const allowedOrigins = new Set([
@@ -372,8 +318,8 @@ const allowedOrigins = new Set([
 function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
-  const generatedFile = generatedTransactionSourceStatus(filePath, snapshot.config.deviceClassName);
   const transactionSetup = transactionSetupSummary(filePath, snapshot.config.deviceClassName);
+  const generatedFile = transactionSetup.generatedSource;
   const connectorAlive = connectorHeartbeatIsFresh();
   const sessionConnected = editorSessionIsFresh();
   const projectActive = selectedProjectIsActiveInUefn();
@@ -518,15 +464,15 @@ async function assertCatalogReady(document: CatalogDocument): Promise<void> {
     );
   }
 
-  const placedDevice = transactionSetup.placedDevice;
-  const placedDeviceStatus = placedDevice && typeof placedDevice === 'object' && !Array.isArray(placedDevice)
-    ? (placedDevice as Record<string, unknown>).status
+  const managedDevice = transactionSetup.managedDevice;
+  const managedDeviceStatus = managedDevice && typeof managedDevice === 'object' && !Array.isArray(managedDevice)
+    ? (managedDevice as Record<string, unknown>).status
     : undefined;
   if (!firstInitialization && editorConnected && transactionSetup.generatedSource && typeof transactionSetup.generatedSource === 'object'
     && (transactionSetup.generatedSource as Record<string, unknown>).classPresent === true
-    && ['missing-device', 'missing-wiring', 'ambiguous', 'not-verifiable'].includes(String(placedDeviceStatus))) {
+    && ['missing-device', 'ambiguous', 'not-verifiable'].includes(String(managedDeviceStatus))) {
     throw catalogReadinessError(
-      'the linked UEFN level is not ready: UTM could not confirm a placed and wired managed_transactions_device. Resolve the reported editor setup state before saving a changed catalog.',
+      'the linked UEFN level is not ready: UTM could not confirm one unambiguous managed transactions device instance. Resolve the reported managed-device setup state before saving a changed catalog.',
       { transactionSetup },
     );
   }
@@ -839,11 +785,11 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
       return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
-    const hasTransactionDeviceReport = Object.prototype.hasOwnProperty.call(req.body, 'transactionDevice');
-    const transactionDevice = hasTransactionDeviceReport ? normalizeTransactionDeviceReport(req.body.transactionDevice) : undefined;
-    if (hasTransactionDeviceReport && !transactionDevice) return res.status(400).json({ success: false, error: 'The editor transaction-device readiness report is invalid.' });
+    const hasManagedDeviceReport = Object.prototype.hasOwnProperty.call(req.body, 'managedDevice');
+    const managedDevice = hasManagedDeviceReport ? normalizeManagedDeviceReport(req.body.managedDevice) : undefined;
+    if (hasManagedDeviceReport && !managedDevice) return res.status(400).json({ success: false, error: 'The editor managed-device readiness report is invalid.' });
     const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
-    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, ...(typeof req.body.projectFile === 'string' ? { projectFile: req.body.projectFile } : {}), processId: req.body.processId, projectReady: req.body.projectReady, readinessReason, reportedAt: Date.now(), ...(transactionDevice ? { transactionDevice } : {}) };
+    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, ...(typeof req.body.projectFile === 'string' ? { projectFile: req.body.projectFile } : {}), processId: req.body.processId, projectReady: req.body.projectReady, readinessReason, reportedAt: Date.now(), ...(managedDevice ? { managedDevice } : {}) };
     res.json({ success: true, assetMount: configuredAssetMount });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Editor project identity could not be verified.' });

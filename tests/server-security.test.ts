@@ -333,7 +333,7 @@ test('standalone bridge fails closed without an explicit editor project-readines
       bootstrapDetails: {},
     });
     assert.equal(transactionSetup.status, 'not-reported');
-    assert.equal(transactionSetup.fullyOperational, false);
+    assert.equal(transactionSetup.utmRuntimeReady, false);
     const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', expectedHash: contentHash }) });
     assert.equal(compile.status, 409);
     assert.match(String((await compile.json()).error), /active editor matches this project/i);
