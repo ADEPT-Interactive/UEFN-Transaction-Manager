@@ -169,8 +169,17 @@ export interface EditorStatus {
     utmRuntimeReady?: boolean;
     remediation?: string;
     guidance?: string;
+    managedDevice?: {
+      status?: string;
+      devicePlaced?: boolean;
+      callerFound?: boolean;
+      transactionsAssigned?: boolean;
+      deviceCount?: number;
+      devicePath?: string;
+      linkedDevicePath?: string;
+      reason?: string;
+    };
     generatedSource?: { present?: boolean; classPresent?: boolean; current?: boolean; contentHash?: string | null };
-    managedDevice?: { status?: string; devicePlaced?: boolean; deviceCount?: number; reason?: string; devicePath?: string };
     compile?: { status?: string; error?: string };
   };
   bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed';

@@ -122,6 +122,9 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       // the generator and are intentionally not persisted as user input.
       generateTriggerBinding: booleanValue(triggers.generateTriggerBinding, true),
       generateButtonBinding: booleanValue(triggers.generateButtonBinding),
+      // Success triggers are output bindings and default on for old catalogs
+      // so adding this field remains backward compatible.
+      generateSuccessTriggerBinding: booleanValue(triggers.generateSuccessTriggerBinding, true),
     },
     dynamicOffer: normalizeDynamicOffer(value.dynamicOffer),
   };

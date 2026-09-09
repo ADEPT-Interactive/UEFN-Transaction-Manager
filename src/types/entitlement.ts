@@ -54,6 +54,7 @@ export interface EntitlementItem {
   triggers: {
     generateTriggerBinding: boolean;
     generateButtonBinding: boolean;
+    generateSuccessTriggerBinding: boolean;
   };
 }
 

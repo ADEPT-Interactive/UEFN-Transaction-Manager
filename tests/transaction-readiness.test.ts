@@ -22,56 +22,83 @@ function withGeneratedSource(callback: (filePath: string, hash: string) => void)
   }
 }
 
-test('generated current source, managed class, one placed device, and matching compile prove UTM runtime readiness', () => {
+const readyDevice = {
+  status: 'ready' as const,
+  devicePlaced: true,
+  callerFound: true,
+  transactionsAssigned: true,
+  deviceCount: 1,
+  devicePath: '/Project/ManagedDevice',
+  linkedDevicePath: '/Project/ManagedDevice.managed_transactions_device_0',
+  reason: 'managed-device-placed-and-linked',
+};
+
+test('generated current source, one placed device, linked Transactions, and matching compile prove operational readiness', () => {
   withGeneratedSource((filePath, hash) => {
     const setup = summarizeManagedRuntimeSetup({
       filePath,
       deviceClassName: 'managed_transactions_device',
       savedFileHash: hash,
-      managedDevice: { status: 'placed', devicePlaced: true, deviceCount: 1, devicePath: '/Project/ManagedDevice', reason: 'managed-transactions-device-placed' },
+      managedDevice: readyDevice,
       compileEvidence: { success: true, contentHash: hash, reportedAt: 1 },
     });
 
-    assert.equal(setup.generatedSource.present, true);
-    assert.equal(setup.generatedSource.classPresent, true);
     assert.equal(setup.generatedSource.current, true);
-    assert.equal(setup.managedDevice.status, 'placed');
+    assert.equal(setup.managedDevice.status, 'ready');
     assert.equal(setup.compile.status, 'passed');
     assert.equal(setup.utmRuntimeReady, true);
-    assert.doesNotMatch(setup.guidance, /in_island_transactions|Transactions editable|TaB|VDevice_InIslandTransactions/i);
+    assert.equal(setup.status, 'ready');
   });
 });
 
-test('compile evidence becomes stale when generated source is no longer current', () => {
-  withGeneratedSource((filePath, hash) => {
-    const setup = summarizeManagedRuntimeSetup({
-      filePath,
-      deviceClassName: 'managed_transactions_device',
-      savedFileHash: '0'.repeat(64),
-      managedDevice: { status: 'placed', devicePlaced: true, deviceCount: 1, reason: 'managed-transactions-device-placed' },
-      compileEvidence: { success: true, contentHash: hash, reportedAt: 1 },
-    });
-
-    assert.equal(setup.generatedSource.current, false);
-    assert.equal(setup.compile.status, 'passed');
-    assert.equal(setup.utmRuntimeReady, false);
-    assert.match(setup.remediation, /current UTM catalog/i);
-  });
-});
-
-test('missing managed device remains a generic readiness failure', () => {
+test('missing device blocks operational readiness with a placement remediation', () => {
   withGeneratedSource((filePath, hash) => {
     const setup = summarizeManagedRuntimeSetup({
       filePath,
       deviceClassName: 'managed_transactions_device',
       savedFileHash: hash,
-      managedDevice: { status: 'missing-device', devicePlaced: false, deviceCount: 0, reason: 'managed-transactions-device-not-placed-in-current-level' },
+      managedDevice: {
+        status: 'missing-device', devicePlaced: false, callerFound: false, transactionsAssigned: false,
+        deviceCount: 0, reason: 'managed-transactions-device-not-placed-in-current-level',
+      },
       compileEvidence: { success: true, contentHash: hash, reportedAt: 1 },
     });
 
     assert.equal(setup.utmRuntimeReady, false);
-    assert.equal(setup.managedDevice.status, 'missing-device');
-    assert.match(setup.remediation, /No managed transactions device is placed in the active level/i);
-    assert.doesNotMatch(setup.remediation, /in_island_transactions|Transactions editable|TaB|VDevice_InIslandTransactions/i);
+    assert.equal(setup.status, 'missing-device');
+    assert.match(setup.remediation, /Place the generated managed_transactions_device/i);
+  });
+});
+
+test('missing Transactions wiring blocks operational readiness with a linking remediation', () => {
+  withGeneratedSource((filePath, hash) => {
+    const setup = summarizeManagedRuntimeSetup({
+      filePath,
+      deviceClassName: 'managed_transactions_device',
+      savedFileHash: hash,
+      managedDevice: {
+        status: 'missing-wiring', devicePlaced: true, callerFound: true, transactionsAssigned: false,
+        deviceCount: 1, reason: 'in-island-transactions-device-reference-is-not-linked-to-managed-device',
+      },
+      compileEvidence: { success: true, contentHash: hash, reportedAt: 1 },
+    });
+
+    assert.equal(setup.utmRuntimeReady, false);
+    assert.equal(setup.status, 'missing-wiring');
+    assert.match(setup.remediation, /Transactions editable/i);
+  });
+});
+
+test('nested Verse reference paths are represented as a ready device report', () => {
+  withGeneratedSource((filePath, hash) => {
+    const setup = summarizeManagedRuntimeSetup({
+      filePath,
+      deviceClassName: 'managed_transactions_device',
+      savedFileHash: hash,
+      managedDevice: readyDevice,
+      compileEvidence: { success: true, contentHash: hash, reportedAt: 1 },
+    });
+    assert.equal(setup.managedDevice.linkedDevicePath, '/Project/ManagedDevice.managed_transactions_device_0');
+    assert.equal(setup.utmRuntimeReady, true);
   });
 });

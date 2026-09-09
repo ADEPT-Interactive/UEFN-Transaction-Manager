@@ -1,13 +1,16 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-export type ManagedDeviceStatus = 'placed' | 'missing-device' | 'ambiguous' | 'not-verifiable' | 'not-checked';
+export type ManagedDeviceStatus = 'ready' | 'missing-device' | 'missing-wiring' | 'ambiguous' | 'not-verifiable' | 'not-checked' | 'not-reported';
 
 export type ManagedDeviceReport = {
   status: ManagedDeviceStatus;
   devicePlaced: boolean;
+  callerFound: boolean;
+  transactionsAssigned: boolean;
   deviceCount?: number;
   devicePath?: string;
+  linkedDevicePath?: string;
   reason: string;
   reportedAt?: number;
 };
@@ -30,7 +33,7 @@ export type ManagedRuntimeSetup = {
   status: string;
   utmRuntimeReady: boolean;
   generatedSource: GeneratedSourceStatus;
-  managedDevice: ManagedDeviceReport | { status: 'not-reported'; devicePlaced: false; reason: string };
+  managedDevice: ManagedDeviceReport;
   compile: Record<string, unknown>;
   remediation: string;
   guidance: string;
@@ -77,6 +80,8 @@ export function summarizeManagedRuntimeSetup(options: {
   const managedDevice = options.managedDevice ?? {
     status: 'not-reported' as const,
     devicePlaced: false as const,
+    callerFound: false as const,
+    transactionsAssigned: false as const,
     reason: 'editor-connector-has-not-reported-managed-device-state',
   };
   const compile = options.compileEvidence
@@ -92,26 +97,32 @@ export function summarizeManagedRuntimeSetup(options: {
   const utmRuntimeReady = generatedSource.present
     && generatedSource.classPresent
     && generatedSource.current
-    && managedDevice.status === 'placed'
+    && managedDevice.status === 'ready'
     && compile.status === 'passed';
 
   let remediation = 'Save the UTM catalog to generate managed_transactions.verse, then compile it in UEFN.';
   if (!generatedSource.present) remediation = 'Save the UTM catalog to generate managed_transactions.verse, then compile it in UEFN.';
-  else if (!generatedSource.classPresent) remediation = 'Regenerate the managed transaction source so the generated managed_transactions_device class is present, then compile it in UEFN.';
+  else if (!generatedSource.classPresent) remediation = 'Regenerate the managed transaction source so the generated device class is present, then compile it in UEFN.';
   else if (!generatedSource.current) remediation = 'Save the current UTM catalog so the generated managed transaction source is current, then compile it in UEFN.';
-  else if (!options.managedDevice) remediation = 'Keep the linked UEFN project open until the editor connector reports the managed transactions device state.';
-  else if (managedDevice.status === 'missing-device') remediation = 'No managed transactions device is placed in the active level. Place an instance of the generated managed_transactions_device before testing transactions.';
-  else if (managedDevice.status === 'ambiguous') remediation = 'Multiple managed transactions device instances were found in the active level. Verify which single instance your project uses.';
-  else if (managedDevice.status === 'not-verifiable') remediation = 'UTM cannot verify managed transactions device placement through the available editor API. Keep UEFN open and update the editor connector before treating the runtime as ready.';
-  else if (managedDevice.status === 'not-checked') remediation = 'Keep the linked UEFN project open while UTM checks for the managed transactions device.';
+  else if (managedDevice.status === 'not-reported') remediation = 'Keep the linked UEFN project open until the authenticated editor connector reports the managed transactions device and its Transactions wiring.';
+  else if (managedDevice.status === 'missing-device') remediation = 'Place the generated managed_transactions_device in the current level, then save the level.';
+  else if (managedDevice.status === 'missing-wiring') remediation = 'Assign the placed managed_transactions_device to the in_island_transactions Transactions editable, then save the level.';
+  else if (managedDevice.status === 'ambiguous') remediation = 'Keep one generated managed_transactions_device instance in the current level and remove or relink duplicates.';
+  else if (managedDevice.status === 'not-verifiable' || managedDevice.status === 'not-checked') remediation = 'UTM cannot yet prove the generated device placement and Transactions wiring through the authenticated editor connector. Resolve that status before treating the runtime as operational.';
   else if (compile.status === 'failed') remediation = 'Resolve the authoritative UEFN Verse compile errors, then compile the current generated file again.';
   else if (compile.status !== 'passed') remediation = 'Run the authoritative UEFN Verse compile for the current generated file.';
 
   const status = utmRuntimeReady
     ? 'ready'
-    : managedDevice.status !== 'not-reported'
-      ? managedDevice.status
-      : 'not-reported';
+    : !generatedSource.present
+      ? 'not-reported'
+      : !generatedSource.classPresent
+        ? 'invalid-source'
+        : !generatedSource.current
+          ? 'stale-source'
+          : managedDevice.status !== 'ready'
+            ? managedDevice.status
+          : compile.status;
   return {
     status,
     utmRuntimeReady,
@@ -119,8 +130,6 @@ export function summarizeManagedRuntimeSetup(options: {
     managedDevice,
     compile,
     remediation,
-    guidance: managedDevice.status === 'placed'
-      ? 'Managed transactions runtime device detected. Ensure any project purchase callers reference this device where required.'
-      : 'UTM validates the managed runtime device only; project-specific purchase caller wiring remains the creator\'s responsibility.',
+    guidance: 'UTM validates generated source, authoritative compile evidence, one placed managed device, and its Transactions reference. Project-specific purchase callers and gameplay remain the creator\'s responsibility.',
   };
 }

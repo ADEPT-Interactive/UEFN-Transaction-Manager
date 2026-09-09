@@ -24,14 +24,14 @@ const items: EntitlementItem[] = [
     description: 'Unlocks VIP access.', priceVBucks: 500, itemType: 'durable', maxCount: 1,
     autoConsume: false, iconTexture: 'EntitlementIcons.Icon_VIP',
     flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: true, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: true },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateSuccessTriggerBinding: true },
   },
   {
     id: 'crate', verseKey: 'mystery_crate', name: 'Mystery Crate', shortDescription: 'One disclosed random reward.',
     description: 'Contains one reward.', priceVBucks: 100, itemType: 'consumable', maxCount: 10,
     autoConsume: true, iconTexture: 'EntitlementIcons.MysteryCrate',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', paidArea: false, consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: false },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateSuccessTriggerBinding: true },
   },
 ];
 
@@ -243,17 +243,50 @@ test('consumption signals are correlated to authoritative negative deltas', () =
   assert.match(consume, /RequestId := QueueMysteryCrateConsumeIntent\(Player, Quantity\)/);
   assert.match(consume, /spawn\{ExpireMysteryCrateConsumeIntent\(Player, RequestId\)\}/);
   assert.match(consume, /if \(not Result\?\):[\s\S]+RemoveMysteryCrateConsumeIntent\(Player, RequestId\)/);
-  assert.match(consume, /else:\n                ConfirmMysteryCrateConsumeIntent\(Player, RequestId\)/);
+  assert.match(consume, /else:\n                (?:LogDebug\([^\n]+\)\n                )?ConfirmMysteryCrateConsumeIntent\(Player, RequestId\)/);
   assert.doesNotMatch(consume, /_ConsumedSignal\.Signal/);
   assert.match(source, /RecordMysteryCrateConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);
   assert.match(source, /ConfirmMysteryCrateConsumeIntent\(Player:player, RequestId:int\):void/);
   assert.match(source, /OperationSucceeded := Request\(2\)/);
   assert.match(source, /var BufferedMatched:int = Request\(3\)/);
   assert.match(source, /if \(OperationSucceeded\?, BufferedMatched > 0\):/);
-  assert.match(source, /MysteryCrate_ConsumedSignal\.Signal\(\(Player, BufferedMatched\)\)/);
+  assert.match(source, /EmitMysteryCrateConsumed\(Player, BufferedMatched, RequestId\)/);
+  assert.match(source, /EmitMysteryCrateConsumed\(Player:player, Quantity:int, RequestId:int\):void/);
   assert.match(source, /if \(RequestedRemaining > 0 or BufferedMatched > 0 or not OperationSucceeded\?\):/);
   assert.match(source, /set Updated \+= array\{\(RequestId, RequestedRemaining, true, 0\)\}/);
   assert.doesNotMatch(source, /MatchedMysteryCrate := MatchMysteryCrateConsumeIntents/);
+});
+
+test('success trigger outputs follow authoritative event semantics without changing inventory limits', () => {
+  const source = generateVerseCode([
+    ...items,
+    {
+      ...items[1],
+      id: 'single-use-crate',
+      verseKey: 'single_use_crate',
+      name: 'Single Use Crate',
+      maxCount: 1,
+    },
+  ], bundles, config);
+  assert.match(source, /mystery_crate_entitlement<public> := class[\s\S]+MaxCount<override>:int = 10/);
+  assert.match(source, /single_use_crate_entitlement<public> := class[\s\S]+MaxCount<override>:int = 1/);
+  assert.match(source, /VipPass_SuccessTriggers : \[\]trigger_device/);
+  assert.match(source, /MysteryCrate_SuccessTriggers : \[\]trigger_device/);
+
+  const durableGrant = generatedFunctionBlock(source, 'EmitVipPassGranted');
+  assert.equal((durableGrant.match(/Trigger\.Trigger\(Player\)/g) ?? []).length, 1);
+  const autoGrant = generatedFunctionBlock(source, 'EmitMysteryCrateGranted');
+  assert.doesNotMatch(autoGrant, /SuccessTriggers|Trigger\.Trigger/);
+  const autoConsumeStart = source.indexOf('    EmitMysteryCrateConsumed(Player:player');
+  assert.notEqual(autoConsumeStart, -1);
+  const autoConsume = source.slice(autoConsumeStart, source.indexOf('\n\n', autoConsumeStart));
+  assert.equal((autoConsume.match(/Trigger\.Trigger\(Player\)/g) ?? []).length, 1);
+  assert.doesNotMatch(generatedFunctionBlock(source, 'ReconcilePlayerEntitlements'), /SuccessTriggers|Trigger\.Trigger/);
+  assert.match(source, /\[AUTO-CONSUME\] grant observed key=mystery_crate quantity=\{Quantity\}/);
+  assert.match(source, /\[AUTO-CONSUME\] consume requested key=mystery_crate quantity=\{Quantity\} request=\{RequestId\}/);
+  assert.match(source, /\[AUTO-CONSUME\] native consume result=true key=mystery_crate request=\{RequestId\}/);
+  assert.match(source, /\[AUTO-CONSUME\] negative delta observed key=mystery_crate quantity=\{Quantity\}/);
+  assert.match(source, /\[AUTO-CONSUME\] consumed outcome emitted key=mystery_crate quantity=\{Quantity\} request=\{RequestId\}/);
 });
 
 test('two-sided consumption correlation handles both orderings, failure, FIFO quantities, and expiry', () => {
@@ -318,6 +351,13 @@ test('two-sided consumption correlation handles both orderings, failure, FIFO qu
   const unrelatedRemoval = new ConsumeCorrelationModel();
   unrelatedRemoval.authoritativeDelta(1);
   assert.deepEqual(unrelatedRemoval.emitted, []);
+
+  const duplicateResult = new ConsumeCorrelationModel();
+  const duplicateRequest = duplicateResult.queue(1);
+  duplicateResult.authoritativeDelta(1);
+  duplicateResult.operationSucceeded(duplicateRequest);
+  duplicateResult.operationSucceeded(duplicateRequest);
+  assert.deepEqual(duplicateResult.emitted, [1]);
 });
 
 test('Marketplace UI execution is unified and acquired before spawning', () => {

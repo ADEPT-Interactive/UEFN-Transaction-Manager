@@ -328,8 +328,8 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
   } else if (connected && active) {
     if (status.transactionSetup && status.transactionSetup.utmRuntimeReady === false) {
       tone = 'amber';
-      heading = 'UEFN is connected; managed transaction runtime setup is incomplete';
-      summary = status.transactionSetup.remediation ?? 'UTM has not confirmed generated source, managed-device placement, current source, and compile evidence together.';
+      heading = 'UEFN is connected; generated transaction runtime setup is incomplete';
+      summary = status.transactionSetup.remediation ?? 'UTM has not confirmed current generated source, compile evidence, managed-device placement, and Transactions wiring together.';
       detail = status.transactionSetup.guidance ?? 'Catalog editing remains separate from managed runtime readiness.';
     } else {
       heading = 'This project is open and fully connected';

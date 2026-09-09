@@ -19,6 +19,7 @@ test('integration contract is derived from generator naming for static, alternat
   assert.ok(contract.entitlements.some(item => item.primaryPurchaseHelper?.name === 'OpenSeasonPassPurchase'));
   const coinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
   assert.equal((coinsContract?.awaitEvents as { consumed?: string }).consumed, 'AwaitCoinsConsumedEvent');
+  assert.equal((coinsContract?.editableFields as { successTriggers?: string }).successTriggers, 'Coins_SuccessTriggers');
   assert.equal((contract.entitlements.find(item => item.stableId === 'ent-1')?.awaitEvents as { consumed?: string }).consumed, undefined);
   assert.ok(contract.alternateOffers.some(item => item.purchaseHelper === 'OpenSeasonPassDiscountPurchase'));
   assert.ok(contract.bundles.some(item => item.purchaseHelper === 'OpenStarterPackPurchase'));

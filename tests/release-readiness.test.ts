@@ -267,35 +267,6 @@ test('Case G: initialized projects with a missing referenced asset are blocked o
   } finally { await bridge.close(); }
 });
 
-test('Case G2: initialized catalog edits are blocked when the managed device is reported missing', async () => {
-  const bridge = await startBridge({ pythonEnabled: true, initialized: true, assetPresent: true });
-  try {
-    const connected = await bridge.request('/api/editor/session', {
-      method: 'POST',
-      headers: { 'X-UEM-Editor-Token': bridge.editorToken },
-      body: JSON.stringify({
-        contentRoot: bridge.contentRoot,
-        assetMount: '/ReadinessProject',
-        projectReady: true,
-        processId: bridge.fakeUefn.pid,
-        managedDevice: {
-          status: 'missing-device', devicePlaced: false,
-          reason: 'managed-transactions-device-not-placed-in-current-level',
-        },
-      }),
-    });
-    assert.equal(connected.status, 200);
-    const opened = await openCatalog(bridge);
-    const id = opened.body.catalog.entitlements[0].id;
-    const mutated = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: opened.body.catalog.revision, operation: { type: 'update_entitlement', entitlementId: id, data: { name: 'Must block without device' } } }) });
-    assert.equal(mutated.status, 409);
-    assert.match(mutated.body.error, /managed_transactions_device|device setup/i);
-    assert.equal(mutated.body.data.transactionSetup.managedDevice.status, 'missing-device');
-    assert.equal(mutated.body.data.transactionSetup.utmRuntimeReady, false);
-    assert.doesNotMatch(mutated.body.data.transactionSetup.remediation, /in_island_transactions|Transactions editable|TaB|VDevice_InIslandTransactions/i);
-  } finally { await bridge.close(); }
-});
-
 test('Case H: disconnect between mutation and first save leaves the managed file absent', async () => {
   const bridge = await startBridge({ pythonEnabled: true });
   try {

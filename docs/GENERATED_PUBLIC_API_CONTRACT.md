@@ -20,7 +20,7 @@ The live Verse Workflow Server was used for release verification. The current so
 
 ## Representative inventory
 
-The representative fixture in `tests/public-api-fixture.ts` contains four entitlements, one alternate offer, three bundles including a dynamic bundle, two focused storefronts, restrictions, bindings, and auto-consume. It generates 98 explicit `<public>` declarations, 7 UEFN-exposed `@editable` binding arrays, and one private device-level `@editable` runtime debug toggle. The binding arrays use stable role names such as `AccessPass_PurchaseTriggers`, `AccessPass_PurchaseButtons`, `AllOffersStore_OpenButtons`, and `CoinStore_OpenTriggers`.
+The representative fixture in `tests/public-api-fixture.ts` contains four entitlements, one alternate offer, three bundles including a dynamic bundle, two focused storefronts, restrictions, bindings, and auto-consume. It generates 98 explicit `<public>` declarations, 11 UEFN-exposed `@editable` binding arrays, and one private device-level `@editable` runtime debug toggle. The binding arrays use stable role names such as `AccessPass_PurchaseTriggers`, `AccessPass_SuccessTriggers`, `AccessPass_PurchaseButtons`, `AllOffersStore_OpenButtons`, and `CoinStore_OpenTriggers`. Success trigger arrays are output bindings: durable and non-auto-consumable offers fire them from authoritative Granted, while auto-consume offers fire them only from authoritative Consumed; the awaitable events remain the quantity-aware contract.
 
 | Category | Fixture count | Supported surface |
 | --- | ---: | --- |

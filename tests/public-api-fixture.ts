@@ -29,6 +29,7 @@ function entitlement(overrides: EntitlementOverrides): EntitlementItem {
     triggers: {
       generateTriggerBinding: false,
       generateButtonBinding: false,
+      generateSuccessTriggerBinding: true,
       ...overrides.triggers,
     },
     ...overrides,
@@ -55,23 +56,23 @@ export const publicApiItems: EntitlementItem[] = [
     iconTexture: 'EntitlementIcons.AccessPass',
     flags: { paidArea: true, consequentialToGameplay: true },
     offerRestrictions: { minimumPurchaseAge: 13, blockedCountryCodes: ['CA'], blockedPlatformFamilies: ['Android'] },
-    triggers: { generateTriggerBinding: true, generateButtonBinding: true },
+    triggers: { generateTriggerBinding: true, generateButtonBinding: true, generateSuccessTriggerBinding: true },
   }),
   entitlement({
     id: 'season', verseKey: 'season_pass', name: 'Season Pass', priceVBucks: 1000,
     iconTexture: 'EntitlementIcons.SeasonPass',
-    triggers: { generateTriggerBinding: false, generateButtonBinding: true },
+    triggers: { generateTriggerBinding: false, generateButtonBinding: true, generateSuccessTriggerBinding: true },
   }),
   entitlement({
     id: 'coins', verseKey: 'coin_pack', name: 'Coin Pack', priceVBucks: 100,
     itemType: 'consumable', maxCount: 25, iconTexture: 'EntitlementIcons.CoinPack',
-    triggers: { generateTriggerBinding: true },
+    triggers: { generateTriggerBinding: true, generateSuccessTriggerBinding: true },
   }),
   entitlement({
     id: 'random', verseKey: 'mystery_item', name: 'Mystery Item', priceVBucks: 150,
     itemType: 'consumable', maxCount: 10, autoConsume: true, iconTexture: 'EntitlementIcons.MysteryItem',
     flags: { paidRandomItem: true, paidRandomItemOdds: 'Common: 75%, Rare: 25%', consequentialToGameplay: true },
-    triggers: { generateTriggerBinding: false, generateButtonBinding: true },
+    triggers: { generateTriggerBinding: false, generateButtonBinding: true, generateSuccessTriggerBinding: true },
     alternateOffers: [{
       id: 'random-mobile', verseKey: 'mystery_item_mobile', name: 'Mystery Item Mobile',
       shortDescription: 'The mobile storefront variant.', description: 'The same disclosed random item for mobile.',

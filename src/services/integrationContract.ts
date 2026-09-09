@@ -48,6 +48,7 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
     editableFields: {
       purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey).purchaseTriggers : undefined,
       purchaseButtons: item.triggers.generateButtonBinding ? entitlementEditableNames(item.verseKey).purchaseButtons : undefined,
+      successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey).successTriggers : undefined,
     },
     runtimeOptionsType: dynamic ? `${stem}RuntimeOptions` : undefined,
     dynamicOfferFactory: dynamic ? `Make${stem}DynamicOffer` : undefined,
@@ -128,6 +129,7 @@ export function describeIntegrationContract(
         stableId: item.id,
         ...(item.triggers.generateTriggerBinding ? { purchaseTriggers: entitlementEditableNames(item.verseKey).purchaseTriggers } : {}),
         ...(item.triggers.generateButtonBinding ? { purchaseButtons: entitlementEditableNames(item.verseKey).purchaseButtons } : {}),
+        ...(item.triggers.generateSuccessTriggerBinding ? { successTriggers: entitlementEditableNames(item.verseKey).successTriggers } : {}),
       })),
       storefrontBindings: [
         ...(config.generateStorefrontBinding ? [{ stableId: 'all-offers', openButtons: storefrontEditableName('AllOffersStore', 'openButtons') }] : []),

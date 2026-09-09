@@ -62,7 +62,7 @@ type EditableDescriptor = {
   displayName: string;
   propertyName: string;
   type: string;
-  role: 'purchaseTriggers' | 'purchaseButtons' | 'openTriggers' | 'openButtons';
+  role: 'purchaseTriggers' | 'purchaseButtons' | 'successTriggers' | 'openTriggers' | 'openButtons';
   tooltip: string;
   rootCategory: 'entitlements' | 'storefronts';
 };
@@ -97,6 +97,15 @@ function editableDescriptors(
       tooltip: `Interacting with an assigned Button device opens Epic's purchase interface for ${item.name || item.verseKey}.`,
       rootCategory: 'entitlements',
     });
+    if (item.triggers.generateSuccessTriggerBinding) descriptors.push({
+      key: item.verseKey,
+      displayName: item.name || item.verseKey,
+      propertyName: names.successTriggers,
+      type: '[]trigger_device',
+      role: 'successTriggers',
+      tooltip: `Activating an assigned Trigger device fires once after an authoritative successful ${item.itemType === 'consumable' && item.autoConsume ? 'Consumed' : 'Granted'} event for ${item.name || item.verseKey}. The event quantity is available through the awaitable Verse API.`,
+      rootCategory: 'entitlements',
+    });
   }
   if (config.generateStorefrontBinding) descriptors.push({
     key: 'AllOffersStore',
@@ -129,12 +138,14 @@ function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
   const roleSymbols: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
+    successTriggers: EDITABLE_METADATA_SYMBOLS.successTriggersCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
   const roleLabels: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_CATEGORY_LABELS.purchaseTriggers,
     purchaseButtons: EDITABLE_CATEGORY_LABELS.purchaseButtons,
+    successTriggers: EDITABLE_CATEGORY_LABELS.successTriggers,
     openTriggers: EDITABLE_CATEGORY_LABELS.openTriggers,
     openButtons: EDITABLE_CATEGORY_LABELS.openButtons,
   };
@@ -163,6 +174,7 @@ function editableAttributeLines(descriptor: EditableDescriptor): string[] {
   const roleCategories: Record<EditableDescriptor['role'], string> = {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
+    successTriggers: EDITABLE_METADATA_SYMBOLS.successTriggersCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
@@ -830,10 +842,30 @@ export function generateVerseCode(
   for (const item of entitlements) {
     const pascal = toVerseApiStem(item.verseKey);
     const printableName = escapeVerseString(item.name);
+    const editableNames = entitlementEditableNames(item.verseKey);
+    const successfulGrantTriggerLines = item.triggers.generateSuccessTriggerBinding && !(item.itemType === 'consumable' && item.autoConsume)
+      ? [
+        `        for (Trigger : ${editableNames.successTriggers}):`,
+        '            Trigger.Trigger(Player)',
+      ]
+      : [];
+    const successfulConsumeTriggerLines = item.itemType === 'consumable' && item.autoConsume && item.triggers.generateSuccessTriggerBinding
+      ? [
+        `        for (Trigger : ${editableNames.successTriggers}):`,
+        '            Trigger.Trigger(Player)',
+      ]
+      : [];
     push(
+      `    Emit${pascal}Granted(Player:player, Quantity:int):void =`,
+      `        ${pascal}_GrantedSignal.Signal((Player, Quantity))`,
+      ...successfulGrantTriggerLines,
+      '',
       `    Process${pascal}Grant(Player:player, Quantity:int):void =`,
       `        LogDebug("Granted ${printableName} x{Quantity}.")`,
-      `        ${pascal}_GrantedSignal.Signal((Player, Quantity))`,
+      ...(item.itemType === 'consumable' && item.autoConsume
+        ? [`        LogDebug("[AUTO-CONSUME] grant observed key=${item.verseKey} quantity={Quantity}.")`]
+        : []),
+      `        Emit${pascal}Granted(Player, Quantity)`,
       ...(item.itemType === 'consumable' && item.autoConsume
         ? [`        spawn{AutoConsume${pascal}(Player, Quantity)}`]
         : []),
@@ -866,6 +898,9 @@ export function generateVerseCode(
         '',
         `    Record${pascal}ConsumeDelta(Player:player, Quantity:int):void =`,
         '        var Remaining:int = Quantity',
+        ...(item.autoConsume
+          ? [`        LogDebug("[AUTO-CONSUME] negative delta observed key=${item.verseKey} quantity={Quantity}.")`]
+          : []),
         '        var Updated:[]tuple(int, int, logic, int) = array{}',
         `        if (Pending := ${pascal}_PendingConsumeIntents[Player]):`,
         '            for (Request : Pending):',
@@ -879,7 +914,7 @@ export function generateVerseCode(
         '                    set RequestedRemaining -= MatchedNow',
         '                    set BufferedMatched += MatchedNow',
         '                if (OperationSucceeded?, BufferedMatched > 0):',
-        `                    ${pascal}_ConsumedSignal.Signal((Player, BufferedMatched))`,
+        `                    Emit${pascal}Consumed(Player, BufferedMatched, RequestId)`,
         '                    set BufferedMatched = 0',
         '                if (RequestedRemaining > 0 or BufferedMatched > 0 or not OperationSucceeded?):',
         '                    set Updated += array{(RequestId, RequestedRemaining, OperationSucceeded, BufferedMatched)}',
@@ -893,7 +928,7 @@ export function generateVerseCode(
         '                    RequestedRemaining := Request(1)',
         '                    var BufferedMatched:int = Request(3)',
         '                    if (BufferedMatched > 0):',
-        `                        ${pascal}_ConsumedSignal.Signal((Player, BufferedMatched))`,
+        `                        Emit${pascal}Consumed(Player, BufferedMatched, RequestId)`,
         '                    if (RequestedRemaining > 0):',
         '                        set Updated += array{(RequestId, RequestedRemaining, true, 0)}',
         '                else:',
@@ -914,11 +949,20 @@ export function generateVerseCode(
         '        if (Quantity > 0):',
         `            RequestId := Queue${pascal}ConsumeIntent(Player, Quantity)`,
         `            spawn{Expire${pascal}ConsumeIntent(Player, RequestId)}`,
+        ...(item.autoConsume
+          ? [`            LogDebug("[AUTO-CONSUME] consume requested key=${item.verseKey} quantity={Quantity} request={RequestId}.")`]
+          : []),
         `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
         '            if (not Result?):',
+        ...(item.autoConsume
+          ? [`                LogDebug("[AUTO-CONSUME] native consume result=false key=${item.verseKey} request={RequestId}.")`]
+          : []),
         `                Remove${pascal}ConsumeIntent(Player, RequestId)`,
         `                LogError("Consume${pascal} returned false for ${printableName}; no Consumed event will be emitted.")`,
         '            else:',
+        ...(item.autoConsume
+          ? [`                LogDebug("[AUTO-CONSUME] native consume result=true key=${item.verseKey} request={RequestId}.")`]
+          : []),
         `                Confirm${pascal}ConsumeIntent(Player, RequestId)`,
         '            return Result',
         `        LogWarning("Consume${pascal} called with a non-positive quantity.")`,
@@ -927,12 +971,22 @@ export function generateVerseCode(
       );
       if (item.autoConsume) {
         push(
-          `    # Auto-consume intentionally discards Consume${pascal}'s operation result; the public helper logs failures before returning it.`,
+          `    # Yield one scheduler turn so the authoritative grant callback can finish before native consumption observes inventory state.`,
           `    AutoConsume${pascal}(Player:player, Quantity:int)<suspends>:void =`,
+          '        Sleep(0.0)',
           `        Consume${pascal}(Player, Quantity)`,
           '',
         );
       }
+      push(
+        `    Emit${pascal}Consumed(Player:player, Quantity:int, RequestId:int):void =`,
+        ...(item.autoConsume
+          ? [`        LogDebug("[AUTO-CONSUME] consumed outcome emitted key=${item.verseKey} quantity={Quantity} request={RequestId}.")`]
+          : []),
+        `        ${pascal}_ConsumedSignal.Signal((Player, Quantity))`,
+        ...successfulConsumeTriggerLines,
+        '',
+      );
     }
     push(
       `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,

@@ -47,7 +47,7 @@ const EMPTY_ENTITLEMENT: EntitlementItem = {
   id: '', verseKey: '', name: '', shortDescription: '', description: '', priceVBucks: 100,
   itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: '',
   flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
-  triggers: { generateTriggerBinding: true, generateButtonBinding: false },
+  triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateSuccessTriggerBinding: true },
 };
 
 const EMPTY_RESTRICTIONS: OfferRestrictions = { blockedCountryCodes: [], blockedPlatformFamilies: [] };
@@ -707,6 +707,25 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <span className="text-xs font-semibold text-white">Purchase Button</span>
                   </label>
                   <p className="mt-1 pl-6 text-[11px] text-slate-400">Interacting with an assigned Button device opens Epic&apos;s purchase interface for this offer.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.triggers.generateSuccessTriggerBinding}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        triggers: {
+                          ...prev.triggers,
+                          generateSuccessTriggerBinding: e.target.checked,
+                        },
+                      }))}
+                      className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-semibold text-white">Success Trigger</span>
+                  </label>
+                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Output trigger. Fires once after authoritative success: Granted for durable and non-auto-consumable offers, or Consumed for auto-consume offers. Use the awaitable event when gameplay needs the quantity.</p>
                 </div>
               </div>
             </div>

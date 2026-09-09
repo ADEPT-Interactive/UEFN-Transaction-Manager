@@ -9,6 +9,7 @@ test('editable identifiers use stable stems and role-specific names', () => {
   assert.deepEqual(entitlementEditableNames('vip_pass_2'), {
     purchaseTriggers: 'VipPass2_PurchaseTriggers',
     purchaseButtons: 'VipPass2_PurchaseButtons',
+    successTriggers: 'VipPass2_SuccessTriggers',
   });
   assert.equal(storefrontEditableName('coin_store'), 'CoinStore_OpenTriggers');
   assert.equal(storefrontEditableName('AllOffersStore', 'openButtons'), 'AllOffersStore_OpenButtons');
@@ -17,6 +18,7 @@ test('editable identifiers use stable stems and role-specific names', () => {
   for (const name of [
     'AccessPass_PurchaseTriggers', 'AccessPass_PurchaseButtons',
     'SeasonPass_PurchaseButtons', 'CoinPack_PurchaseTriggers', 'MysteryItem_PurchaseButtons',
+    'AccessPass_SuccessTriggers', 'SeasonPass_SuccessTriggers', 'CoinPack_SuccessTriggers', 'MysteryItem_SuccessTriggers',
     'AllOffersStore_OpenButtons', 'CoinStore_OpenTriggers',
   ]) assert.match(source, new RegExp(`${name} : \\[`), `missing canonical editable ${name}`);
   const editableSurface = source.slice(source.indexOf('# Generated editable metadata'));
@@ -52,6 +54,7 @@ test('editable metadata uses native categories, concise tooltips, and correct ar
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
   assert.match(source, /Use it only with a deliberate player purchase interaction/);
   assert.match(source, /Interacting with an assigned Button device opens Epic's purchase interface for Season Pass/);
+  assert.match(source, /Activating an assigned Trigger device fires once after an authoritative successful Granted event for Access Pass/);
   assert.match(source, /Activating an assigned Trigger device opens the Coin Store storefront\. Use it with a deliberate player interaction/);
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered|automatic zone prompt/i);
 });
@@ -113,7 +116,7 @@ test('only enabled bindings are emitted and bundles remain one logical storefron
   const disabled = structuredClone(publicApiItems[0]);
   disabled.id = 'disabled';
   disabled.verseKey = 'disabled_item';
-  disabled.triggers = { generateTriggerBinding: false, generateButtonBinding: false };
+  disabled.triggers = { generateTriggerBinding: false, generateButtonBinding: false, generateSuccessTriggerBinding: false };
   const source = generateVerseCode([...publicApiItems, disabled], publicApiBundles, { ...publicApiConfig, generateStorefrontBinding: false }, [publicApiDisplayGroups[0]]);
   assert.doesNotMatch(source, /DisabledItem_Purchase(?:Triggers|Buttons)/);
   assert.doesNotMatch(source, /DisabledItem_PurchaseZones|DisabledItemZoneEntered/);

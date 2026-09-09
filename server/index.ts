@@ -135,19 +135,23 @@ type EditorSessionReport = {
   managedDevice?: ManagedDeviceReport;
 };
 
-const managedDeviceStatuses = new Set<ManagedDeviceReport['status']>(['placed', 'missing-device', 'ambiguous', 'not-verifiable', 'not-checked']);
+const managedDeviceStatuses = new Set<ManagedDeviceReport['status']>(['ready', 'missing-device', 'missing-wiring', 'ambiguous', 'not-verifiable', 'not-checked', 'not-reported']);
 
 function normalizeManagedDeviceReport(value: unknown): ManagedDeviceReport | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const status = record.status;
   if (typeof status !== 'string' || !managedDeviceStatuses.has(status as ManagedDeviceReport['status'])) return undefined;
-  if (typeof record.devicePlaced !== 'boolean' || typeof record.reason !== 'string') return undefined;
-  if ((status === 'placed' || status === 'ambiguous') && !record.devicePlaced) return undefined;
-  if ((status === 'missing-device' || status === 'not-verifiable' || status === 'not-checked') && record.devicePlaced) return undefined;
+  if (typeof record.devicePlaced !== 'boolean' || typeof record.callerFound !== 'boolean' || typeof record.transactionsAssigned !== 'boolean' || typeof record.reason !== 'string') return undefined;
+  if ((status === 'ready' || status === 'missing-wiring' || status === 'ambiguous') && !record.devicePlaced) return undefined;
+  if ((status === 'missing-device' || status === 'not-checked' || status === 'not-reported') && record.devicePlaced) return undefined;
+  if (status === 'ready' && (!record.callerFound || !record.transactionsAssigned)) return undefined;
+  if (status !== 'ready' && record.transactionsAssigned) return undefined;
   const normalized: ManagedDeviceReport = {
     status: status as ManagedDeviceReport['status'],
     devicePlaced: record.devicePlaced,
+    callerFound: record.callerFound,
+    transactionsAssigned: record.transactionsAssigned,
     reason: record.reason.slice(0, 240),
     reportedAt: Date.now(),
   };
@@ -155,7 +159,7 @@ function normalizeManagedDeviceReport(value: unknown): ManagedDeviceReport | und
     if (!Number.isInteger(record.deviceCount) || Number(record.deviceCount) < 0) return undefined;
     normalized.deviceCount = Number(record.deviceCount);
   }
-  for (const key of ['devicePath'] as const) {
+  for (const key of ['devicePath', 'linkedDevicePath'] as const) {
     if (record[key] !== undefined) {
       if (typeof record[key] !== 'string') return undefined;
       normalized[key] = record[key].slice(0, 500);
@@ -461,19 +465,6 @@ async function assertCatalogReady(document: CatalogDocument): Promise<void> {
         : !projectActive ? 'the selected project is not the project currently open in UEFN.'
           : 'Python Editor Scripting is disabled for the selected project.',
       { initialization: 'first-run', editorConnected, projectActive, pythonEnabled, required: 'UEFN open, exact project active, verified editor bridge, Python Editor Scripting enabled' },
-    );
-  }
-
-  const managedDevice = transactionSetup.managedDevice;
-  const managedDeviceStatus = managedDevice && typeof managedDevice === 'object' && !Array.isArray(managedDevice)
-    ? (managedDevice as Record<string, unknown>).status
-    : undefined;
-  if (!firstInitialization && editorConnected && transactionSetup.generatedSource && typeof transactionSetup.generatedSource === 'object'
-    && (transactionSetup.generatedSource as Record<string, unknown>).classPresent === true
-    && ['missing-device', 'ambiguous', 'not-verifiable'].includes(String(managedDeviceStatus))) {
-    throw catalogReadinessError(
-      'the linked UEFN level is not ready: UTM could not confirm one unambiguous managed transactions device instance. Resolve the reported managed-device setup state before saving a changed catalog.',
-      { transactionSetup },
     );
   }
 

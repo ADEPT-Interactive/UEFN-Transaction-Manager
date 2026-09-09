@@ -72,9 +72,10 @@ test('the generated device is the supported facade and no UEM namespace is emitt
 
 test('UEFN editables are present while device plumbing remains private', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
-  for (const editable of ['AccessPass_PurchaseTriggers : []trigger_device', 'AccessPass_PurchaseButtons : []button_device', 'SeasonPass_PurchaseButtons : []button_device', 'CoinPack_PurchaseTriggers : []trigger_device', 'MysteryItem_PurchaseButtons : []button_device', 'AllOffersStore_OpenButtons : []button_device', 'CoinStore_OpenTriggers : []trigger_device']) assert.ok(source.includes(`    ${editable}`), `missing editable ${editable}`);
+  for (const editable of ['AccessPass_PurchaseTriggers : []trigger_device', 'AccessPass_PurchaseButtons : []button_device', 'AccessPass_SuccessTriggers : []trigger_device', 'SeasonPass_PurchaseButtons : []button_device', 'SeasonPass_SuccessTriggers : []trigger_device', 'CoinPack_PurchaseTriggers : []trigger_device', 'CoinPack_SuccessTriggers : []trigger_device', 'MysteryItem_PurchaseButtons : []button_device', 'MysteryItem_SuccessTriggers : []trigger_device', 'AllOffersStore_OpenButtons : []button_device', 'CoinStore_OpenTriggers : []trigger_device']) assert.ok(source.includes(`    ${editable}`), `missing editable ${editable}`);
   assert.match(source, /@editable:\n        ToolTip := UEM_AccessPass_purchaseTriggersToolTip\n        Categories := array\{UEM_EntitlementsCategory, UEM_AccessPass_Category, UEM_PurchaseTriggersCategory\}\n    AccessPass_PurchaseTriggers : \[\]trigger_device/);
   assert.match(source, /Activating an assigned Trigger device opens Epic's purchase interface for Access Pass/);
+  assert.match(source, /Categories := array\{UEM_EntitlementsCategory, UEM_AccessPass_Category, UEM_SuccessTriggersCategory\}[\s\S]+AccessPass_SuccessTriggers : \[\]trigger_device/);
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered|automatic zone prompt/i);
   assert.doesNotMatch(source, /AccessPassTriggers|AccessPassButtons|AccessPassZones|CoinStoreTriggers|Phase4StorefrontButtons/);
   for (const internal of ['OnAccessPassTriggerActivated', 'OnAccessPassButtonInteracted', 'ProcessAccessPassGrant', 'ProcessAccessPassRemoval', 'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'ShowCoinStoreOffers', 'ReconcilePlayerEntitlements', 'LogDebug', 'LogWarning', 'LogError', 'EnableDebugLogging', 'UEMLogger']) {
@@ -107,6 +108,7 @@ test('custom notification signals remain private and use native Await semantics'
     assert.match(source, new RegExp(`Await${stem}ConsumedEvent<public>\\(\\)<suspends>:tuple\\(player, int\\) = ${stem}_ConsumedSignal\\.Await\\(\\)`));
   }
   assert.match(source, /AccessPass_GrantedSignal\.Signal\(\(Player, Quantity\)\)/);
+  assert.match(source, /EmitAccessPassGranted\(Player:player, Quantity:int\):void =/);
   assert.match(source, /AccessPass_RemovedSignal\.Signal\(\(Player, Quantity\)\)/);
   assert.match(source, /AccessPass_ReconciledSignal\.Signal\(\(Player, AccessPassOwnedCount\)\)/);
   assert.doesNotMatch(source, /GrantedEvent\.Signal|RemovedEvent\.Signal|ReconciledEvent\.Signal|ConsumedEvent\.Signal/);
@@ -121,7 +123,7 @@ test('Grant returns the native result while Consume waits for an authoritative d
   assert.match(source, /GrantAccessPass called with a non-positive quantity/);
   assert.match(source, /ConsumeCoinPack called with a non-positive quantity/);
   assert.match(source, /ProcessMysteryItemGrant\(Player:player, Quantity:int\):void =\n[\s\S]+spawn\{AutoConsumeMysteryItem\(Player, Quantity\)\}/);
-  assert.match(source, /AutoConsumeMysteryItem\(Player:player, Quantity:int\)<suspends>:void =\n        ConsumeMysteryItem\(Player, Quantity\)/);
+  assert.match(source, /AutoConsumeMysteryItem\(Player:player, Quantity:int\)<suspends>:void =\n        Sleep\(0\.0\)\n        ConsumeMysteryItem\(Player, Quantity\)/);
   for (const declaration of ['GrantAccessPass', 'GrantMysteryItem']) {
     const start = source.indexOf(`    ${declaration}<public>`);
     assert.notEqual(start, -1, `missing ${declaration}`);
@@ -136,7 +138,7 @@ test('Grant returns the native result while Consume waits for an authoritative d
     const body = source.slice(start, nextDeclaration < 0 ? undefined : start + 1 + nextDeclaration);
     assert.match(body, /RequestId := Queue/);
     assert.match(body, /if \(not Result\?\):[\s\S]+Remove[\s\S]+no Consumed event will be emitted/);
-    assert.match(body, /else:\n                Confirm/);
+    assert.match(body, /else:\n                (?:LogDebug\([^\n]+\)\n                )?Confirm/);
     assert.doesNotMatch(body, /_ConsumedSignal\.Signal/);
   }
   assert.match(source, /RecordCoinPackConsumeDelta\(Player, 0 - EntitlementChange\.Change\)/);

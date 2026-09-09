@@ -191,61 +191,77 @@ class EntitlementManagerPathTests(unittest.TestCase):
         self.assertEqual(readiness["reason"], "readiness-check-error")
         self.assertFalse(readiness["ready"])
 
-    def test_managed_device_readiness_accepts_one_utm_device_without_project_caller(self):
+    def test_managed_device_readiness_requires_the_current_generated_signature_and_linked_transactions_reference(self):
         import entitlement_manager
 
-        managed = FakeEditorActor("ManagedDevice_01", {"enableDebugLogging": False})
-        unrelated = FakeEditorActor("GameplayDevice", {"Transactions": None})
-        readiness = entitlement_manager._managed_device_readiness(fake_editor_with_actors([managed, unrelated]))
+        managed = FakeEditorActor("ManagedDevice_01", {
+            "enableDebugLogging": False,
+            "item1VaultSlot_PurchaseTriggers": [],
+        })
+        caller = FakeEditorActor("InIslandCaller", {
+            "transactions": types.SimpleNamespace(get_path_name=lambda: f"{managed.path}.managed_transactions_device_0"),
+        })
+        readiness = entitlement_manager._managed_device_readiness(
+            fake_editor_with_actors([managed, caller]),
+            content_dir=None,
+        )
 
-        self.assertEqual(readiness["status"], "placed")
+        self.assertEqual(readiness["status"], "ready")
         self.assertTrue(readiness["devicePlaced"])
+        self.assertTrue(readiness["callerFound"])
+        self.assertTrue(readiness["transactionsAssigned"])
         self.assertEqual(readiness["deviceCount"], 1)
-        self.assertEqual(readiness["devicePath"], managed.path)
-        self.assertNotIn("callerFound", readiness)
-        self.assertNotIn("transactionsAssigned", readiness)
 
-    def test_managed_device_readiness_reports_missing_device_without_caller_or_transactions_requirement(self):
+    def test_managed_device_readiness_reports_missing_wiring(self):
         import entitlement_manager
 
-        unrelated = FakeEditorActor("in_island_transactions", {"Transactions": None})
-        readiness = entitlement_manager._managed_device_readiness(fake_editor_with_actors([unrelated]))
+        managed = FakeEditorActor("ManagedDevice_01", {
+            "enableDebugLogging": False,
+            "item1VaultSlot_PurchaseTriggers": [],
+        })
+        caller = FakeEditorActor("InIslandCaller", {"transactions": None})
+        readiness = entitlement_manager._managed_device_readiness(
+            fake_editor_with_actors([managed, caller]),
+            content_dir=None,
+        )
 
-        self.assertEqual(readiness["status"], "missing-device")
-        self.assertFalse(readiness["devicePlaced"])
-        self.assertEqual(readiness["deviceCount"], 0)
-        self.assertNotIn("callerFound", readiness)
-        self.assertNotIn("transactionsAssigned", readiness)
+        self.assertEqual(readiness["status"], "missing-wiring")
+        self.assertTrue(readiness["devicePlaced"])
+        self.assertTrue(readiness["callerFound"])
+        self.assertFalse(readiness["transactionsAssigned"])
 
-    def test_managed_device_readiness_reports_ambiguous_multiple_utm_devices(self):
+    def test_managed_device_readiness_rejects_marker_only_actor_when_generated_signature_is_known(self):
         import entitlement_manager
 
-        first = FakeEditorActor("ManagedDevice_01", {"enableDebugLogging": False})
-        second = FakeEditorActor("ManagedDevice_02", {"enableDebugLogging": False})
-        readiness = entitlement_manager._managed_device_readiness(fake_editor_with_actors([first, second]))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "managed_transactions.verse"), "w", encoding="utf-8") as source_file:
+                source_file.write(
+                    "managed_transactions_device := class(creative_device):\n"
+                    "    @editable:\n"
+                    "        EnableDebugLogging:logic = false\n"
+                    "    @editable:\n"
+                    "        Item1VaultSlot_PurchaseTriggers : []trigger_device = array{}\n"
+                )
+            marker_only = FakeEditorActor("UnrelatedDevice", {"enableDebugLogging": False})
+            readiness = entitlement_manager._managed_device_readiness(
+                fake_editor_with_actors([marker_only]),
+                content_dir=temp_dir,
+            )
+
+            self.assertEqual(readiness["status"], "missing-device")
+
+    def test_managed_device_readiness_reports_ambiguous_verified_devices(self):
+        import entitlement_manager
+
+        first = FakeEditorActor("ManagedDevice_01", {"enableDebugLogging": False, "item1VaultSlot_PurchaseTriggers": []})
+        second = FakeEditorActor("ManagedDevice_02", {"enableDebugLogging": False, "item1VaultSlot_PurchaseTriggers": []})
+        readiness = entitlement_manager._managed_device_readiness(
+            fake_editor_with_actors([first, second]),
+            content_dir=None,
+        )
 
         self.assertEqual(readiness["status"], "ambiguous")
-        self.assertTrue(readiness["devicePlaced"])
         self.assertEqual(readiness["deviceCount"], 2)
-
-    def test_managed_device_readiness_ignores_unrelated_transactions_property(self):
-        import entitlement_manager
-
-        unrelated = FakeEditorActor("OtherDevice", {"Transactions": None})
-        managed = FakeEditorActor("ManagedDevice_01", {"enableDebugLogging": False})
-        readiness = entitlement_manager._managed_device_readiness(fake_editor_with_actors([unrelated, managed]))
-
-        self.assertEqual(readiness["status"], "placed")
-        self.assertEqual(readiness["deviceCount"], 1)
-
-    def test_managed_device_readiness_does_not_require_in_island_transactions_actor(self):
-        import entitlement_manager
-
-        managed = FakeEditorActor("UTMRuntime", {"enableDebugLogging": False})
-        readiness = entitlement_manager._managed_device_readiness(fake_editor_with_actors([managed]))
-
-        self.assertEqual(readiness["status"], "placed")
-        self.assertTrue(readiness["devicePlaced"])
 
     def test_managed_device_readiness_fails_closed_when_actor_api_is_unavailable(self):
         import entitlement_manager

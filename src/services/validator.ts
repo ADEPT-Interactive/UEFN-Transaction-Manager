@@ -586,6 +586,7 @@ export function validateEntireProject(
     });
     if (item.triggers.generateTriggerBinding) registerMember(editableNames.purchaseTriggers, item, 'triggers');
     if (item.triggers.generateButtonBinding) registerMember(editableNames.purchaseButtons, item, 'triggers');
+    if (item.triggers.generateSuccessTriggerBinding) registerMember(editableNames.successTriggers, item, 'triggers');
   });
   if (config?.generateStorefrontBinding) {
     registerGeneratedMember(storefrontEditableName('AllOffersStore', 'openButtons'), 'config');
