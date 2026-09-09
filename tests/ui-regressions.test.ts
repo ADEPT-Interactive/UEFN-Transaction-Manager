@@ -124,6 +124,15 @@ test('paid-random guidance separates the optional Transaction Manager field from
   assert.match(readmeSource, /Transaction Manager's odds field is optional/);
 });
 
+test('catalog consequential gameplay badge is compact, intentional, and clearly labeled', () => {
+  const cardSource = read(path.join('src', 'components', 'EntitlementCard.tsx'));
+  assert.match(cardSource, /item\.flags\.consequentialToGameplay/);
+  assert.match(cardSource, /bg-orange-500\/15 text-orange-300 border border-orange-500\/30 px-2 py-0\.5 rounded-md/);
+  assert.match(cardSource, /<Gamepad2 className="w-3 h-3" aria-hidden="true" \/>/);
+  assert.match(cardSource, /<span>Con\. to Gameplay<\/span>/);
+  assert.doesNotMatch(cardSource, /Gameplay\s+Stat/);
+});
+
 test('standalone startup paints before discovery and automatically installs its UEFN connector', () => {
   const programSource = read(path.join('electron', 'main.ts'));
   const discoverySource = read(path.join('electron', 'projectDiscovery.ts'));

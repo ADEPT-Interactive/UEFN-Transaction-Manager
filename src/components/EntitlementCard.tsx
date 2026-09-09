@@ -6,8 +6,8 @@ import {
   Lock, 
   ShieldAlert, 
   Copy, 
-  Trash2, 
-  Layers
+  Trash2,
+  Gamepad2
 } from 'lucide-react';
 import { EntitlementItem } from '../types/entitlement';
 import { VBucksIcon } from './VBucksIcon';
@@ -108,8 +108,9 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
 
           {/* Consequential Flag */}
           {item.flags.consequentialToGameplay && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700 px-1.5 py-0.5 rounded">
-              Gameplay Stat
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-orange-500/15 text-orange-300 border border-orange-500/30 px-2 py-0.5 rounded-md">
+              <Gamepad2 className="w-3 h-3" aria-hidden="true" />
+              <span>Con. to Gameplay</span>
             </span>
           )}
         </div>
