@@ -1,6 +1,6 @@
 # Agent Integration
 
-UEFN Transaction Manager 4.3 works alongside UEFN MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through UEFN MCP. Your project Verse remains responsible for gameplay and business logic.
+UEFN Transaction Manager 4.3 works alongside Unreal MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through Unreal MCP. Your project Verse remains responsible for gameplay and business logic.
 
 ## Before you connect
 
@@ -36,7 +36,7 @@ UTM catalog mutations require the opaque `expectedRevision` returned by `get_cat
 
 The packaged Agent Skill performs a read-only inventory first. It searches relevant Verse and assets, traces offers, alternate paths, bundles, storefronts, ownership/count checks, grants, consumption, dynamic values, restrictions, and icons, then classifies findings as confirmed, inferred, ambiguous, or absent. Exhaustive evidence that a concept does not exist is absence, not ambiguity.
 
-The agent must prepare and review a required source-to-proposed semantic parity table before applying an atomic catalog patch. In `existing-project` mode, `apply_catalog_patch` rejects a missing, incomplete, inferred, or contradictory table. Each row records the legacy identity, proposed UTM record, exact Name/Description/ShortDescription, type, MaxCount, immediate-use evidence, `autoConsume`, price, restrictions, icon source, gameplay consequence boundary, repeated-purchase behavior, and offer relationships. It preserves identifiers and gameplay semantics, keeps unmatched existing UTM records unless replacement is proven or deletion is explicitly authorized, adopts only real `Texture2D` paths discovered through UEFN MCP, saves through UTM, reads the current integration contract, updates external project callers, compiles through UEFN MCP, rescans for legacy plumbing, and verifies persistence. It must never duplicate transactions or move gameplay logic into `managed_transactions.verse`.
+The agent must prepare and review a required source-to-proposed semantic parity table before applying an atomic catalog patch. In `existing-project` mode, `apply_catalog_patch` rejects a missing, incomplete, inferred, or contradictory table. Each row records the legacy identity, proposed UTM record, exact Name/Description/ShortDescription, type, MaxCount, immediate-use evidence, `autoConsume`, price, restrictions, icon source, gameplay consequence boundary, repeated-purchase behavior, and offer relationships. It preserves identifiers and gameplay semantics, keeps unmatched existing UTM records unless replacement is proven or deletion is explicitly authorized, adopts only real `Texture2D` paths discovered through Unreal MCP, saves through UTM, reads the current integration contract, updates external project callers, compiles through Unreal MCP, rescans for legacy plumbing, and verifies persistence. It must never duplicate transactions or move gameplay logic into `managed_transactions.verse`.
 
 Call `validate_migration_parity` before the dry run. Immediate-use legacy patterns must map to consumable `autoConsume`; their gameplay consequence must await the generated `Consumed` event, which fires only when the generated consume helper's pending intent is matched to an authoritative negative entitlement delta. Do not use `Granted` or generic `Removed` as a substitute.
 
@@ -45,9 +45,9 @@ Call `validate_migration_parity` before the dry run. Immediate-use legacy patter
 | Service | Use it for |
 | --- | --- |
 | **UTM MCP** | Catalog, entitlements, alternate offers, bundles, storefronts, validation, generated integration, icon adoption, and catalog save |
-| **UEFN MCP** | Verse, project files, Texture2D discovery, devices, compilation, editor state, sessions, and logs |
+| **Unreal MCP** | Verse, project files, Texture2D discovery, devices, compilation, editor state, sessions, and logs |
 
-UTM does not provide arbitrary shell/file access, raw `.uasset` editing, purchases, or island publishing. The current UEFN MCP may still require manual wiring for generated arrays containing placed `trigger_device` or `button_device` references, and its refresh/client-log capabilities must be checked at runtime rather than assumed.
+UTM does not provide arbitrary shell/file access, raw `.uasset` editing, purchases, or island publishing. The current Unreal MCP may still require manual wiring for generated arrays containing placed `trigger_device` or `button_device` references, and its refresh/client-log capabilities must be checked at runtime rather than assumed.
 
 ## Lifecycle recovery
 
@@ -56,6 +56,6 @@ UTM does not provide arbitrary shell/file access, raw `.uasset` editing, purchas
 - **UTM restarted:** reconnect any MCP session that was interrupted.
 - **Agent not verified:** start/reload a fresh process and call `get_project_context`; do not infer verification from the UTM panel's server status.
 - **UTM MCP missing in the agent:** stop the transaction workflow and repair client setup. Do not open localhost in a browser or attempt unsupported browser/desktop automation.
-- **UEFN MCP missing:** report editor, compile, asset, and session work as unverified.
+- **Unreal MCP missing:** report editor, compile, asset, and session work as unverified.
 
 For the complete agent procedure, see [the packaged Agent Skill](../skills/uefn-transaction-manager/SKILL.md).
