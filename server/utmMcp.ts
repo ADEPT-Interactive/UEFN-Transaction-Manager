@@ -21,7 +21,6 @@ export interface UTMProjectContext {
   managedFileOwned?: boolean;
   catalogInitialization?: 'first-run' | 'initialized';
   projectReadiness?: Record<string, unknown>;
-  generatedFile?: Record<string, unknown>;
 }
 
 export interface AdoptIconRequest {

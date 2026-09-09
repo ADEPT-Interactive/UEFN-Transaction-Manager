@@ -256,6 +256,23 @@ test('Case F: initialized projects can save catalog-only edits offline when asse
   } finally { await bridge.close(); }
 });
 
+test('Case F2: healthy connected projects remain ordinary connected without runtime-readiness gating', async () => {
+  const bridge = await startBridge({ pythonEnabled: true, initialized: true, assetPresent: true });
+  try {
+    assert.equal((await bridge.connectEditor()).status, 200);
+    const editorStatus = await bridge.request('/api/editor/status');
+    assert.equal(editorStatus.body.editorConnected, true);
+    assert.equal(editorStatus.body.projectActive, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(editorStatus.body, 'transactionSetup'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(editorStatus.body, 'utmRuntimeReady'), false);
+
+    const opened = await openCatalog(bridge);
+    const id = opened.body.catalog.entitlements[0].id;
+    const mutated = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: opened.body.catalog.revision, operation: { type: 'update_entitlement', entitlementId: id, data: { name: 'Connected edit' } } }) });
+    assert.equal(mutated.status, 200);
+  } finally { await bridge.close(); }
+});
+
 test('Case G: initialized projects with a missing referenced asset are blocked offline', async () => {
   const bridge = await startBridge({ pythonEnabled: false, initialized: true, assetPresent: false });
   try {

@@ -14,19 +14,6 @@ SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
 # bounded, but allow the real editor job to finish before the connector fails.
 BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
 EDITOR_HEARTBEAT_INTERVAL_SECONDS = 2.0
-TRANSACTION_DEVICE_CHECK_INTERVAL_SECONDS = 2.0
-TRANSACTION_DEVICE_MARKER_PROPERTIES = (
-    "enableDebugLogging",
-    "EnableDebugLogging",
-    "enable_debug_logging",
-)
-TRANSACTION_REFERENCE_PROPERTIES = (
-    "transactions",
-    "Transactions",
-    "transaction",
-)
-DEFAULT_MANAGED_VERSE_FILE = "managed_transactions.verse"
-DEFAULT_MANAGED_DEVICE_CLASS = "managed_transactions_device"
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -393,251 +380,6 @@ def _editor_project_is_ready(unreal, expected_project_file=None, expected_asset_
     return bool(_editor_project_readiness(unreal, expected_project_file, expected_asset_mount)["ready"])
 
 
-def _editor_object_identity(value):
-    """Return stable Unreal object identity strings without relying on repr()."""
-    if value is None or value is False:
-        return ""
-    if isinstance(value, str):
-        identity = value.strip()
-        return identity.replace("\\", "/") if identity else ""
-    for method_name in ("get_path_name", "get_name"):
-        method = getattr(value, method_name, None)
-        if not callable(method):
-            continue
-        try:
-            identity = str(method()).strip()
-        except Exception:
-            continue
-        if identity and identity.casefold() not in {"none", "null", "invalid"}:
-            return identity.replace("\\", "/")
-    return ""
-
-
-def _read_editor_property(value, property_names):
-    """Read the first property exposed by Unreal, preserving API availability."""
-    getter = getattr(value, "get_editor_property", None)
-    if not callable(getter):
-        return False, None, ""
-    for property_name in property_names:
-        try:
-            return True, getter(property_name), property_name
-        except Exception:
-            continue
-    return False, None, ""
-
-
-def _editor_property_variants(property_name):
-    """Return source and UEFN Details-panel spellings for a Verse field."""
-    if not property_name:
-        return ()
-    lower_camel = property_name[0].lower() + property_name[1:]
-    return tuple(dict.fromkeys((property_name, lower_camel, property_name.replace("_", ""))))
-
-
-def _editor_level_actors(unreal):
-    """Use supported editor actor APIs, with the legacy library as a fallback."""
-    get_editor_subsystem = getattr(unreal, "get_editor_subsystem", None)
-    subsystem_class = getattr(unreal, "EditorActorSubsystem", None)
-    if callable(get_editor_subsystem) and subsystem_class is not None:
-        try:
-            subsystem = get_editor_subsystem(subsystem_class)
-            get_all = getattr(subsystem, "get_all_level_actors", None)
-            if callable(get_all):
-                return True, list(get_all() or [])
-        except Exception:
-            pass
-
-    editor_level_library = getattr(unreal, "EditorLevelLibrary", None)
-    get_all = getattr(editor_level_library, "get_all_level_actors", None) if editor_level_library else None
-    if callable(get_all):
-        try:
-            return True, list(get_all() or [])
-        except Exception:
-            return False, []
-    return False, []
-
-
-def _managed_device_schema(content_dir, verse_file_name=DEFAULT_MANAGED_VERSE_FILE, device_class_name=DEFAULT_MANAGED_DEVICE_CLASS):
-    """Read the generated device's editable signature without mutating project content."""
-    if not content_dir:
-        return {"status": "not-available", "properties": []}
-
-    root = os.path.normpath(str(content_dir))
-    preferred_path = os.path.join(root, verse_file_name)
-    candidate_paths = []
-    if os.path.isfile(preferred_path):
-        candidate_paths.append(preferred_path)
-    try:
-        for entry in os.scandir(root):
-            if entry.is_file() and entry.name.casefold().endswith(".verse") and os.path.normcase(entry.path) != os.path.normcase(preferred_path):
-                candidate_paths.append(entry.path)
-    except OSError:
-        return {"status": "not-available", "properties": []}
-
-    matches = []
-    class_pattern = re.compile(rf"(?m)^\s*{re.escape(device_class_name)}\s*:=\s*class\(creative_device\):")
-    generated_class_pattern = re.compile(r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*class\(creative_device\):")
-    for path in candidate_paths:
-        try:
-            with open(path, "r", encoding="utf-8") as source_file:
-                source = source_file.read()
-        except (OSError, UnicodeError):
-            continue
-        class_matches = list(class_pattern.finditer(source))
-        if not class_matches and "Generated and managed by ADEPT Interactive UEFN Transaction Manager" in source:
-            class_matches = list(generated_class_pattern.finditer(source))
-        for class_match in class_matches:
-            editable_names = []
-            pending_editable = False
-            for line in source[class_match.end():].splitlines():
-                stripped = line.strip()
-                if stripped == "@editable:":
-                    pending_editable = True
-                    continue
-                if pending_editable:
-                    property_match = re.match(r"^\s{4,}([A-Za-z_][A-Za-z0-9_]*)\s*:", line)
-                    if property_match:
-                        editable_names.append(property_match.group(1))
-                        pending_editable = False
-                        continue
-                    if stripped and not line.startswith(" "):
-                        pending_editable = False
-            if "EnableDebugLogging" not in editable_names:
-                continue
-            matches.append({"path": path, "properties": editable_names})
-
-    preferred_matches = [match for match in matches if os.path.normcase(match["path"]) == os.path.normcase(preferred_path)]
-    if len(preferred_matches) == 1:
-        return {"status": "verified", **preferred_matches[0]}
-    if len(matches) == 1:
-        return {"status": "verified", **matches[0]}
-    if len(matches) > 1:
-        return {"status": "ambiguous", "properties": []}
-    return {"status": "not-found", "properties": []}
-
-
-def _editor_objects_match(left, right):
-    """Match an actor reference to its nested Verse property object path."""
-    if left is right:
-        return True
-    left_identity = _editor_object_identity(left).rstrip(".")
-    right_identity = _editor_object_identity(right).rstrip(".")
-    if not left_identity or not right_identity:
-        return False
-    left_key = left_identity.casefold()
-    right_key = right_identity.casefold()
-    return left_key == right_key or left_key.startswith(f"{right_key}.") or right_key.startswith(f"{left_key}.")
-
-
-def _managed_device_readiness(unreal, content_dir=None, verse_file_name=DEFAULT_MANAGED_VERSE_FILE, device_class_name=DEFAULT_MANAGED_DEVICE_CLASS):
-    """Inspect the placed generated device and its project caller wiring without changing editor state."""
-    api_available, actors = _editor_level_actors(unreal)
-    if not api_available:
-        return {
-            "status": "not-verifiable",
-            "devicePlaced": False,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "deviceCount": 0,
-            "reason": "editor-actor-api-unavailable",
-        }
-
-    schema = _managed_device_schema(content_dir, verse_file_name, device_class_name)
-    signature_properties = [
-        property_name for property_name in schema.get("properties", [])
-        if property_name.casefold() != "enabledebuglogging"
-    ]
-    managed_devices = []
-    marker_candidates_without_signature = 0
-    for actor in actors:
-        marker_available, _marker_value, _marker_name = _read_editor_property(actor, TRANSACTION_DEVICE_MARKER_PROPERTIES)
-        if not marker_available:
-            continue
-        if signature_properties and not any(_read_editor_property(actor, _editor_property_variants(property_name))[0] for property_name in signature_properties):
-            marker_candidates_without_signature += 1
-            continue
-        managed_devices.append(actor)
-
-    if schema.get("status") == "ambiguous":
-        return {
-            "status": "not-verifiable",
-            "devicePlaced": False,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "deviceCount": 0,
-            "reason": "multiple-generated-managed-device-schemas-found-in-content",
-        }
-    if len(managed_devices) == 0:
-        reason = "managed-transactions-device-not-placed-in-current-level"
-        if marker_candidates_without_signature:
-            reason = "current-managed-transactions-device-schema-not-found-in-level"
-        return {
-            "status": "missing-device",
-            "devicePlaced": False,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "deviceCount": 0,
-            "reason": reason,
-        }
-    if len(managed_devices) > 1:
-        return {
-            "status": "ambiguous",
-            "devicePlaced": True,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "deviceCount": len(managed_devices),
-            "devicePath": _editor_object_identity(managed_devices[0]),
-            "reason": "multiple-managed-transactions-devices-found-in-current-level",
-        }
-
-    managed_device = managed_devices[0]
-    managed_path = _editor_object_identity(managed_device)
-    reference_api_available = False
-    caller_found = False
-    transactions_assigned = False
-    assigned_path = ""
-    for actor in actors:
-        property_available, reference, _property_name = _read_editor_property(actor, TRANSACTION_REFERENCE_PROPERTIES)
-        if not property_available:
-            continue
-        reference_api_available = True
-        caller_found = True
-        if reference is not None and reference is not False and _editor_objects_match(reference, managed_device):
-            transactions_assigned = True
-            assigned_path = _editor_object_identity(reference)
-
-    if transactions_assigned:
-        return {
-            "status": "ready",
-            "devicePlaced": True,
-            "deviceCount": 1,
-            "callerFound": caller_found,
-            "transactionsAssigned": True,
-            "devicePath": managed_path,
-            "linkedDevicePath": assigned_path or managed_path,
-            "reason": "managed-device-placed-and-linked",
-        }
-    if not reference_api_available:
-        return {
-            "status": "not-verifiable",
-            "devicePlaced": True,
-            "deviceCount": 1,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "devicePath": managed_path,
-            "reason": "transaction-reference-property-unavailable",
-        }
-    return {
-        "status": "missing-wiring",
-        "devicePlaced": True,
-        "deviceCount": 1,
-        "callerFound": caller_found,
-        "transactionsAssigned": False,
-        "devicePath": managed_path,
-        "reason": "in-island-transactions-device-reference-is-not-linked-to-managed-device",
-    }
-
-
 def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mount=None, project_file=None):
     """Keep a project import bridge alive without blocking the UEFN editor thread.
 
@@ -678,15 +420,6 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
         "readiness_reason": "initializing",
         "last_project_ready": None,
         "last_readiness_reason": None,
-        "managed_device": {
-            "status": "not-checked",
-            "devicePlaced": False,
-            "callerFound": False,
-            "transactionsAssigned": False,
-            "deviceCount": 0,
-            "reason": "awaiting-verified-editor-readiness",
-        },
-        "last_managed_device_check": 0.0,
     }
     handle_holder = {"value": None}
 
@@ -699,7 +432,6 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             "projectReady": state["project_ready"],
             "readinessReason": state["readiness_reason"],
             "processId": os.getpid(),
-            "managedDevice": state["managed_device"],
         }
         if project_file:
             identity_report["projectFile"] = project_file
@@ -762,19 +494,6 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             state["last_readiness_reason"] = next_readiness_reason
         state["project_ready"] = next_project_ready
         state["readiness_reason"] = next_readiness_reason
-        now = time.monotonic()
-        if not next_project_ready:
-            state["managed_device"] = {
-                "status": "not-checked",
-                "devicePlaced": False,
-                "callerFound": False,
-                "transactionsAssigned": False,
-                "deviceCount": 0,
-                "reason": f"project-not-ready:{next_readiness_reason}",
-            }
-        elif now - state["last_managed_device_check"] >= TRANSACTION_DEVICE_CHECK_INTERVAL_SECONDS:
-            state["managed_device"] = _managed_device_readiness(unreal, content_dir)
-            state["last_managed_device_check"] = now
         if state["shutdown_requested"]:
             stop_event.set()
             callback_handle = handle_holder["value"]

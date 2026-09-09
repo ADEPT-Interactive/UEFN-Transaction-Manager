@@ -314,8 +314,9 @@ test('standalone bridge fails closed without an explicit editor project-readines
     const contentHash = ((await saved.json()) as { contentHash: string }).contentHash;
     const editorStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
     const standaloneEditorState = await editorStatus.json() as Record<string, any>;
-    const { transactionSetup, ...standaloneEditorCore } = standaloneEditorState;
-    assert.deepEqual(standaloneEditorCore, {
+    assert.equal(Object.prototype.hasOwnProperty.call(standaloneEditorState, 'transactionSetup'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(standaloneEditorState, 'utmRuntimeReady'), false);
+    assert.deepEqual(standaloneEditorState, {
       success: true,
       uefnRunning: true,
       connectorAlive: false,
@@ -332,8 +333,6 @@ test('standalone bridge fails closed without an explicit editor project-readines
       bootstrapState: 'not-needed',
       bootstrapDetails: {},
     });
-    assert.equal(transactionSetup.status, 'not-reported');
-    assert.equal(transactionSetup.utmRuntimeReady, false);
     const compile = await fetch(`${base}/api/verse/compile`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', expectedHash: contentHash }) });
     assert.equal(compile.status, 409);
     assert.match(String((await compile.json()).error), /active editor matches this project/i);

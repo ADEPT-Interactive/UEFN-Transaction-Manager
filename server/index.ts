@@ -15,7 +15,6 @@ import { parseVerseCode } from '../src/services/verseParser';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/constants/placeholderIcon';
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
-import { summarizeManagedRuntimeSetup, type CompileEvidence, type ManagedDeviceReport, type ManagedRuntimeSetup } from './transactionReadiness';
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
 import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
 import { createProjectBackup } from '../shared/projectBackups';
@@ -132,44 +131,9 @@ type EditorSessionReport = {
   projectReady: boolean;
   readinessReason: string;
   reportedAt: number;
-  managedDevice?: ManagedDeviceReport;
 };
 
-const managedDeviceStatuses = new Set<ManagedDeviceReport['status']>(['ready', 'missing-device', 'missing-wiring', 'ambiguous', 'not-verifiable', 'not-checked', 'not-reported']);
-
-function normalizeManagedDeviceReport(value: unknown): ManagedDeviceReport | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const status = record.status;
-  if (typeof status !== 'string' || !managedDeviceStatuses.has(status as ManagedDeviceReport['status'])) return undefined;
-  if (typeof record.devicePlaced !== 'boolean' || typeof record.callerFound !== 'boolean' || typeof record.transactionsAssigned !== 'boolean' || typeof record.reason !== 'string') return undefined;
-  if ((status === 'ready' || status === 'missing-wiring' || status === 'ambiguous') && !record.devicePlaced) return undefined;
-  if ((status === 'missing-device' || status === 'not-checked' || status === 'not-reported') && record.devicePlaced) return undefined;
-  if (status === 'ready' && (!record.callerFound || !record.transactionsAssigned)) return undefined;
-  if (status !== 'ready' && record.transactionsAssigned) return undefined;
-  const normalized: ManagedDeviceReport = {
-    status: status as ManagedDeviceReport['status'],
-    devicePlaced: record.devicePlaced,
-    callerFound: record.callerFound,
-    transactionsAssigned: record.transactionsAssigned,
-    reason: record.reason.slice(0, 240),
-    reportedAt: Date.now(),
-  };
-  if (record.deviceCount !== undefined) {
-    if (!Number.isInteger(record.deviceCount) || Number(record.deviceCount) < 0) return undefined;
-    normalized.deviceCount = Number(record.deviceCount);
-  }
-  for (const key of ['devicePath', 'linkedDevicePath'] as const) {
-    if (record[key] !== undefined) {
-      if (typeof record[key] !== 'string') return undefined;
-      normalized[key] = record[key].slice(0, 500);
-    }
-  }
-  return normalized;
-}
-
 let editorSession: EditorSessionReport | undefined;
-let lastCompileEvidence: CompileEvidence | undefined;
 let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = bootstrapEligible ? 'waiting' : 'not-needed';
 let bootstrapMessage: string | undefined;
 let bootstrapDetails: { attemptNumber?: number; intendedProject?: string; uefnProcessId?: number; method?: string; commandAccepted?: boolean; handshakeConfirmed?: boolean } = {};
@@ -302,17 +266,6 @@ function sha256(content: string | Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-function transactionSetupSummary(filePath: string, deviceClassName: string): ManagedRuntimeSetup {
-  const snapshot = catalogSession.snapshot();
-  return summarizeManagedRuntimeSetup({
-    filePath,
-    deviceClassName,
-    savedFileHash: snapshot.managedFileHash,
-    managedDevice: editorSession?.managedDevice,
-    compileEvidence: lastCompileEvidence,
-  });
-}
-
 const allowedOrigins = new Set([
   `http://127.0.0.1:${port}`,
   `http://localhost:${port}`,
@@ -322,8 +275,6 @@ const allowedOrigins = new Set([
 function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
-  const transactionSetup = transactionSetupSummary(filePath, snapshot.config.deviceClassName);
-  const generatedFile = transactionSetup.generatedSource;
   const connectorAlive = connectorHeartbeatIsFresh();
   const sessionConnected = editorSessionIsFresh();
   const projectActive = selectedProjectIsActiveInUefn();
@@ -355,10 +306,7 @@ function currentProjectContext(): UTMProjectContext {
       heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
       pythonEnabled,
       missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
-      generatedSource: generatedFile,
-      transactionSetup,
     },
-    generatedFile: { ...generatedFile },
   };
 }
 
@@ -457,7 +405,6 @@ async function assertCatalogReady(document: CatalogDocument): Promise<void> {
   const projectActive = selectedProjectIsActiveInUefn();
   const pythonEnabled = projectPythonIsEnabled();
   const scopedDocument: CatalogDocument = { ...document, config: { ...document.config, contentFolderPath: contentRoot } };
-  const transactionSetup = transactionSetupSummary(filePath, scopedDocument.config.deviceClassName);
   const references = collectManagedAssetReferences(scopedDocument, configuredAssetMount!);
   if (firstInitialization && references.length && (!editorConnected || !projectActive || !pythonEnabled)) {
     throw catalogReadinessError(
@@ -776,11 +723,8 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
       return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
-    const hasManagedDeviceReport = Object.prototype.hasOwnProperty.call(req.body, 'managedDevice');
-    const managedDevice = hasManagedDeviceReport ? normalizeManagedDeviceReport(req.body.managedDevice) : undefined;
-    if (hasManagedDeviceReport && !managedDevice) return res.status(400).json({ success: false, error: 'The editor managed-device readiness report is invalid.' });
     const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
-    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, ...(typeof req.body.projectFile === 'string' ? { projectFile: req.body.projectFile } : {}), processId: req.body.processId, projectReady: req.body.projectReady, readinessReason, reportedAt: Date.now(), ...(managedDevice ? { managedDevice } : {}) };
+    editorSession = { contentRoot: reportedRoot, assetMount: req.body.assetMount, ...(typeof req.body.projectFile === 'string' ? { projectFile: req.body.projectFile } : {}), processId: req.body.processId, projectReady: req.body.projectReady, readinessReason, reportedAt: Date.now() };
     res.json({ success: true, assetMount: configuredAssetMount });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Editor project identity could not be verified.' });
@@ -794,8 +738,6 @@ app.get('/api/editor/status', (_req, res) => {
   const openProjectFile = uefnRunning ? latestProjectOpenedByUefn() : undefined;
   const projectActive = selectedProjectIsActiveInUefn();
   const editorConnected = sessionConnected && projectActive;
-  const snapshot = catalogSession.snapshot();
-  const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
   if (editorConnected) bootstrapState = 'connected';
   res.json({
     success: true,
@@ -815,7 +757,6 @@ app.get('/api/editor/status', (_req, res) => {
     bootstrapState,
     bootstrapMessage,
     bootstrapDetails,
-    transactionSetup: transactionSetupSummary(filePath, snapshot.config.deviceClassName),
   });
 });
 
@@ -1023,12 +964,6 @@ app.post('/api/verse/compile', async (req, res) => {
     return res.status(400).json({ success: false, connected: false, error: error instanceof Error ? error.message : 'Compilation preflight failed.' });
   }
   const result = await compileVerseProject({ projectFile: configuredProjectFile, preferredProcessId: (editorSession?.processId ?? launchedUefnProcessId) || undefined });
-  lastCompileEvidence = {
-    success: result.success,
-    contentHash: req.body.expectedHash,
-    reportedAt: Date.now(),
-    ...(result.error ? { error: result.error.slice(0, 500) } : {}),
-  };
   res.status(result.success ? 200 : 422).json({ ...result, fileName: req.body.fileName, contentHash: req.body.expectedHash, assetMount: configuredAssetMount });
 });
 
