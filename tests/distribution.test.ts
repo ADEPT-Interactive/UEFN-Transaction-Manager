@@ -39,7 +39,7 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   assert.match(read('scripts/verify-release.ps1'), /projectReady/);
 });
 
-test('creator-facing MCP terminology stays on the current UEFN MCP name', () => {
+test('creator-facing MCP terminology separates human product prose from technical server identifiers', () => {
   const creatorFacingFiles = [
     'README.md',
     'README-USER.txt',
@@ -49,9 +49,43 @@ test('creator-facing MCP terminology stays on the current UEFN MCP name', () => 
     'docs/RELEASE-DISTRIBUTION.md',
     'docs/DISTRIBUTION.md',
   ];
-  for (const file of creatorFacingFiles) assert.doesNotMatch(read(file), /Unreal MCP/);
-  assert.match(read('README.md'), /UEFN MCP/);
-  assert.match(read('docs/AGENT_INTEGRATION.md'), /`unreal-mcp`/);
+  const integrationFiles = [
+    'README.md',
+    'README-USER.txt',
+    'docs/AGENT_INTEGRATION.md',
+    'docs/assets/utm-mcp-workflow.svg',
+    'docs/assets/utm-mcp-workflow-mobile.svg',
+  ];
+  const terminologyExamples: Array<[string, boolean]> = [
+    ['UTM works alongside Unreal MCP.', true],
+    ['Confirm `utm-mcp` and `unreal-mcp` are installed.', true],
+    ['UTM works alongside UEFN MCP.', false],
+    ['renaming literal server configuration `unreal-mcp` to "Unreal MCP"', false],
+  ];
+  const followsContract = (text: string) => {
+    if (/(?<![A-Za-z0-9-])UEFN MCP(?!\s+Toolsets\b)/i.test(text)) return false;
+    if (text.split('\n').some((line) => /`unreal-mcp`[^\n]*Unreal MCP/i.test(line)
+      && /(?:renam(?:e|ed|ing)|call(?:ed)?|label(?:ed)?|server configuration)/i.test(line))) return false;
+    return true;
+  };
+  for (const [example, expected] of terminologyExamples) assert.equal(followsContract(example), expected, example);
+  for (const file of creatorFacingFiles) {
+    const content = read(file);
+    assert.equal(followsContract(content), true, `${file} contains a stale human-facing name or humanized technical identifier`);
+  }
+  for (const file of integrationFiles) {
+    const content = read(file);
+    assert.match(content, /Unreal MCP/, `${file} should name the creator-facing integration`);
+    assert.doesNotMatch(content, /`Unreal MCP`/, `${file} must not use the display name as a server key`);
+  }
+  const integrationGuide = read('docs/AGENT_INTEGRATION.md');
+  assert.match(integrationGuide, /`utm-mcp`/);
+  assert.match(integrationGuide, /`unreal-mcp`/);
+  const mobileWorkflow = read('docs/assets/utm-mcp-workflow-mobile.svg');
+  assert.match(mobileWorkflow, /<desc[^>]*>[^<]*Unreal MCP/);
+  assert.match(mobileWorkflow, />Unreal MCP</);
+  assert.doesNotMatch(mobileWorkflow, /Review and compile|Your gameplay stays in your project/);
+  assert.equal((mobileWorkflow.match(/Your UEFN Project/g) ?? []).length, 1);
 });
 
 test('Discord README identity is static metadata, not a hardcoded presence count', () => {
