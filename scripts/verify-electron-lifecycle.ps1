@@ -80,8 +80,11 @@ function Test-TrackedProcessAlive {
 function Test-ProcessWindowVisible {
     param([Parameter(Mandatory = $true)] [System.Diagnostics.Process]$Process)
     $Process.Refresh()
-    $handle = $Process.MainWindowHandle
-    return $handle -ne [IntPtr]::Zero -and [UemElectronWindowCloser]::IsWindowVisible($handle)
+    $rawHandle = $Process.MainWindowHandle
+    if ($null -eq $rawHandle -or [string]::IsNullOrWhiteSpace([string]$rawHandle)) { return $false }
+    $handle = [IntPtr]$rawHandle
+    if ($handle -eq [IntPtr]::Zero) { return $false }
+    return [UemElectronWindowCloser]::IsWindowVisible($handle)
 }
 
 function Wait-ForLog {

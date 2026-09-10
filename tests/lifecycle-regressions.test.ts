@@ -181,6 +181,9 @@ test('project switching uses a validated replacement window and rollback boundar
   assert.match(main, /Retiring dashboard window destroyed/);
   assert.match(main, /current dashboard retained/);
   assert.match(main, /Late IPC from retiring dashboard rejected/);
+  assert.match(main, /function acceptTrustedEvent/);
+  assert.match(main, /acceptTrustedEvent\(event, 'uem:window:dirty'\)/);
+  assert.match(main, /acceptTrustedEvent\(event, 'uem:window:action'\)/);
   assert.doesNotMatch(main, /Navigation recovery retry started/);
 });
 

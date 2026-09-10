@@ -159,6 +159,16 @@ function assertTrustedSender(event: Electron.IpcMainEvent | Electron.IpcMainInvo
   }
 }
 
+function acceptTrustedEvent(event: Electron.IpcMainEvent, channel: string): boolean {
+  try {
+    assertTrustedSender(event);
+    return true;
+  } catch (error) {
+    diagnostic(`Rejected desktop event from an untrusted renderer: channel=${channel}; error=${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
 function trustedAgentSkillLocation(agent: unknown): string | null {
   const directories: Record<string, string> = { codex: '.agents', claude: '.claude', cursor: '.cursor' };
   if (typeof agent !== 'string' || !Object.prototype.hasOwnProperty.call(directories, agent)) return null;
@@ -654,7 +664,7 @@ function configureIpc() {
     diagnostic(`Verified Agent Skill location opened for ${String(agent)}.`);
     return { success: true };
   });
-  ipcMain.on('uem:window:dirty', (event, dirty: unknown) => { assertTrustedSender(event); appHasUnsavedChanges = dirty === true; });
+  ipcMain.on('uem:window:dirty', (event, dirty: unknown) => { if (acceptTrustedEvent(event, 'uem:window:dirty')) appHasUnsavedChanges = dirty === true; });
   ipcMain.handle('uem:update:get-state', event => {
     assertTrustedSender(event);
     return updateManager?.getState() ?? { status: 'idle', currentVersion: app.getVersion() };
@@ -691,7 +701,7 @@ function configureIpc() {
     return result;
   });
   ipcMain.on('uem:window:action', (event, action: unknown) => {
-    assertTrustedSender(event);
+    if (!acceptTrustedEvent(event, 'uem:window:action')) return;
     const target = mainWindow;
     if (!target || typeof action !== 'string') return;
     switch (action as WindowAction) {
