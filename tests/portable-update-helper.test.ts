@@ -36,7 +36,10 @@ async function runHelper(plan: PortableUpdatePlan) {
 }
 
 function testRelaunchArguments() {
-  return ['-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 3'];
+  // The helper launches the replacement with the current portable root as its
+  // working directory. Move this synthetic sleeper away from that fixture
+  // root so slow Windows runners cannot keep `current` locked during cleanup.
+  return ['-NoProfile', '-NonInteractive', '-Command', 'Set-Location -LiteralPath $env:WINDIR; [Environment]::CurrentDirectory = $env:WINDIR; Start-Sleep -Seconds 3'];
 }
 
 async function readResult(resultPath: string) {
