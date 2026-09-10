@@ -35,6 +35,8 @@ using System.Runtime.InteropServices;
 public static class UemElectronWindowCloser {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
 }
 "@
 
@@ -73,6 +75,13 @@ function Test-TrackedProcessAlive {
         return $null -ne $process -and [string]$process.CreationDate -eq [string]$trackedIdentities[$ProcessId]
     }
     catch { return $false }
+}
+
+function Test-ProcessWindowVisible {
+    param([Parameter(Mandatory = $true)] [System.Diagnostics.Process]$Process)
+    $Process.Refresh()
+    $handle = $Process.MainWindowHandle
+    return $handle -ne [IntPtr]::Zero -and [UemElectronWindowCloser]::IsWindowVisible($handle)
 }
 
 function Wait-ForLog {
@@ -165,7 +174,7 @@ try {
     $pickerLog = Join-Path $env:LOCALAPPDATA ("UEFN Entitlement Manager\logs\electron-main-{0}.log" -f $picker.Id)
     $pickerText = Wait-ForLog -LogPath $pickerLog -Pattern "Project launcher renderer ready:" -Process $picker
     if ($Hidden) {
-        if ($picker.MainWindowHandle -ne [IntPtr]::Zero) { throw "Hidden lifecycle picker created a visible window." }
+        if (Test-ProcessWindowVisible -Process $picker) { throw "Hidden lifecycle picker created a visible window." }
     }
     else {
         $windowDeadline = (Get-Date).AddSeconds(10)
@@ -225,7 +234,7 @@ try {
     if (-not $FailureRollback -and ([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -lt 1) { throw "Project switching did not stop the previous bridge." }
 
     if ($Hidden) {
-        if ($manager.MainWindowHandle -ne [IntPtr]::Zero) { throw "Hidden Electron lifecycle created a visible manager window." }
+        if (Test-ProcessWindowVisible -Process $manager) { throw "Hidden Electron lifecycle created a visible manager window." }
     }
     else {
         $managerWindowDeadline = (Get-Date).AddSeconds(10)
