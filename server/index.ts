@@ -18,7 +18,8 @@ import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utm
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
 import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
 import { createProjectBackup } from '../shared/projectBackups';
-import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle';
+import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess, type UefnProjectLifecycle } from '../shared/editorLifecycle';
+import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -28,10 +29,9 @@ const editorSessionToken = process.env.UEM_EDITOR_TOKEN;
 const configuredRoot = process.env.UEM_CONTENT_ROOT;
 const configuredAssetMount = process.env.UEM_ASSET_MOUNT;
 const configuredProjectFile = process.env.UEM_PROJECT_FILE;
-const projectPythonEnabled = process.env.UEM_PROJECT_PYTHON_ENABLED === '1';
+const initialProjectPythonEnabled = process.env.UEM_PROJECT_PYTHON_ENABLED === '1';
 const autoConnectorInstalled = process.env.UEM_AUTO_CONNECTOR_INSTALLED === '1';
 const launchedUefnProcessId = Number(process.env.UEM_UEFN_PROCESS_ID || 0);
-const bootstrapEligible = process.env.UEM_BOOTSTRAP_ELIGIBLE === '1';
 const idleTimeoutMs = Number(process.env.UEM_IDLE_TIMEOUT_MS || 120000);
 
 if (!sessionToken || sessionToken.length < 32) throw new Error('UEM_SESSION_TOKEN is required and must contain at least 32 characters.');
@@ -134,7 +134,7 @@ type EditorSessionReport = {
 };
 
 let editorSession: EditorSessionReport | undefined;
-let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = bootstrapEligible ? 'waiting' : 'not-needed';
+let bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed' = autoConnectorInstalled ? 'waiting' : 'not-needed';
 let bootstrapMessage: string | undefined;
 let bootstrapDetails: { attemptNumber?: number; intendedProject?: string; uefnProcessId?: number; method?: string; commandAccepted?: boolean; handshakeConfirmed?: boolean } = {};
 
@@ -146,14 +146,18 @@ function connectorHeartbeatIsFresh(now = Date.now()): boolean {
 }
 
 function editorSessionIsFresh(): boolean {
-  return Boolean(editorSession?.projectReady && connectorHeartbeatIsFresh());
+  return Boolean(editorSession?.projectReady && connectorHeartbeatIsFresh() && selectedProjectIsActiveInUefn());
 }
 
-function latestUefnProjectLifecycle(): { openedProject?: string; openedPosition: number; closedPosition: number; latestSelectionPosition: number } {
-  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
+function emptyUefnProjectLifecycle(): UefnProjectLifecycle {
+  return { openedPosition: -1, openingPosition: -1, closedPosition: -1, latestSelectionPosition: -1, projectOpening: false };
+}
+
+function latestUefnProjectLifecycle(): UefnProjectLifecycle {
+  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return emptyUefnProjectLifecycle();
   const logPath = path.join(process.env.LOCALAPPDATA, 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   try {
-    if (!fs.existsSync(logPath)) return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
+    if (!fs.existsSync(logPath)) return emptyUefnProjectLifecycle();
     const stats = fs.statSync(logPath);
     const bytesToRead = Math.min(stats.size, 4 * 1024 * 1024);
     const buffer = Buffer.alloc(bytesToRead);
@@ -164,12 +168,8 @@ function latestUefnProjectLifecycle(): { openedProject?: string; openedPosition:
     // project readiness is derived from the current UEFN lifecycle.
     return parseUefnProjectLifecycleLog(buffer.toString('utf8'));
   } catch {
-    return { openedPosition: -1, closedPosition: -1, latestSelectionPosition: -1 };
+    return emptyUefnProjectLifecycle();
   }
-}
-
-function latestProjectOpenedByUefn(): string | undefined {
-  return latestUefnProjectLifecycle().openedProject;
 }
 
 let cachedUefnProcessSnapshot = { checkedAt: 0, running: false, lastSuccessfulProbeAt: 0 };
@@ -242,24 +242,84 @@ function pathsEqual(first: string | undefined, second: string | undefined): bool
 }
 
 function projectPythonIsEnabled(): boolean {
-  if (!configuredProjectFile) return projectPythonEnabled;
+  if (!configuredProjectFile) return initialProjectPythonEnabled;
   try {
     return /"bEnablePythonForProject"\s*:\s*true/i.test(fs.readFileSync(configuredProjectFile, 'utf8'));
   } catch {
-    return projectPythonEnabled;
+    return initialProjectPythonEnabled;
   }
 }
 
+/**
+ * Compatibility name retained for existing callers. It now means identity
+ * only: the configured project is the project UEFN reports as open. Connector
+ * liveness and project readiness are separate facts below.
+ */
 function selectedProjectIsActiveInUefn(): boolean {
-  if (!editorSessionIsFresh() || !uefnIsRunning()) return false;
+  if (!uefnIsRunning()) return false;
   const lifecycle = latestUefnProjectLifecycle();
-  if (lifecycle.openedProject && !pathsEqual(lifecycle.openedProject, configuredProjectFile)) return false;
-  // The connector's editor-thread assertion is authoritative for the current
-  // lifecycle. UEFN emits a later Selected Project (Direct) record during
-  // normal project initialization, so selector ordering alone cannot revoke a
-  // genuinely open project. A return to the browser is reported as
-  // projectReady=false while its heartbeat remains separately observable.
-  return true;
+  if (lifecycle.projectOpening || lifecycle.closedPosition > lifecycle.openedPosition) return false;
+  if (configuredProjectFile) {
+    if (lifecycle.openedProject) return pathsEqual(lifecycle.openedProject, configuredProjectFile);
+    return Boolean(editorSession?.projectFile && pathsEqual(editorSession.projectFile, configuredProjectFile));
+  }
+  // A standalone bridge without a descriptor still has an exact identity
+  // when the authenticated connector reports the configured Content root and
+  // asset mount. This is identity evidence, not readiness evidence.
+  return Boolean(editorSession
+    && pathsEqual(editorSession.contentRoot, contentRoot)
+    && editorSession.assetMount === configuredAssetMount);
+}
+
+function currentEditorState(): {
+  connectionState: EditorConnectionState;
+  uefnRunning: boolean;
+  projectOpening: boolean;
+  exactProjectOpen: boolean;
+  differentProjectOpen: boolean;
+  openProjectFile?: string;
+  openingProjectFile?: string;
+  connectorAlive: boolean;
+  projectReady: boolean;
+  editorConnected: boolean;
+  pythonEnabled: boolean;
+  lifecycle: UefnProjectLifecycle;
+} {
+  const lifecycle = latestUefnProjectLifecycle();
+  const connectorAlive = connectorHeartbeatIsFresh();
+  const projectReady = Boolean(connectorAlive && editorSession?.projectReady);
+  const uefnRunning = uefnIsRunning();
+  const openProjectFile = uefnRunning ? lifecycle.openedProject : undefined;
+  const openingProjectFile = uefnRunning ? lifecycle.openingProject : undefined;
+  const exactProjectOpen = uefnRunning && selectedProjectIsActiveInUefn();
+  const differentProjectOpen = Boolean(uefnRunning && (openProjectFile || openingProjectFile)
+    && !pathsEqual(openProjectFile ?? openingProjectFile, configuredProjectFile));
+  const pythonEnabled = projectPythonIsEnabled();
+  const editorConnected = Boolean(exactProjectOpen && pythonEnabled && connectorAlive && projectReady);
+  const connectionState = deriveEditorConnectionState({
+    uefnRunning,
+    projectOpening: Boolean(uefnRunning && lifecycle.projectOpening),
+    exactProjectOpen,
+    differentProjectOpen,
+    pythonEnabled,
+    connectorAlive,
+    projectReady,
+    editorConnected,
+  });
+  return {
+    connectionState,
+    uefnRunning,
+    projectOpening: Boolean(uefnRunning && lifecycle.projectOpening),
+    exactProjectOpen,
+    differentProjectOpen,
+    openProjectFile,
+    openingProjectFile,
+    connectorAlive,
+    projectReady,
+    editorConnected,
+    pythonEnabled,
+    lifecycle,
+  };
 }
 
 function sha256(content: string | Buffer): string {
@@ -275,11 +335,7 @@ const allowedOrigins = new Set([
 function currentProjectContext(): UTMProjectContext {
   const snapshot = catalogSession.snapshot();
   const filePath = path.join(contentRoot, snapshot.config.targetVerseFileName);
-  const connectorAlive = connectorHeartbeatIsFresh();
-  const sessionConnected = editorSessionIsFresh();
-  const projectActive = selectedProjectIsActiveInUefn();
-  const editorConnected = sessionConnected && projectActive;
-  const pythonEnabled = projectPythonIsEnabled();
+  const editorState = currentEditorState();
   return {
     productVersion: versionInfo.version,
     projectName: configuredProjectFile ? path.basename(configuredProjectFile, path.extname(configuredProjectFile)) : path.basename(contentRoot),
@@ -289,22 +345,24 @@ function currentProjectContext(): UTMProjectContext {
     targetManagedVerseFile: snapshot.config.targetVerseFileName,
     configuredIconFolder: snapshot.config.assetFolderName,
     editorConnection: {
-      editorConnected,
-      projectActive,
-      connectorAlive,
-      uefnRunning: uefnIsRunning(),
+      editorConnected: editorState.editorConnected,
+      projectActive: editorState.exactProjectOpen,
+      exactProjectOpen: editorState.exactProjectOpen,
+      connectorAlive: editorState.connectorAlive,
+      uefnRunning: editorState.uefnRunning,
       processId: (editorSession?.processId ?? launchedUefnProcessId) || undefined,
     },
-    nativeTextureAdoptionAvailable: editorConnected && projectActive && pythonEnabled,
+    nativeTextureAdoptionAvailable: editorState.editorConnected,
     managedFileOwned: catalogManaged,
     catalogInitialization: fs.existsSync(filePath) ? 'initialized' : 'first-run',
     projectReadiness: {
-      editorConnected,
-      projectActive,
-      connectorAlive,
-      readinessReason: editorSession?.readinessReason ?? (connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+      editorConnected: editorState.editorConnected,
+      projectActive: editorState.exactProjectOpen,
+      exactProjectOpen: editorState.exactProjectOpen,
+      connectorAlive: editorState.connectorAlive,
+      readinessReason: editorSession?.readinessReason ?? (editorState.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
       heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
-      pythonEnabled,
+      pythonEnabled: editorState.pythonEnabled,
       missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
     },
   };
@@ -378,6 +436,19 @@ function catalogReadinessError(message: string, data: Record<string, unknown> = 
   return new CatalogDomainError(CATALOG_ERROR_CODES.projectNotReady, `PROJECT_NOT_READY: ${message}`, data, 409);
 }
 
+function catalogReadinessMessage(state: EditorConnectionState): string {
+  switch (state) {
+    case 'uefn-closed': return 'open the selected project in UEFN before creating the first managed catalog.';
+    case 'project-opening': return 'wait for the selected project to finish opening in UEFN before creating the first managed catalog.';
+    case 'different-project': return 'open the selected project in UEFN; it is not the project currently open in UEFN.';
+    case 'python-required': return 'Python Editor Scripting is disabled for the selected project.';
+    case 'connector-waiting': return 'keep the selected project open while the verified UEFN editor connector attaches.';
+    case 'project-readiness-waiting': return 'keep the selected project open while UTM verifies project readiness.';
+    case 'uefn-running-project-unknown': return 'open the selected project in UEFN before creating the first managed catalog.';
+    case 'connected': return 'the selected project is ready.';
+  }
+}
+
 async function waitForTextureImport(jobId: string, expectedObjectPath: string): Promise<void> {
   for (let attempt = 0; attempt < 90; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -401,17 +472,13 @@ async function assertCatalogReady(document: CatalogDocument): Promise<void> {
   if (!catalogManaged) throw catalogReadinessError('the selected target Verse file is not managed by UTM and will not be overwritten.');
   const filePath = path.join(contentRoot, validateVerseFileName(document.config.targetVerseFileName));
   const firstInitialization = !fs.existsSync(filePath);
-  const editorConnected = editorSessionIsFresh();
-  const projectActive = selectedProjectIsActiveInUefn();
-  const pythonEnabled = projectPythonIsEnabled();
+  const editorState = currentEditorState();
   const scopedDocument: CatalogDocument = { ...document, config: { ...document.config, contentFolderPath: contentRoot } };
   const references = collectManagedAssetReferences(scopedDocument, configuredAssetMount!);
-  if (firstInitialization && references.length && (!editorConnected || !projectActive || !pythonEnabled)) {
+  if (firstInitialization && references.length && editorState.connectionState !== 'connected') {
     throw catalogReadinessError(
-      !editorConnected ? 'open the selected project in UEFN and wait for its verified editor connector before creating the first managed catalog.'
-        : !projectActive ? 'the selected project is not the project currently open in UEFN.'
-          : 'Python Editor Scripting is disabled for the selected project.',
-      { initialization: 'first-run', editorConnected, projectActive, pythonEnabled, required: 'UEFN open, exact project active, verified editor bridge, Python Editor Scripting enabled' },
+      catalogReadinessMessage(editorState.connectionState),
+      { initialization: 'first-run', connectionState: editorState.connectionState, editorConnected: editorState.editorConnected, projectActive: editorState.exactProjectOpen, exactProjectOpen: editorState.exactProjectOpen, connectorAlive: editorState.connectorAlive, projectReady: editorState.projectReady, pythonEnabled: editorState.pythonEnabled, required: 'UEFN open, exact project active, verified editor bridge, Python Editor Scripting enabled' },
     );
   }
 
@@ -420,8 +487,8 @@ async function assertCatalogReady(document: CatalogDocument): Promise<void> {
     if (!isPlaceholderIconTexture(reference.expression)) {
       throw catalogReadinessError('a generated Texture2D reference is missing from the selected project. Adopt or restore the exact asset before saving.', { missingAssets: missing.map(candidate => candidate.objectPath) });
     }
-    if (!editorConnected || !projectActive || !pythonEnabled) {
-      throw catalogReadinessError('the required UTM placeholder Texture2D is missing. Open the selected project in UEFN with Python Editor Scripting enabled so UTM can provision it before saving.', { missingAssets: missing.map(candidate => candidate.objectPath), editorConnected, projectActive, pythonEnabled });
+    if (editorState.connectionState !== 'connected') {
+      throw catalogReadinessError(`the required UTM placeholder Texture2D is missing. ${catalogReadinessMessage(editorState.connectionState)}`, { missingAssets: missing.map(candidate => candidate.objectPath), connectionState: editorState.connectionState, editorConnected: editorState.editorConnected, projectActive: editorState.exactProjectOpen, exactProjectOpen: editorState.exactProjectOpen, connectorAlive: editorState.connectorAlive, projectReady: editorState.projectReady, pythonEnabled: editorState.pythonEnabled });
     }
     const segments = reference.expression.split('.');
     const assetFolderName = segments[0];
@@ -732,28 +799,27 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
 });
 
 app.get('/api/editor/status', (_req, res) => {
-  const connectorAlive = connectorHeartbeatIsFresh();
-  const sessionConnected = editorSessionIsFresh();
-  const uefnRunning = uefnIsRunning();
-  const openProjectFile = uefnRunning ? latestProjectOpenedByUefn() : undefined;
-  const projectActive = selectedProjectIsActiveInUefn();
-  const editorConnected = sessionConnected && projectActive;
-  if (editorConnected) bootstrapState = 'connected';
+  const state = currentEditorState();
+  if (state.editorConnected) bootstrapState = 'connected';
   res.json({
     success: true,
-    uefnRunning,
-    connectorAlive,
-    editorConnected,
-    projectActive,
-    projectReady: Boolean(connectorAlive && editorSession?.projectReady),
-    readinessReason: editorSession?.readinessReason ?? (connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+    connectionState: state.connectionState,
+    uefnRunning: state.uefnRunning,
+    projectOpening: state.projectOpening,
+    connectorAlive: state.connectorAlive,
+    editorConnected: state.editorConnected,
+    projectActive: state.exactProjectOpen,
+    exactProjectOpen: state.exactProjectOpen,
+    projectReady: state.projectReady,
+    readinessReason: editorSession?.readinessReason ?? (state.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
     heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
     processId: editorSession?.processId ?? (launchedUefnProcessId || undefined),
-    differentProjectOpen: Boolean(uefnRunning && openProjectFile && !pathsEqual(openProjectFile, configuredProjectFile)),
-    openProjectFile: uefnRunning ? openProjectFile : undefined,
-    pythonEnabled: projectPythonIsEnabled(),
+    differentProjectOpen: state.differentProjectOpen,
+    openProjectFile: state.openProjectFile,
+    openingProjectFile: state.openingProjectFile,
+    pythonEnabled: state.pythonEnabled,
     autoConnectorInstalled,
-    nativeTextureImportAvailable: editorConnected && projectActive && projectPythonIsEnabled(),
+    nativeTextureImportAvailable: state.editorConnected,
     bootstrapState,
     bootstrapMessage,
     bootstrapDetails,
@@ -869,14 +935,17 @@ const upload = multer({
 
 app.post('/api/texture/import', upload.single('image'), async (req, res) => {
   try {
-    if (!editorSessionIsFresh()) {
+    const editorState = currentEditorState();
+    if (!editorState.editorConnected) {
       return res.status(409).json({
         success: false,
-        error: projectPythonEnabled
-          ? autoConnectorInstalled
-            ? 'The automatic native-import connector is not attached. Keep this Transaction Manager window open and reopen the linked UEFN project so its project connector can start.'
-            : 'Transaction Manager could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
-          : 'Native texture import needs Python Editor Scripting. Enable it for this UEFN project; Transaction Manager detects it immediately and attaches automatically.',
+        error: editorState.connectionState === 'python-required'
+          ? 'Native texture import needs Python Editor Scripting. Enable it for this UEFN project; Transaction Manager detects it immediately and attaches automatically.'
+          : editorState.connectionState === 'connector-waiting'
+            ? autoConnectorInstalled
+              ? 'The automatic native-import connector is not attached. Keep this Transaction Manager window open while the project connector starts.'
+              : 'Transaction Manager could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
+            : `Native texture import is unavailable until the linked UEFN project is ready. ${catalogReadinessMessage(editorState.connectionState)}`,
       });
     }
     if (!req.file) throw new Error('A supported image file is required.');
@@ -890,7 +959,7 @@ app.post('/api/texture/import', upload.single('image'), async (req, res) => {
 
 app.post('/api/texture/adopt', async (req, res) => {
   try {
-    if (!editorSessionIsFresh()) return res.status(409).json({ success: false, error: 'The verified UEFN editor session is not connected.' });
+    if (!currentEditorState().editorConnected) return res.status(409).json({ success: false, error: 'The verified UEFN editor session is not connected and ready for native asset operations.' });
     const assetFolderName = validateIdentifier(req.body.assetFolderName, 'Asset folder');
     const assetName = validateIdentifier(req.body.assetName, 'Asset name');
     if (typeof req.body.sourceAssetPath !== 'string') throw new Error('An existing UEFN Texture2D object path is required.');
@@ -957,7 +1026,7 @@ app.post('/api/verse/compile', async (req, res) => {
     assertExistingPathInsideRoot(contentRoot, filePath);
     const currentHash = sha256(fs.readFileSync(filePath));
     if (currentHash !== req.body.expectedHash) return res.status(409).json({ success: false, connected: false, error: 'The generated Verse file changed before compilation. Save it again.' });
-    if (!editorSessionIsFresh() && !selectedProjectIsActiveInUefn()) {
+    if (!editorSessionIsFresh()) {
       return res.status(409).json({ success: false, connected: false, error: 'Open the linked project in UEFN before compiling. Transaction Manager could not verify that the active editor matches this project.' });
     }
   } catch (error) {
@@ -967,9 +1036,12 @@ app.post('/api/verse/compile', async (req, res) => {
   res.status(result.success ? 200 : 422).json({ ...result, fileName: req.body.fileName, contentHash: req.body.expectedHash, assetMount: configuredAssetMount });
 });
 
+let shutdownTimer: NodeJS.Timeout | undefined;
+let shutdownPromise: Promise<void> | undefined;
+
 app.post('/api/session/shutdown', (_req, res) => {
   res.json({ success: true });
-  setTimeout(() => { void shutdownBridge(); }, 25);
+  if (!shutdownTimer && !shutdownPromise) shutdownTimer = setTimeout(() => { shutdownTimer = undefined; void shutdownBridge(); }, 25);
 });
 
 if (fs.existsSync(distPath)) app.use(express.static(distPath, { etag: false, maxAge: 0 }));
@@ -989,16 +1061,31 @@ const server = app.listen(port, host, () => {
   void startConfiguredMcp();
 });
 
-async function shutdownBridge() {
-  if (leaseShutdownTimer) {
-    clearTimeout(leaseShutdownTimer);
-    leaseShutdownTimer = undefined;
-  }
-  for (const lease of uiLeases) lease.end();
-  uiLeases.clear();
-  clearInterval(idleTimer);
-  await stopConfiguredMcp();
-  server.close(() => process.exit(0));
+function shutdownBridge(): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    if (shutdownTimer) {
+      clearTimeout(shutdownTimer);
+      shutdownTimer = undefined;
+    }
+    if (leaseShutdownTimer) {
+      clearTimeout(leaseShutdownTimer);
+      leaseShutdownTimer = undefined;
+    }
+    for (const lease of uiLeases) lease.end();
+    uiLeases.clear();
+    clearInterval(idleTimer);
+    await stopConfiguredMcp();
+    await new Promise<void>(resolve => {
+      if (!server.listening) {
+        resolve();
+        return;
+      }
+      server.close(() => resolve());
+    });
+    process.exit(0);
+  })();
+  return shutdownPromise;
 }
 
 const idleTimer = setInterval(() => {

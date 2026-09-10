@@ -31,6 +31,7 @@ import { DraftConfirmDialog } from './DraftConfirmDialog';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import { NumericInput } from './NumericInput';
+import { deriveEditorConnectionState } from '../../shared/editorState';
 
 interface EntitlementModalProps {
   isOpen: boolean;
@@ -119,6 +120,17 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   useModalFocus({ open: Boolean(pendingAction), dialogRef: pendingIconDialogRef, onEscape: () => setPendingAction(null), initialFocusRef: pendingIconCancelRef });
 
   if (!isOpen || !item) return null;
+
+  const connectionState = editorStatus?.connectionState ?? (editorStatus ? deriveEditorConnectionState({
+    uefnRunning: editorStatus.uefnRunning,
+    projectOpening: editorStatus.projectOpening ?? false,
+    exactProjectOpen: editorStatus.exactProjectOpen ?? editorStatus.projectActive,
+    differentProjectOpen: editorStatus.differentProjectOpen,
+    pythonEnabled: editorStatus.pythonEnabled,
+    connectorAlive: editorStatus.connectorAlive ?? editorStatus.editorConnected,
+    projectReady: editorStatus.projectReady ?? editorStatus.editorConnected,
+    editorConnected: editorStatus.editorConnected,
+  }) : 'uefn-closed');
 
   // Handle price quick-select
   const setPrice = (amount: number) => {
@@ -454,11 +466,13 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 </div>}
                 {!editorStatus?.nativeTextureImportAvailable && <div id="icon-import-unavailable" role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
                   <p className="font-bold text-amber-200">Icon importing is unavailable until Transaction Manager has a full Python connection to UEFN.</p>
-                  <p className="mt-1 text-amber-100/80">{!editorStatus?.uefnRunning
+                  <p className="mt-1 text-amber-100/80">{connectionState === 'uefn-closed'
                     ? 'Open the linked project in UEFN, then return here. Transaction Manager will update this tab automatically.'
-                    : !editorStatus.pythonEnabled
+                    : connectionState === 'python-required'
                       ? 'In UEFN, open the Project menu with the small palm tree icon, choose Project Settings, and enable Python Editor Scripting. No restart is needed.'
-                      : editorStatus.differentProjectOpen || !editorStatus.projectActive
+                      : connectionState === 'project-opening'
+                        ? 'The linked project is still opening in UEFN. Keep it open while Transaction Manager waits for the identity and readiness checks to settle.'
+                        : connectionState === 'different-project' || connectionState === 'uefn-running-project-unknown'
                         ? 'Open the project linked to this Transaction Manager window in UEFN. Icon importing is available only for that active project.'
                         : 'Python is enabled, but the full connector is not attached yet. Use UEFN Tools → Execute Python Script to run Content/Python/init_unreal.py. No restart is needed, and future launches will use the installed helper automatically.'}</p>
                 </div>}

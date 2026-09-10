@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { BootstrapPolicy } from '../electron/bootstrapPolicy.js';
+import { isExpectedNavigationAbort, SerializedAsyncOperation } from '../electron/navigation.js';
 import { createProjectBackup, projectBackupDirectory } from '../shared/projectBackups.js';
 import { isConnectorHeartbeatFresh, isProjectReadinessFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle.js';
+import { deriveEditorConnectionState } from '../shared/editorState.js';
 
 const read = (filePath: string) => fs.readFileSync(path.join(process.cwd(), filePath), 'utf8');
 
@@ -57,6 +59,33 @@ test('a new project open after close becomes authoritative again', () => {
     `Successfully opened project '${second}'`,
   ].join('\n'));
   assert.equal(lifecycle.openedProject, second);
+});
+
+test('project opening is distinct from a completed exact project open', () => {
+  const first = 'C:/Projects/TaB/TaB.uefnproject';
+  const second = 'C:/Projects/UEM_Demo/UEM_Demo.uefnproject';
+  const opening = parseUefnProjectLifecycleLog([
+    'LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit',
+    `Successfully opened project '${first}'`,
+    `Opening project '${second}'`,
+  ].join('\n'));
+  assert.equal(opening.projectOpening, true);
+  assert.equal(opening.openingProject, second);
+  assert.equal(opening.openedProject, undefined);
+  assert.equal(deriveEditorConnectionState({ uefnRunning: true, projectOpening: true, exactProjectOpen: false, differentProjectOpen: false, pythonEnabled: true, connectorAlive: false, projectReady: false, editorConnected: false }), 'project-opening');
+
+  const completed = parseUefnProjectLifecycleLog([
+    'LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit',
+    `Opening project '${second}'`,
+    `Successfully opened project '${second}'`,
+  ].join('\n'));
+  assert.equal(completed.projectOpening, false);
+  assert.equal(completed.openedProject, second);
+});
+
+test('exact identity and Python readiness are separate connection facts', () => {
+  assert.equal(deriveEditorConnectionState({ uefnRunning: true, projectOpening: false, exactProjectOpen: true, differentProjectOpen: false, pythonEnabled: false, connectorAlive: false, projectReady: false, editorConnected: false }), 'python-required');
+  assert.equal(deriveEditorConnectionState({ uefnRunning: true, projectOpening: false, exactProjectOpen: true, differentProjectOpen: false, pythonEnabled: true, connectorAlive: false, projectReady: false, editorConnected: false }), 'connector-waiting');
 });
 
 test('a verified reconnect restores the exact project readiness state', () => {
@@ -113,6 +142,38 @@ test('project switching resets bootstrap identity and attempt count', () => {
   if (next.kind === 'attempt') assert.equal(next.attemptNumber, 1);
 });
 
+test('Python enablement transition resets bounded bootstrap attempts', () => {
+  const policy = new BootstrapPolicy();
+  const project = { projectFile: 'C:\\Projects\\UEM_Demo.uefnproject', processId: 101 };
+  policy.observe({ now: 0, project, connectorAlive: false, editorConnected: false });
+  policy.observe({ now: 4_000, project, connectorAlive: false, editorConnected: false });
+  policy.reset();
+  const afterEnablement = policy.observe({ now: 4_000, project, connectorAlive: false, editorConnected: false });
+  assert.equal(afterEnablement.kind, 'waiting');
+  assert.equal(afterEnablement.reason, 'project-startup-grace');
+});
+
+test('only the active exact navigation target can contain ERR_ABORTED', () => {
+  const expected = { generation: 7, targetUrl: 'uem-launcher://app/index.html' };
+  assert.equal(isExpectedNavigationAbort({ expected, code: -3, url: expected.targetUrl }), true);
+  assert.equal(isExpectedNavigationAbort({ expected, error: Object.assign(new Error('navigation failed'), { code: 'ERR_ABORTED' }), url: expected.targetUrl }), true);
+  assert.equal(isExpectedNavigationAbort({ expected: null, code: -3, url: expected.targetUrl }), false);
+  assert.equal(isExpectedNavigationAbort({ expected, code: -3, url: 'http://127.0.0.1:1234/' }), false);
+  assert.equal(isExpectedNavigationAbort({ expected, code: -2, url: expected.targetUrl }), false);
+});
+
+test('project switch lifecycle actions share one in-flight operation', async () => {
+  const operation = new SerializedAsyncOperation();
+  let executions = 0;
+  const first = operation.run(async () => { executions += 1; await new Promise(resolve => setTimeout(resolve, 20)); });
+  const second = operation.run(async () => { executions += 1; });
+  assert.equal(first, second);
+  await first;
+  assert.equal(executions, 1);
+  await operation.run(async () => { executions += 1; });
+  assert.equal(executions, 2);
+});
+
 test('background retries do not focus the UTM window', () => {
   const native = read('electron/nativeWindows.ts');
   assert.doesNotMatch(native, /managerWindow\.focus/);
@@ -159,7 +220,7 @@ test('UTM compile prefers the current editor-session PID after a UEFN restart', 
 
 test('compile preflight remains tied to stable matching project readiness', () => {
   const server = read('server/index.ts');
-  assert.match(server, /if \(!editorSessionIsFresh\(\) && !selectedProjectIsActiveInUefn\(\)\)/);
+  assert.match(server, /if \(!editorSessionIsFresh\(\)\)/);
   assert.match(server, /Open the linked project in UEFN before compiling/);
 });
 

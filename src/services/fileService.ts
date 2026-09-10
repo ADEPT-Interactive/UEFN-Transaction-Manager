@@ -2,6 +2,7 @@ import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } fro
 import { cleanManagedData } from './projectSchema';
 import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import versionInfo from '../../version.json';
+import type { EditorConnectionState } from '../../shared/editorState';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'uem_bridge_token';
@@ -157,10 +158,18 @@ export interface CatalogMutationResult {
 export interface EditorStatus {
   success: boolean;
   uefnRunning: boolean;
+  connectionState?: EditorConnectionState;
+  projectOpening?: boolean;
   editorConnected: boolean;
   projectActive: boolean;
+  exactProjectOpen?: boolean;
   differentProjectOpen: boolean;
   openProjectFile?: string;
+  openingProjectFile?: string;
+  connectorAlive?: boolean;
+  projectReady?: boolean;
+  readinessReason?: string;
+  heartbeatAgeMs?: number;
   pythonEnabled: boolean;
   autoConnectorInstalled: boolean;
   nativeTextureImportAvailable: boolean;
@@ -339,9 +348,14 @@ export const FileService = {
       return {
         success: false,
         uefnRunning: false,
+        connectionState: 'uefn-closed',
+        projectOpening: false,
         editorConnected: false,
         projectActive: false,
+        exactProjectOpen: false,
         differentProjectOpen: false,
+        connectorAlive: false,
+        projectReady: false,
         pythonEnabled: false,
         autoConnectorInstalled: false,
         nativeTextureImportAvailable: false,

@@ -142,7 +142,7 @@ test('standalone startup paints before discovery and automatically installs its 
   const launcherMarkup = read(path.join('electron', 'launcher.html'));
   const launcherScript = read(path.join('electron', 'launcher.js'));
   const serverSource = read(path.join('server', 'index.ts'));
-  assert.match(programSource, /await mainWindow\.loadURL\(launcherUrl\);[\s\S]+await loadProjectCandidates\(\);/);
+  assert.match(programSource, /await loadUrlExpecting\(launcherUrl\);[\s\S]+await loadProjectCandidates\(\);/);
   assert.match(programSource, /contextIsolation:\s*true/);
   assert.match(programSource, /nodeIntegration:\s*false/);
   assert.match(programSource, /sandbox:\s*true/);
@@ -183,6 +183,13 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.doesNotMatch(nativeSource, /managerWindow\.focus/);
   assert.match(serverSource, /uefnIsRunning/);
   assert.match(serverSource, /differentProjectOpen/);
+  assert.match(serverSource, /connectionState/);
+  assert.match(serverSource, /projectOpening/);
+  assert.match(read(path.join('shared', 'editorState.ts')), /python-required/);
+  assert.match(read(path.join('electron', 'navigation.ts')), /SerializedAsyncOperation/);
+  assert.match(programSource, /Expected navigation failure contained/);
+  assert.match(programSource, /switchOperation\.run/);
+  assert.match(read(path.join('src', 'components', 'Header.tsx')), /isSwitchingProject/);
   assert.match(serverSource, /createProjectBackup/);
   assert.doesNotMatch(`${bridgeSource}\n${serverSource}`, /\.uem-backups|path\.join\(contentRoot, '\.backups'\)/);
   assert.match(read(path.join('src', 'App.tsx')), /This project is open and fully connected/);

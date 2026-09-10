@@ -64,23 +64,52 @@ function sendUnicode(text: string) {
   if (SendInput?.(inputs.length, inputs, UEM_INPUT_SIZE) !== inputs.length) throw new Error('Windows did not deliver the automatic UEFN connector command.');
 }
 
-const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+function abortError(): Error {
+  return new Error('The automatic UEFN connector command was cancelled.');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', cancel);
+      resolve();
+    }, milliseconds);
+    const cancel = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      reject(abortError());
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+  });
+}
 
 export async function sendUefnConnectorCommand(
   windowTitle: string | undefined,
   command: string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  throwIfAborted(signal);
   if (!windowTitle || !FindWindowW || !ShowWindow || !SetForegroundWindow || !SendInput) return false;
+  throwIfAborted(signal);
   const editorWindow = FindWindowW(null, windowTitle);
   if (!editorWindow) return false;
   const originalForegroundWindow = GetForegroundWindow?.() ?? 0;
   try {
+    throwIfAborted(signal);
     if (IsIconic?.(editorWindow)) ShowWindow(editorWindow, SW_RESTORE);
     if (!SetForegroundWindow(editorWindow)) return false;
-    await delay(250);
+    await delay(250, signal);
+    throwIfAborted(signal);
     sendVirtualKey(VK_CONSOLE);
-    await delay(200);
+    await delay(200, signal);
+    throwIfAborted(signal);
     sendUnicode(command);
+    throwIfAborted(signal);
     sendVirtualKey(VK_RETURN);
     return true;
   } finally {

@@ -24,6 +24,7 @@ import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './compo
 import { UpdateCard } from './components/UpdateCard';
 import { AgentIntegrationPanel } from './components/AgentIntegrationPanel';
 import { isDynamicBundle } from './services/dynamicOffers';
+import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
 import { createHealthyShowcaseConnection } from './services/showcaseMode';
 import versionInfo from '../version.json';
 
@@ -242,6 +243,32 @@ function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlement
 
 type AgentIntegrationIntent = 'connect' | 'migrate';
 
+function getEditorConnectionState(status: EditorStatus): EditorConnectionState {
+  return status.connectionState ?? deriveEditorConnectionState({
+    uefnRunning: status.uefnRunning,
+    projectOpening: status.projectOpening ?? false,
+    exactProjectOpen: status.exactProjectOpen ?? status.projectActive,
+    differentProjectOpen: status.differentProjectOpen,
+    pythonEnabled: status.pythonEnabled,
+    connectorAlive: status.connectorAlive ?? status.editorConnected,
+    projectReady: status.projectReady ?? status.editorConnected,
+    editorConnected: status.editorConnected,
+  });
+}
+
+function readinessMessage(state: EditorConnectionState, projectName?: string): string | null {
+  switch (state) {
+    case 'connected': return null;
+    case 'different-project': return 'First catalog creation is blocked until the exact project linked to this window is open in UEFN.';
+    case 'project-opening': return `${projectName ? `${projectName} is` : 'The linked project is'} still opening in UEFN. UTM will update automatically when the project identity is confirmed.`;
+    case 'python-required': return 'Enable Python Editor Scripting in this project before creating its first managed catalog. UTM detects the change without a restart.';
+    case 'connector-waiting': return 'The authenticated UEFN connector is not attached yet. Keep UEFN and Transaction Manager open while it connects.';
+    case 'project-readiness-waiting': return 'The connector is present, but UEFN has not confirmed project readiness yet. Keep the exact project open and wait for the readiness check.';
+    case 'uefn-running-project-unknown': return 'Open the project linked to this Transaction Manager window in UEFN before creating its first managed catalog.';
+    case 'uefn-closed': return `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN before creating its first managed catalog.`;
+  }
+}
+
 const SetupGuide: React.FC<{ bridgeConnected: boolean; editorStatus: EditorStatus | null; onCreateEntitlement: () => void; onStartMigration: () => void }> = ({ bridgeConnected, editorStatus, onCreateEntitlement, onStartMigration }) => {
   if (!bridgeConnected) {
     return (
@@ -260,15 +287,7 @@ const SetupGuide: React.FC<{ bridgeConnected: boolean; editorStatus: EditorStatu
 
   const readinessBlocker = !editorStatus?.success
     ? 'Checking the exact UEFN project and editor connector…'
-    : editorStatus.differentProjectOpen || (editorStatus.uefnRunning && !editorStatus.projectActive)
-      ? 'First catalog creation is blocked until this exact project is the project open in UEFN.'
-      : !editorStatus.projectActive
-        ? 'Open this project in UEFN before creating its first managed catalog.'
-        : !editorStatus.editorConnected
-          ? 'The verified UEFN editor connector is not attached yet.'
-          : !editorStatus.pythonEnabled
-            ? 'Enable Python Editor Scripting in this project before creating its first managed catalog.'
-            : null;
+    : readinessMessage(getEditorConnectionState(editorStatus));
 
   return (
     <section className="mx-auto mb-6 max-w-6xl rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-5" aria-labelledby="catalog-start-heading">
@@ -310,41 +329,55 @@ function projectDisplayName(projectFile?: string, contentFolderPath?: string): s
 
 const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectName?: string }> = ({ status, projectName }) => {
   if (!status?.success) return null;
-  const connected = status.editorConnected;
-  const active = status.projectActive;
-  let tone = connected && active && status.pythonEnabled ? 'emerald' : active ? 'cyan' : 'amber';
+  const connectionState = getEditorConnectionState(status);
+  const connected = connectionState === 'connected';
+  const tone = connected || connectionState === 'project-readiness-waiting' || connectionState === 'connector-waiting' || connectionState === 'project-opening' ? (connected ? 'emerald' : 'cyan') : 'amber';
   let heading = 'UEFN is closed';
   let summary = `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN and UTM will reconnect automatically.`;
   let detail = 'Transaction Manager remains linked to this project while the editor is closed.';
 
-  if (status.differentProjectOpen) {
-    heading = 'A different project is open in UEFN';
-    summary = 'First-time managed catalog creation is blocked until the exact project linked to this window is open.';
-    detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
-  } else if (connected && active && !status.pythonEnabled) {
-    heading = 'This project is open, but Python Editor Scripting is disabled';
-    summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
-    detail = 'Enable Python Editor Scripting for this project, then keep UEFN open while Transaction Manager reconnects.';
-  } else if (connected && active) {
-    heading = 'This project is open and fully connected';
-    summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
-    detail = status.autoConnectorInstalled
-      ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
-      : 'The authenticated editor connector is active for this session.';
-  } else if (active) {
-    heading = 'This project is open, but the editor connector is not attached';
-    summary = 'Saving is available, but native Texture2D importing is unavailable until Python connects.';
-    detail = !status.pythonEnabled
-      ? 'Enable Python Editor Scripting for this project. Transaction Manager detects it immediately and attaches automatically.'
-      : !status.autoConnectorInstalled
+  switch (connectionState) {
+    case 'different-project':
+      heading = 'A different project is open in UEFN';
+      summary = 'First-time managed catalog creation is blocked until the exact project linked to this window is open.';
+      detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
+      break;
+    case 'project-opening':
+      heading = `${projectName ?? 'The linked project'} is opening in UEFN`;
+      summary = 'UTM has detected the project-opening transition and is waiting for the exact identity to settle.';
+      detail = 'Keep the project open; connection and native operations will update automatically when readiness is confirmed.';
+      break;
+    case 'python-required':
+      heading = 'This project is open, but Python Editor Scripting is disabled';
+      summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
+      detail = 'Enable Python Editor Scripting for this project. UTM detects the change immediately without requiring a restart.';
+      break;
+    case 'connected':
+      heading = 'This project is open and fully connected';
+      summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
+      detail = status.autoConnectorInstalled
+        ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
+        : 'The authenticated editor connector is active for this session.';
+      break;
+    case 'connector-waiting':
+      heading = 'This project is open, but the editor connector is not attached';
+      summary = 'Native Texture2D importing is unavailable until the authenticated connector connects.';
+      detail = !status.autoConnectorInstalled
         ? 'Transaction Manager could not install its project connector. Confirm that Content/Python is writable, then relink the project.'
         : status.bootstrapState === 'failed'
-          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep Transaction Manager open while it retries, or relink the project if the issue continues.'
+          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep UTM open while it retries.'
           : 'Python is enabled and the connector is installed. Transaction Manager is attaching it automatically.';
-  } else if (status.uefnRunning) {
-    heading = 'UEFN is running without a detected project';
-    summary = 'Transaction Manager has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
-    detail = 'Open the project linked to this Transaction Manager window. Connection will update automatically.';
+      break;
+    case 'project-readiness-waiting':
+      heading = 'The UEFN connector is connected; readiness is still pending';
+      summary = 'UTM is waiting for the exact project-readiness assertion before enabling native operations.';
+      detail = status.readinessReason ?? 'Keep the exact project open while UEFN finishes loading.';
+      break;
+    case 'uefn-running-project-unknown':
+      heading = 'UEFN is running without the linked project detected';
+      summary = 'UTM has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
+      detail = 'Open the project linked to this Transaction Manager window. Connection will update automatically.';
+      break;
   }
   return (
     <section className={`mx-auto mb-5 max-w-6xl rounded-2xl border p-4 ${tone === 'emerald' ? 'border-emerald-500/25 bg-emerald-500/5' : tone === 'cyan' ? 'border-cyan-500/25 bg-cyan-500/5' : 'border-amber-500/25 bg-amber-500/5'}`} aria-label="UEFN editor connection">
@@ -383,6 +416,7 @@ export const App: React.FC = () => {
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
   const [closeConfirmationOpen, setCloseConfirmationOpen] = useState(false);
   const [switchProjectConfirmationOpen, setSwitchProjectConfirmationOpen] = useState(false);
+  const [isSwitchingProject, setIsSwitchingProject] = useState(false);
   const [updateConfirmationOpen, setUpdateConfirmationOpen] = useState(false);
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -841,6 +875,16 @@ export const App: React.FC = () => {
   };
 
   const requestOfferCreation = () => setCreationChooserRequest(request => request + 1);
+  const beginProjectSwitch = () => {
+    if (!desktopHost || isSwitchingProject) return;
+    setIsSwitchingProject(true);
+    postDesktopWindowAction('switch-project');
+  };
+  const requestProjectSwitch = () => {
+    if (isSwitchingProject) return;
+    if (isDirty) setSwitchProjectConfirmationOpen(true);
+    else beginProjectSwitch();
+  };
   const updateBundles = (nextBundles: BundleOffer[]) => {
     const existingById = new Map(bundles.map(bundle => [bundle.id, bundle]));
     const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
@@ -905,7 +949,7 @@ export const App: React.FC = () => {
           config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
           onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
           onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
-           onSwitchProject={() => isDirty ? setSwitchProjectConfirmationOpen(true) : postDesktopWindowAction('switch-project')}
+           onSwitchProject={requestProjectSwitch} isSwitchingProject={isSwitchingProject}
            validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
            saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
             appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates} agentIntegrationStatus={agentIntegrationStatus} onOpenAgentIntegration={() => openAgentIntegration()}
@@ -937,7 +981,7 @@ export const App: React.FC = () => {
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />
       <ConfirmDialog open={closeConfirmationOpen} tone="warning" title="Close with unsaved changes?" description={<>Your current changes have not been written to the UEFN project. Closing now discards this unsaved manager session.</>} confirmLabel="Discard changes and close" onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('close')} />
-      <ConfirmDialog open={switchProjectConfirmationOpen} tone="warning" title="Switch projects with unsaved changes?" description={<>Your current changes have not been written to this UEFN project. Returning to the launcher now discards this unsaved manager session.</>} confirmLabel="Discard changes and switch" onCancel={() => setSwitchProjectConfirmationOpen(false)} onConfirm={() => postDesktopWindowAction('switch-project')} />
+      <ConfirmDialog open={switchProjectConfirmationOpen} tone="warning" title="Switch projects with unsaved changes?" description={<>Your current changes have not been written to this UEFN project. Returning to the launcher now discards this unsaved manager session.</>} confirmLabel="Discard changes and switch" onCancel={() => setSwitchProjectConfirmationOpen(false)} onConfirm={() => { setSwitchProjectConfirmationOpen(false); beginProjectSwitch(); }} />
       <ConfirmDialog open={updateConfirmationOpen} tone="warning" title="Restart and install update?" description={<>Your current manager changes have not been written to the UEFN project. Installing the update now will discard this unsaved manager session, but it will not delete project content.</>} confirmLabel="Discard changes and install" onCancel={() => setUpdateConfirmationOpen(false)} onConfirm={() => { setUpdateConfirmationOpen(false); installUpdate(true); }} />
     </div>
   );

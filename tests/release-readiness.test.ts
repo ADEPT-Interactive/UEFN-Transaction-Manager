@@ -62,6 +62,7 @@ interface BridgeHandle {
   server: ChildProcess;
   request: (route: string, init?: RequestInit) => Promise<{ status: number; body: any }>;
   connectEditor: () => Promise<{ status: number; body: any }>;
+  setPythonEnabled: (enabled: boolean) => void;
   close: () => Promise<void>;
 }
 
@@ -113,6 +114,7 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
   const connectEditor = (projectReady = true) => request('/api/editor/session', { method: 'POST', headers: { 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot, assetMount: '/ReadinessProject', projectReady, processId: fakeUefn.pid }) });
   return {
     root, contentRoot, projectFile, token, editorToken, base, fakeUefn, server, request, connectEditor,
+    setPythonEnabled: (enabled: boolean) => fs.writeFileSync(projectFile, JSON.stringify({ fileVersion: 15, title: 'Readiness Project', plugins: [{ name: 'ReadinessProject', bIsRoot: true }], bEnablePythonForProject: enabled })),
     close: async () => {
       fakeUefn.kill();
       server.kill();
@@ -172,7 +174,7 @@ test('Case A2: project-browser selection does not count as an open editor projec
   } finally { await bridge.close(); }
 });
 
-test('Case A3: returning to the project browser revokes a fresh matching editor session', async () => {
+test('Case A3: returning to the project browser revokes editor readiness but preserves identity', async () => {
   const bridge = await startBridge({ pythonEnabled: true });
   try {
     assert.equal((await bridge.connectEditor()).status, 200);
@@ -182,7 +184,9 @@ test('Case A3: returning to the project browser revokes a fresh matching editor 
     await bridge.connectEditor(false);
     const browser = await bridge.request('/api/editor/status');
     assert.equal(browser.body.uefnRunning, true);
-    assert.equal(browser.body.projectActive, false);
+    assert.equal(browser.body.projectActive, true);
+    assert.equal(browser.body.exactProjectOpen, true);
+    assert.equal(browser.body.connectionState, 'project-readiness-waiting');
     assert.equal(browser.body.editorConnected, false);
     assert.equal(browser.body.nativeTextureImportAvailable, false);
   } finally { await bridge.close(); }
@@ -197,6 +201,26 @@ test('Case B: Python-disabled first setup is blocked before mutation', async () 
     assert.equal(result.status, 409);
     assert.match(result.body.error, /Python Editor Scripting/i);
     assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
+  } finally { await bridge.close(); }
+});
+
+test('Case B2: Python enablement is detected without restarting the bridge', async () => {
+  const bridge = await startBridge({ pythonEnabled: false });
+  try {
+    const before = await bridge.request('/api/editor/status');
+    assert.equal(before.body.exactProjectOpen, true);
+    assert.equal(before.body.projectActive, true);
+    assert.equal(before.body.connectionState, 'python-required');
+    bridge.setPythonEnabled(true);
+    let after = await bridge.request('/api/editor/status');
+    for (let attempt = 0; attempt < 10 && after.body.connectionState !== 'connector-waiting'; attempt += 1) {
+      await sleep(25);
+      after = await bridge.request('/api/editor/status');
+    }
+    assert.equal(after.body.pythonEnabled, true);
+    assert.equal(after.body.connectionState, 'connector-waiting');
+    assert.equal(after.body.exactProjectOpen, true);
+    assert.equal(after.body.editorConnected, false);
   } finally { await bridge.close(); }
 });
 

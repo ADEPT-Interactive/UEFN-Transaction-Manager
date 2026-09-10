@@ -9,6 +9,7 @@ import { ProjectDiscovery, readProject } from './projectDiscovery.js';
 import { isAllowedNavigation as navigationIsAllowed, isHttpExternal } from './security.js';
 import { detectDistributionMode } from './distributionMode.js';
 import { UpdateManager } from './updateManager.js';
+import { isExpectedNavigationAbort, isNavigationAbortError, SerializedAsyncOperation, type ExpectedNavigation } from './navigation.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -47,6 +48,10 @@ let testSwitchCompleted = false;
 let discoverySession: ProjectDiscovery | null = null;
 let discoveryActive = false;
 let updateManager: UpdateManager | null = null;
+let expectedNavigation: ExpectedNavigation | null = null;
+let navigationGeneration = 0;
+const switchOperation = new SerializedAsyncOperation();
+let fatalErrorPromise: Promise<void> | null = null;
 
 const projectArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--project');
 const preferredProjectFile = projectArgumentIndex >= 0 ? process.argv[projectArgumentIndex + 1] : undefined;
@@ -190,6 +195,39 @@ async function validateVisibleRenderer(expectedMode: 'launcher' | 'dashboard') {
   }
 }
 
+function beginExpectedNavigation(targetUrl: string): ExpectedNavigation {
+  const next = { generation: ++navigationGeneration, targetUrl };
+  expectedNavigation = next;
+  diagnostic(`Expected navigation started: generation=${next.generation}, target=${describeUrl(targetUrl)}`);
+  return next;
+}
+
+function endExpectedNavigation(generation: number): void {
+  if (expectedNavigation?.generation !== generation) return;
+  diagnostic(`Expected navigation completed: generation=${generation}, target=${describeUrl(expectedNavigation.targetUrl)}`);
+  expectedNavigation = null;
+}
+
+async function loadUrlExpecting(url: string): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('The manager window is unavailable.');
+  const expected = expectedNavigation;
+  try {
+    await mainWindow.loadURL(url);
+    return;
+  } catch (error) {
+    if (!isExpectedNavigationAbort({ expected, error, url })) throw error;
+    diagnostic(`Expected navigation reported ERR_ABORTED: generation=${expected?.generation ?? 0}, target=${describeUrl(url)}`);
+    // Electron can reject the first loadURL promise after the old document has
+    // already interrupted it. Retry only the active, exact target so a stale
+    // or unrelated aborted navigation can never be converted into success.
+    if (mainWindow.isDestroyed() || mainWindow.webContents.getURL() === url) return;
+    await mainWindow.loadURL(url).catch(retryError => {
+      if (!isExpectedNavigationAbort({ expected, error: retryError, url })) throw retryError;
+      diagnostic(`Expected navigation retry also reported ERR_ABORTED: generation=${expected?.generation ?? 0}, target=${describeUrl(url)}`);
+    });
+  }
+}
+
 async function loadLauncher(status?: string) {
   if (!mainWindow) return;
   mode = 'launcher';
@@ -199,7 +237,7 @@ async function loadLauncher(status?: string) {
   mainWindow.setMinimumSize(820, 620);
   mainWindow.setSize(showcaseMode ? 1100 : 960, showcaseMode ? 820 : 720);
   mainWindow.center();
-  await mainWindow.loadURL(launcherUrl);
+  await loadUrlExpecting(launcherUrl);
   diagnostic('Project launcher navigation completed: success=True');
   await loadProjectCandidates();
   if (status) sendLauncherState(status);
@@ -251,20 +289,34 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
   }
 }
 
-async function switchProject() {
-  const previous = projects.get(selectedProjectId ?? '')?.projectFile;
-  if (bridgeSession) await bridgeSession.stop();
-  bridgeSession = null;
-  selectedProjectId = null;
-  await loadLauncher('Previous project closed cleanly. Select the next project.');
-  if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && previous) {
-    const previousProject = [...projects.values()].find(project => project.projectFile.toLowerCase() === previous.toLowerCase());
-    if (previousProject) {
-      selectedProjectId = previousProject.id;
-      diagnostic('Project switch completed');
-      setTimeout(() => void confirmProject(previousProject.id), 150);
+async function switchProject(): Promise<void> {
+  return switchOperation.run(async () => {
+    const expected = beginExpectedNavigation(launcherUrl);
+    const previous = projects.get(selectedProjectId ?? '')?.projectFile;
+    try {
+      if (bridgeSession) await bridgeSession.stop();
+      bridgeSession = null;
+      selectedProjectId = null;
+      await loadLauncher('Previous project closed cleanly. Select the next project.');
+      if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && previous) {
+        const previousProject = [...projects.values()].find(project => project.projectFile.toLowerCase() === previous.toLowerCase());
+        if (previousProject) {
+          selectedProjectId = previousProject.id;
+          diagnostic('Project switch completed');
+          setTimeout(() => void confirmProject(previousProject.id), 150);
+        }
+      } else diagnostic('Project switch completed');
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      if (isExpectedNavigationAbort({ expected, error: normalized, url: launcherUrl })) {
+        diagnostic(`Expected project-switch navigation abort was contained: generation=${expected.generation}`);
+        return;
+      }
+      await showFatalError(normalized);
+    } finally {
+      endExpectedNavigation(expected.generation);
     }
-  } else diagnostic('Project switch completed');
+  });
 }
 
 async function shutdownAndQuit() {
@@ -287,12 +339,18 @@ async function stopOwnedProcessesForUpdate() {
   allowedDashboardOrigin = null;
 }
 
-async function showFatalError(error: Error) {
-  diagnostic(`Fatal error dialog: ${error.stack ?? error.message}`);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Transaction Manager', message: 'The standalone manager could not start.', detail: `${error.message}\n\nDiagnostic log: ${diagnosticPath}` });
-  }
-  await shutdownAndQuit();
+async function showFatalError(error: Error): Promise<void> {
+  if (fatalErrorPromise) return fatalErrorPromise;
+  fatalErrorPromise = (async () => {
+    diagnostic(`Fatal error dialog: ${error.stack ?? error.message}`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, { type: 'error', title: 'UEFN Transaction Manager', message: 'The standalone manager could not start.', detail: `${error.message}\n\nDiagnostic log: ${diagnosticPath}` });
+    }
+    await shutdownAndQuit();
+  })().catch(fatalError => {
+    diagnostic(`Fatal shutdown handling failed: ${fatalError instanceof Error ? fatalError.stack ?? fatalError.message : String(fatalError)}`);
+  });
+  return fatalErrorPromise;
 }
 
 function configureIpc() {
@@ -437,7 +495,12 @@ function createMainWindow() {
     else diagnostic(`Navigation rejected: ${describeUrl(url)}`);
   });
   window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (isMainFrame) void showFatalError(new Error(`Navigation failed (${code} ${description}): ${describeUrl(url)}`));
+    if (!isMainFrame) return;
+    if (isExpectedNavigationAbort({ expected: expectedNavigation, code, url })) {
+      diagnostic(`Expected navigation failure contained: generation=${expectedNavigation?.generation ?? 0}, code=${code}, target=${describeUrl(url)}`);
+      return;
+    }
+    void showFatalError(new Error(`Navigation failed (${code} ${description}): ${describeUrl(url)}`));
   });
   window.webContents.on('render-process-gone', (_event, details) => void showFatalError(new Error(`The embedded manager renderer stopped unexpectedly (${details.reason}, exit ${details.exitCode}).`)));
   window.on('maximize', () => window.webContents.send('uem:window:state', 'maximized'));
@@ -493,5 +556,17 @@ else {
 }
 
 app.on('window-all-closed', () => { if (!shutdownStarted) void shutdownAndQuit(); });
-process.on('uncaughtException', error => void showFatalError(error));
-process.on('unhandledRejection', error => void showFatalError(error instanceof Error ? error : new Error(String(error))));
+process.on('uncaughtException', error => {
+  if (isExpectedNavigationAbort({ expected: expectedNavigation, error })) {
+    diagnostic('Expected navigation abort was contained after an uncaught exception callback.');
+    return;
+  }
+  void showFatalError(error);
+});
+process.on('unhandledRejection', error => {
+  if (isExpectedNavigationAbort({ expected: expectedNavigation, error })) {
+    diagnostic('Expected navigation abort was contained after an unhandled rejection callback.');
+    return;
+  }
+  void showFatalError(error instanceof Error ? error : new Error(String(error)));
+});

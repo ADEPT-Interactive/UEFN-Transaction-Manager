@@ -16,15 +16,19 @@ export class BootstrapPolicy {
   private nextRetryAt = 0;
   private graceUntil = 0;
 
+  reset(): void {
+    this.identity = undefined;
+    this.attemptNumber = 0;
+    this.nextRetryAt = 0;
+    this.graceUntil = 0;
+  }
+
   observe(input: { now: number; project?: BootstrapProjectIdentity; connectorAlive: boolean; editorConnected: boolean }): BootstrapDecision {
     if (input.editorConnected) return { kind: 'connected', reason: 'editor-connected', ...(this.identity ? { identity: this.identity } : {}) };
 
     if (!input.project) {
       const identityCleared = Boolean(this.identity);
-      this.identity = undefined;
-      this.attemptNumber = 0;
-      this.nextRetryAt = 0;
-      this.graceUntil = 0;
+      this.reset();
       return { kind: 'waiting', reason: 'linked-project-not-open', ...(identityCleared ? { identityCleared: true } : {}) };
     }
 

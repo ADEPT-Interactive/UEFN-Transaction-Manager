@@ -6,30 +6,53 @@ export type EditorHeartbeatReport = { projectReady: boolean; reportedAt: number;
 
 export type UefnProjectLifecycle = {
   openedProject?: string;
+  openingProject?: string;
+  projectOpening: boolean;
   openedPosition: number;
+  openingPosition: number;
   closedPosition: number;
   latestSelectionPosition: number;
 };
 
-const OPENED_PROJECT_PATTERN = /Successfully opened project '([^']+\.uefnproject)'/gi;
+const OPENED_PROJECT_PATTERNS = [
+  /Successfully opened project\s+['"]([^'"]+\.uefnproject)['"]/gi,
+];
+const OPENING_PROJECT_PATTERNS = [
+  /\bOpening project(?:\s+file)?\s*[:=]?\s*['"]([^'"]+?\.uefnproject)['"]/gi,
+  /\bOpening project(?:\s+file)?\s*[:=]?\s*(?!['"])([^\r\n]+?\.uefnproject)(?=\s*(?:\(|$))/gi,
+];
 const CLOSED_PROJECT_PATTERNS = [
   /Successfully closed \d+ project\(s\)/gi,
   /Current project was closed/gi,
+  /Closing project/gi,
 ];
+
+function latestMatch(patterns: RegExp[], text: string): RegExpMatchArray | undefined {
+  return patterns
+    .flatMap(pattern => Array.from(text.matchAll(pattern)))
+    .sort((left, right) => (left.index ?? -1) - (right.index ?? -1))
+    .at(-1);
+}
 
 /** A close event revokes the preceding open until a newer open is recorded. */
 export function parseUefnProjectLifecycleLog(rawText: string): UefnProjectLifecycle {
   const startupMarker = 'LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit';
   const startup = rawText.lastIndexOf(startupMarker);
   const text = startup >= 0 ? rawText.slice(startup) : rawText;
-  const latestOpen = Array.from(text.matchAll(OPENED_PROJECT_PATTERN)).at(-1);
+  const latestOpen = latestMatch(OPENED_PROJECT_PATTERNS, text);
+  const latestOpening = latestMatch(OPENING_PROJECT_PATTERNS, text);
   const closedPosition = CLOSED_PROJECT_PATTERNS
     .flatMap(pattern => Array.from(text.matchAll(pattern)).map(match => match.index ?? -1))
     .reduce((latest, position) => Math.max(latest, position), -1);
   const openedPosition = latestOpen?.index ?? -1;
+  const openingPosition = latestOpening?.index ?? -1;
+  const projectOpening = openingPosition > closedPosition && openingPosition > openedPosition;
   return {
-    openedProject: latestOpen && openedPosition > closedPosition ? latestOpen[1] : undefined,
+    openedProject: latestOpen && !projectOpening && openedPosition > closedPosition ? latestOpen[1] : undefined,
+    openingProject: projectOpening ? latestOpening?.[1]?.trim() : undefined,
+    projectOpening,
     openedPosition,
+    openingPosition,
     closedPosition,
     latestSelectionPosition: text.lastIndexOf('LogValkyrieProjectBrowser: Selected Project (Direct):'),
   };
