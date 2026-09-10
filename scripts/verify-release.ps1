@@ -147,7 +147,7 @@ try {
     if ($wrongArchitecture) { throw "The Windows x64 release contains incompatible native architectures: $($wrongArchitecture -join ', ')" }
     Write-Host "Verified $($nativeFiles.Count) x64 PE executables, libraries, and native modules."
 
-    foreach ($name in @("PORT", "UEM_SESSION_TOKEN", "UEM_EDITOR_TOKEN", "UEM_CONTENT_ROOT", "UEM_ASSET_MOUNT", "UEM_IDLE_TIMEOUT_MS", "ELECTRON_RUN_AS_NODE")) {
+    foreach ($name in @("PORT", "UEM_SESSION_TOKEN", "UEM_EDITOR_TOKEN", "UEM_CONTENT_ROOT", "UEM_ASSET_MOUNT", "UEM_PROJECT_PYTHON_ENABLED", "UEM_IDLE_TIMEOUT_MS", "ELECTRON_RUN_AS_NODE")) {
         $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
     }
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -161,6 +161,10 @@ try {
     $env:UEM_EDITOR_TOKEN = "release-test-editor-token-0123456789-0123456789"
     $env:UEM_CONTENT_ROOT = $bridgeRoot
     $env:UEM_ASSET_MOUNT = "/ReleaseTest"
+    # This extracted-package bridge has no .uefnproject descriptor to inspect.
+    # Explicitly model the Python-enabled editor state required by the native
+    # texture-import smoke test, then restore the caller's environment below.
+    $env:UEM_PROJECT_PYTHON_ENABLED = "1"
     $env:UEM_IDLE_TIMEOUT_MS = "120000"
     $env:ELECTRON_RUN_AS_NODE = "1"
     $stdout = Join-Path $extractRoot "bridge.stdout.log"
