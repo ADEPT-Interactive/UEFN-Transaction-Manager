@@ -142,7 +142,8 @@ test('standalone startup paints before discovery and automatically installs its 
   const launcherMarkup = read(path.join('electron', 'launcher.html'));
   const launcherScript = read(path.join('electron', 'launcher.js'));
   const serverSource = read(path.join('server', 'index.ts'));
-  assert.match(programSource, /await loadUrlExpecting\(launcherUrl\);[\s\S]+await loadProjectCandidates\(\);/);
+  assert.match(programSource, /await loadUrlExpecting\(target, launcherUrl, 'launcher'/);
+  assert.match(programSource, /await loadProjectCandidates\(target\);/);
   assert.match(programSource, /contextIsolation:\s*true/);
   assert.match(programSource, /nodeIntegration:\s*false/);
   assert.match(programSource, /sandbox:\s*true/);
@@ -243,12 +244,14 @@ test('release shell uses stable application identity and versioned artifacts', (
   assert.equal(builder.nsis.artifactName, 'UEFN-Transaction-Manager-Setup-${version}.${ext}');
   assert.equal(builder.nsis.oneClick, true);
   assert.equal(builder.nsis.perMachine, false);
-  assert.equal(builder.nsis.createDesktopShortcut, false);
+  assert.equal(builder.nsis.createDesktopShortcut, true);
+  assert.equal((builder.nsis as { include?: string }).include, 'electron/installer.nsh');
   assert.deepEqual(builder.win.electronLanguages, ['en-US']);
   assert.ok(releaseScript.includes('UEFN-Transaction-Manager-Setup-$appVersion.exe'));
   assert.ok(releaseScript.includes('UEFN-Transaction-Manager-$appVersion-Portable.zip'));
   assert.ok(releaseScript.includes('UEFN-Transaction-Manager-Installer.exe'));
   assert.ok(releaseScript.includes('portable.json'));
+  assert.match(releaseScript, /electron\\installer\.nsh/);
   assert.equal(packageVersion, version);
   assert.match(version, /^\d+\.\d+\.\d+$/);
 });

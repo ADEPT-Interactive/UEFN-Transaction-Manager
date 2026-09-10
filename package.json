@@ -23,7 +23,7 @@
     "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
     "test:updater": "tsx --test tests/updater.test.ts",
     "test:portable-updater": "tsx --test tests/portable-update-helper.test.ts",
-    "test:desktop": "npm run install:electron-runtime && npm run build:desktop && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1 -Hidden",
+    "test:desktop": "npm run install:electron-runtime && npm run build:desktop && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1 -Hidden -CatalogState uninitialized -TimeoutSeconds 60 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1 -Hidden -CatalogState initialized -TimeoutSeconds 60 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-electron-lifecycle.ps1 -Hidden -FailureRollback -TimeoutSeconds 60",
     "test:version": "node scripts/verify-version.mjs",
     "test:distribution": "tsx --test tests/distribution.test.ts",
     "verify:privacy": "node scripts/check-repository-privacy.mjs",

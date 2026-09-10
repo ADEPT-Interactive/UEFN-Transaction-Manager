@@ -111,6 +111,7 @@ try {
         "dist-electron\preload.cjs",
         "electron\launcher.html",
         "electron\launcher.js",
+        "electron\installer.nsh",
         "electron\portable-update-helper.ps1",
         "electron\assets\uem-icon.ico",
         "electron\assets\uem-icon.svg",

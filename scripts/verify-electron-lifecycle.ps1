@@ -3,9 +3,10 @@ param(
     [string]$PackageRoot = "",
     [switch]$Packaged,
     [switch]$Hidden,
+    [switch]$FailureRollback,
     [ValidateSet("initialized", "uninitialized")]
     [string]$CatalogState = "uninitialized",
-    [int]$TimeoutSeconds = 30
+    [int]$TimeoutSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,12 +85,12 @@ function Wait-ForLog {
     $text = ""
     while ((Get-Date) -lt $deadline) {
         $Process.Refresh()
-        if ($Process.HasExited) { throw "Electron exited before '$Pattern' appeared in $LogPath." }
         if (Test-Path -LiteralPath $LogPath) {
             $text = Get-Content -LiteralPath $LogPath -Raw
             if ($text -match "Fatal error dialog:") { throw "Electron reported a fatal error. Diagnostic log: $LogPath`n$text" }
             if ($text -match $Pattern) { return $text }
         }
+        if ($Process.HasExited) { throw "Electron exited before '$Pattern' appeared in $LogPath." }
         Start-Sleep -Milliseconds 150
     }
     throw "Electron did not report '$Pattern' within $TimeoutSeconds seconds. Diagnostic log: $LogPath`n$text"
@@ -103,6 +104,9 @@ function Start-TestApplication {
     $env:UEM_TEST_AUTO_SWITCH = if ($AutoSwitch) { "1" } else { "0" }
     $env:UEM_TEST_AUTO_SWITCH_CLICKS = if ($Hidden -and $AutoSwitch) { "3" } else { "1" }
     $env:UEM_TEST_AUTO_EXIT = if ($Hidden -and $AutoSwitch) { "1" } else { "0" }
+    $env:UEM_TEST_AUTO_SWITCH_CYCLES = if ($Hidden -and $AutoSwitch -and -not $FailureRollback) { "10" } else { "1" }
+    $env:UEM_TEST_FAIL_REPLACEMENT = if ($FailureRollback -and $AutoSwitch) { "1" } else { "0" }
+    $env:UEM_TEST_LATE_IPC = if ($AutoSwitch) { "1" } else { "0" }
     $env:UEM_TEST_STATE_ROOT = Join-Path $testRoot "state"
     $arguments = if ($Packaged) {
         @("--project", ('"' + $projectFile + '"'))
@@ -169,20 +173,48 @@ try {
     [void]$trackedIds.Add($manager.Id)
     Track-ProcessIdentity -ProcessId $manager.Id
     $managerLog = Join-Path $env:LOCALAPPDATA ("UEFN Entitlement Manager\logs\electron-main-{0}.log" -f $manager.Id)
-    $managerText = Wait-ForLog -LogPath $managerLog -Pattern "Project switch completed" -Process $manager
+    $managerPattern = if ($FailureRollback) { "Project switch replacement failed; current dashboard retained:" } elseif ($Hidden) { "Electron shutdown completed" } else { "Project switch completed" }
+    $managerText = Wait-ForLog -LogPath $managerLog -Pattern $managerPattern -Process $manager
     if ($Hidden) {
-        if (([regex]::Matches($managerText, "Project launcher renderer ready:")).Count -lt 2) { throw "Hidden project switching did not validate the returned launcher renderer." }
-        if (([regex]::Matches($managerText, "Bridge started:")).Count -lt 1) { throw "Hidden project switching did not start the synthetic bridge." }
-        if (([regex]::Matches($managerText, "Expected navigation started:")).Count -ne 1) { throw "Multiple hidden Switch Project requests were not serialized into one navigation transaction." }
-        if (([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -ne 1) { throw "Multiple hidden Switch Project requests caused more than one bridge shutdown." }
-        if ($managerText -notmatch "Navigation destination verified:") { throw "Hidden project switching did not prove the launcher destination before completion." }
-        if ($managerText -notmatch "Launcher protocol request completed:.*status=200") { throw "Hidden project switching did not receive a successful launcher protocol response." }
+        if ($FailureRollback) {
+            if ($managerText -match "Fatal error dialog:") { throw "Candidate failure incorrectly became fatal." }
+            if ($managerText -notmatch "Synthetic replacement candidate failure requested") { throw "The candidate-failure path was not exercised." }
+            if ($managerText -notmatch "Late IPC from retiring dashboard rejected:") { throw "Late IPC from the retiring dashboard was not rejected." }
+            if (([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -ne 0) { throw "The old bridge was torn down before replacement rollback completed." }
+            if ($managerText -match "Launcher candidate validated before bridge teardown:") { throw "The failing candidate was treated as validated." }
+            if ($managerText -match "Retiring dashboard window destroyed:") { throw "Rollback destroyed the retained dashboard." }
+        }
+        else {
+            $expectedSwitches = 10
+            $launcherReadyCount = ([regex]::Matches($managerText, "Project launcher renderer ready:")).Count
+            $bridgeStartedCount = ([regex]::Matches($managerText, "Bridge started:")).Count
+            $navigationCount = ([regex]::Matches($managerText, "Expected navigation started:")).Count
+            $bridgeShutdownCount = ([regex]::Matches($managerText, "Bridge shutdown completed:")).Count
+            $replacementCount = ([regex]::Matches($managerText, "Replacement launcher window created:")).Count
+            $candidateValidatedCount = ([regex]::Matches($managerText, "Launcher candidate validated before bridge teardown:")).Count
+            $retiredCount = ([regex]::Matches($managerText, "Retiring dashboard window destroyed:")).Count
+            if ($launcherReadyCount -lt ($expectedSwitches + 1)) {
+                $testState = (($managerText -split "`r?`n" | Where-Object { $_ -match "Hidden test (auto-switch scheduled|switch state)" }) -join " | ")
+                $tail = (($managerText -split "`r?`n" | Select-Object -Last 18) -join " | ")
+                throw "Hidden project switching did not validate every returned launcher renderer; count=$launcherReadyCount expected=$($expectedSwitches + 1). state=$testState tail=$tail"
+            }
+            if ($bridgeStartedCount -lt $expectedSwitches) { throw "Hidden project switching did not start every synthetic bridge; count=$bridgeStartedCount expected=$expectedSwitches." }
+            if ($navigationCount -ne $expectedSwitches) { throw "Rapid hidden Switch Project requests were not serialized into exactly $expectedSwitches navigation transactions; count=$navigationCount." }
+            if ($bridgeShutdownCount -ne $expectedSwitches) { throw "Hidden project switching caused an unexpected number of bridge shutdowns; count=$bridgeShutdownCount." }
+            if ($replacementCount -ne $expectedSwitches) { throw "The replacement-window lifecycle did not run once per switch; count=$replacementCount." }
+            if ($candidateValidatedCount -ne $expectedSwitches) { throw "A launcher candidate was not validated before bridge teardown; count=$candidateValidatedCount." }
+            if ($retiredCount -ne $expectedSwitches) { throw "A retiring dashboard window was not destroyed after handoff; count=$retiredCount." }
+            if ($managerText -match "Navigation recovery retry started:") { throw "The replacement lifecycle retried navigation on the same WebContents." }
+            if ($managerText -match "Late IPC from retiring dashboard was unexpectedly accepted:") { throw "Late IPC from a retiring dashboard was accepted." }
+            if ($managerText -notmatch "Navigation destination verified:") { throw "Hidden project switching did not prove the launcher destination before completion." }
+            if ($managerText -notmatch "Launcher protocol request completed:.*status=200") { throw "Hidden project switching did not receive a successful launcher protocol response." }
+        }
     }
     else {
         $managerText = Wait-ForLog -LogPath $managerLog -Pattern "(?s)Dashboard renderer ready:.*Dashboard renderer ready:" -Process $manager
         if (([regex]::Matches($managerText, "Bridge started:")).Count -lt 2) { throw "Project switching did not start a replacement bridge." }
     }
-    if (([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -lt 1) { throw "Project switching did not stop the previous bridge." }
+    if (-not $FailureRollback -and ([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -lt 1) { throw "Project switching did not stop the previous bridge." }
 
     if ($Hidden) {
         if ($manager.MainWindowHandle -ne [IntPtr]::Zero) { throw "Hidden Electron lifecycle created a visible manager window." }
@@ -214,10 +246,19 @@ try {
         throw "Expected one visible manager window, found $($visible.Count): $visibleDetails"
     }
     $bridgeChildren = @($descendants | Where-Object { $_.CommandLine -match "dist[\\/]server\.cjs" })
-    $expectedBridgeCount = if ($Hidden) { 0 } else { 1 }
-    if ($bridgeChildren.Count -ne $expectedBridgeCount) { throw "Expected $expectedBridgeCount owned bridge process(es) after project switching, found $($bridgeChildren.Count)." }
+    if ($FailureRollback) {
+        if ($bridgeChildren.Count -gt 1) { throw "Candidate rollback left more than one owned bridge process, found $($bridgeChildren.Count)." }
+    }
+    else {
+        $expectedBridgeCount = if ($Hidden) { 0 } else { 1 }
+        if ($bridgeChildren.Count -ne $expectedBridgeCount) { throw "Expected $expectedBridgeCount owned bridge process(es) after project switching, found $($bridgeChildren.Count)." }
+    }
     foreach ($bridgeChild in $bridgeChildren) {
-        $bridgeProcess = Get-Process -Id ([int]$bridgeChild.ProcessId) -ErrorAction Stop
+        $bridgeProcess = Get-Process -Id ([int]$bridgeChild.ProcessId) -ErrorAction SilentlyContinue
+        if (-not $bridgeProcess) {
+            if ($FailureRollback) { continue }
+            throw "The expected bridge process $($bridgeChild.ProcessId) exited during lifecycle verification."
+        }
         if ($bridgeProcess.MainWindowHandle -ne [IntPtr]::Zero) { throw "The bridge child created an unexpected console or application window." }
     }
 
@@ -247,7 +288,7 @@ finally {
         }
         catch {}
     }
-    Remove-Item Env:UEM_TEST_MODE,Env:UEM_TEST_HIDDEN,Env:UEM_TEST_AUTO_CONFIRM,Env:UEM_TEST_AUTO_SWITCH,Env:UEM_TEST_AUTO_SWITCH_CLICKS,Env:UEM_TEST_AUTO_EXIT,Env:UEM_TEST_STATE_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:UEM_TEST_MODE,Env:UEM_TEST_HIDDEN,Env:UEM_TEST_AUTO_CONFIRM,Env:UEM_TEST_AUTO_SWITCH,Env:UEM_TEST_AUTO_SWITCH_CLICKS,Env:UEM_TEST_AUTO_EXIT,Env:UEM_TEST_AUTO_SWITCH_CYCLES,Env:UEM_TEST_FAIL_REPLACEMENT,Env:UEM_TEST_LATE_IPC,Env:UEM_TEST_STATE_ROOT -ErrorAction SilentlyContinue
     [Environment]::SetEnvironmentVariable("LOCALAPPDATA", $originalLocalAppData, "Process")
     if ((Resolve-Path -LiteralPath $testRoot -ErrorAction SilentlyContinue).Path -like (([IO.Path]::GetTempPath().TrimEnd('\')) + "\uem-electron-lifecycle-*")) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force

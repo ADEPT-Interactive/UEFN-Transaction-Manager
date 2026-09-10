@@ -174,6 +174,16 @@ test('project switch lifecycle actions share one in-flight operation', async () 
   assert.equal(executions, 2);
 });
 
+test('project switching uses a validated replacement window and rollback boundary', () => {
+  const main = read('electron/main.ts');
+  assert.match(main, /createMainWindow\(\{ candidate: true, showWhenReady: false \}\)/);
+  assert.match(main, /Launcher candidate validated before bridge teardown/);
+  assert.match(main, /Retiring dashboard window destroyed/);
+  assert.match(main, /current dashboard retained/);
+  assert.match(main, /Late IPC from retiring dashboard rejected/);
+  assert.doesNotMatch(main, /Navigation recovery retry started/);
+});
+
 test('background retries do not focus the UTM window', () => {
   const native = read('electron/nativeWindows.ts');
   assert.doesNotMatch(native, /managerWindow\.focus/);

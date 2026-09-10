@@ -17,9 +17,10 @@
   "nsis": {
     "oneClick": true,
     "perMachine": false,
-    "createDesktopShortcut": false,
+    "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "UEFN Transaction Manager",
+    "include": "electron/installer.nsh",
     "runAfterFinish": true,
     "deleteAppDataOnUninstall": false,
     "artifactName": "UEFN-Transaction-Manager-Setup-${version}.${ext}"

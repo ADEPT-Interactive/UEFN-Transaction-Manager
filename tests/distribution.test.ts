@@ -11,6 +11,7 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const builder = JSON.parse(read('electron-builder.json'));
+  const installerScript = read('electron/installer.nsh');
   const readme = read('README.md');
   const userReadme = read('README-USER.txt');
   assert.equal(version, '4.3.0');
@@ -18,6 +19,15 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);
   assert.deepEqual(builder.publish[0], { provider: 'generic', url: 'https://updates.adeptinteractive.net/uem/stable/' });
+  assert.equal(builder.appId, 'AD3PTInteractive.UEFNEntitlementManager');
+  assert.equal(builder.nsis.createDesktopShortcut, true);
+  assert.equal(builder.nsis.include, 'electron/installer.nsh');
+  assert.match(installerScript, /!macro customInstall/);
+  assert.match(installerScript, /\$appExe/);
+  assert.match(installerScript, /\$newStartMenuLink/);
+  assert.match(installerScript, /\$newDesktopLink/);
+  assert.match(installerScript, /SetLnkAUMI/);
+  assert.match(read('scripts/build-release.ps1'), /electron\\installer\.nsh/);
   assert.ok(readme.includes('UEFN-Transaction-Manager-Installer.exe'));
   assert.ok(readme.includes('UEFN-Transaction-Manager-Portable.zip'));
   assert.ok(userReadme.includes('UEFN-Transaction-Manager-Installer.exe'));
