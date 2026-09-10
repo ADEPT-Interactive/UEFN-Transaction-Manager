@@ -12,6 +12,8 @@ if (-not (Test-Path -LiteralPath $privacyCheck -PathType Leaf)) { throw "Reposit
 & node $privacyCheck
 if ($LASTEXITCODE -ne 0) { throw "Repository privacy check failed." }
 $expectedVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
+$expectedSourceRevision = (& git -C $toolRoot rev-parse HEAD).Trim()
+if ($expectedSourceRevision -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve the expected source revision for the packaged release." }
 if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Transaction-Manager-$expectedVersion-Portable.zip" }
 if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Transaction-Manager-Setup-$expectedVersion.exe" }
 $installer = (Resolve-Path -LiteralPath (Join-Path $toolRoot $InstallerPath)).Path
@@ -53,7 +55,7 @@ foreach ($metadataFile in @($metadataPath, $portableManifestPath, $blockmapPath,
 $metadataText = Get-Content -LiteralPath $metadataPath -Raw
 if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadataText -notmatch "version: $([regex]::Escape($expectedVersion))") { throw "latest.yml does not match the installer name and version." }
 $portableManifest = Get-Content -LiteralPath $portableManifestPath -Raw | ConvertFrom-Json
-if ($portableManifest.version -ne $expectedVersion -or $portableManifest.filename -ne $expectedPortableName -or $portableManifest.path -ne $expectedPortableName) { throw "portable-latest.json does not match the portable archive name and version." }
+if ($portableManifest.version -ne $expectedVersion -or $portableManifest.sourceRevision -ne $expectedSourceRevision -or $portableManifest.filename -ne $expectedPortableName -or $portableManifest.path -ne $expectedPortableName) { throw "portable-latest.json does not match the portable archive name, version, and source revision." }
 $checksumText = Get-Content -LiteralPath $checksumPath -Raw
 $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($checksumText -notmatch [regex]::Escape("$installerHash  $expectedInstallerName")) { throw "SHA256SUMS.txt does not match the installer." }
@@ -69,12 +71,13 @@ New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 try {
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
     $packageRoot = Join-Path $extractRoot "UEFN Transaction Manager"
-    $appVersion = (Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json).version
-    if ($appVersion -ne $expectedVersion) { throw "The portable package version $appVersion does not match $expectedVersion." }
+    $versionInfo = Get-Content -LiteralPath (Join-Path $packageRoot "resources\app\version.json") -Raw | ConvertFrom-Json
+    $appVersion = $versionInfo.version
+    if ($appVersion -ne $expectedVersion -or $versionInfo.sourceRevision -ne $expectedSourceRevision) { throw "The portable package version/source revision does not match the pushed source: version=$appVersion sourceRevision=$($versionInfo.sourceRevision)." }
     $portableMarkerPath = Join-Path $packageRoot "portable.json"
     if (-not (Test-Path -LiteralPath $portableMarkerPath -PathType Leaf)) { throw "The portable package is missing portable.json." }
     $portableMarker = Get-Content -LiteralPath $portableMarkerPath -Raw | ConvertFrom-Json
-    if ($portableMarker.distribution -ne "portable" -or $portableMarker.version -ne $expectedVersion -or $portableMarker.schemaVersion -ne 1 -or -not $portableMarker.managedFiles) { throw "The portable package marker is invalid." }
+    if ($portableMarker.distribution -ne "portable" -or $portableMarker.version -ne $expectedVersion -or $portableMarker.sourceRevision -ne $expectedSourceRevision -or $portableMarker.schemaVersion -ne 1 -or -not $portableMarker.managedFiles) { throw "The portable package marker is invalid." }
     $updaterConfig = Join-Path $packageRoot "resources\app-update.yml"
     if (-not (Test-Path -LiteralPath $updaterConfig -PathType Leaf)) { throw "The packaged release is missing electron-updater configuration: $updaterConfig" }
     $updaterText = Get-Content -LiteralPath $updaterConfig -Raw
@@ -306,9 +309,9 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     # source-tree check's 30 seconds in Chromium/AV cold start before the
     # dashboard is ready. Keep the same assertions, but give this packaged
     # acceptance run a bounded 60-second startup window.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "verify-electron-lifecycle.ps1") -ApplicationPath $desktop -PackageRoot $packageRoot -Packaged -TimeoutSeconds 60
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "verify-electron-lifecycle.ps1") -ApplicationPath $desktop -PackageRoot $packageRoot -Packaged -Hidden -TimeoutSeconds 60
     if ($LASTEXITCODE -ne 0) { throw "The extracted Electron lifecycle failed with exit code $LASTEXITCODE." }
-    Write-Host "Extracted ZIP contents, x64 architecture, image normalization, frontend, authentication, file IO, visible lifecycle, switching, and shutdown checks passed." -ForegroundColor Green
+    Write-Host "Extracted ZIP contents, x64 architecture, image normalization, frontend, authentication, file IO, hidden lifecycle, switching, and shutdown checks passed." -ForegroundColor Green
 }
 finally {
     if ($bridgeProcess -and -not $bridgeProcess.HasExited) { Stop-Process -Id $bridgeProcess.Id -Force }

@@ -5,6 +5,13 @@ export interface ExpectedNavigation {
   targetUrl: string;
 }
 
+export interface NavigationFailure {
+  code?: number;
+  description?: string;
+  error?: unknown;
+  url?: string;
+}
+
 function isAbortedText(value: unknown): boolean {
   return typeof value === 'string' && (/ERR_ABORTED/i.test(value) || /\(-3\)/.test(value));
 }
@@ -32,6 +39,61 @@ export function isExpectedNavigationAbort(input: {
   if (input.code !== undefined && input.code !== ERR_ABORTED_CODE) return false;
   if (input.code === undefined && !isNavigationAbortError(input.error)) return false;
   return !input.url || input.url === input.expected.targetUrl;
+}
+
+export function isExpectedNavigationTarget(input: {
+  expected?: ExpectedNavigation | null;
+  url?: string;
+}): boolean {
+  return Boolean(input.expected && input.url === input.expected.targetUrl);
+}
+
+function failureMessage(failure: NavigationFailure): string {
+  if (failure.error instanceof Error) return failure.error.message;
+  if (failure.error !== undefined) return String(failure.error);
+  return `navigation failed${failure.code === undefined ? '' : ` (${failure.code}${failure.description ? ` ${failure.description}` : ''})`}`;
+}
+
+/**
+ * Owns one controlled navigation from request through renderer validation.
+ * A matching browser failure is deferred, never accepted as success. The
+ * caller must validate the destination before completing the transaction.
+ */
+export class NavigationTransaction {
+  private destinationValidated = false;
+  private deferredFailure: NavigationFailure | null = null;
+
+  constructor(readonly expected: ExpectedNavigation) {}
+
+  matches(url?: string): boolean {
+    return isExpectedNavigationTarget({ expected: this.expected, url });
+  }
+
+  observeFailure(failure: NavigationFailure): boolean {
+    if (!this.matches(failure.url)) return false;
+    this.deferredFailure = failure;
+    return true;
+  }
+
+  markDestinationValidated(url: string): boolean {
+    if (!this.matches(url)) return false;
+    this.destinationValidated = true;
+    return true;
+  }
+
+  get isValidated(): boolean {
+    return this.destinationValidated;
+  }
+
+  get lastFailure(): NavigationFailure | null {
+    return this.deferredFailure;
+  }
+
+  failureAfterUnverifiedDestination(): Error {
+    const failure = this.deferredFailure;
+    const detail = failure ? failureMessage(failure) : 'the launcher renderer did not become usable';
+    return new Error(`Expected navigation did not produce a usable launcher (generation=${this.expected.generation}, target=${this.expected.targetUrl}): ${detail}`);
+  }
 }
 
 /** Shared in-flight promise used by main-process lifecycle actions. */

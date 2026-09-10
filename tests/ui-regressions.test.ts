@@ -187,7 +187,13 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(serverSource, /projectOpening/);
   assert.match(read(path.join('shared', 'editorState.ts')), /python-required/);
   assert.match(read(path.join('electron', 'navigation.ts')), /SerializedAsyncOperation/);
-  assert.match(programSource, /Expected navigation failure contained/);
+  assert.match(programSource, /Expected navigation failure deferred pending destination proof/);
+  assert.match(programSource, /Navigation destination verified/);
+  assert.match(programSource, /UEM_TEST_HIDDEN/);
+  assert.doesNotMatch(programSource, /isExpectedNavigationAbort\(\{ expected: expectedNavigation, error \}/);
+  assert.match(read(path.join('electron', 'launcherProtocol.ts')), /readFile\(asset\.path\)/);
+  assert.doesNotMatch(programSource, /net\.fetch\(pathToFileURL/);
+  assert.match(read(path.join('server', 'index.ts')), /catalogEventStreams/);
   assert.match(programSource, /switchOperation\.run/);
   assert.match(read(path.join('src', 'components', 'Header.tsx')), /isSwitchingProject/);
   assert.match(serverSource, /createProjectBackup/);

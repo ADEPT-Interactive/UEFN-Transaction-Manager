@@ -122,6 +122,7 @@ let lastAgentConnection: import('./utmMcp').UTMClientConnection | undefined;
 const distPath = path.join(__dirname, '..', 'dist');
 let lastUiActivity = Date.now();
 const uiLeases = new Set<express.Response>();
+const catalogEventStreams = new Set<express.Response>();
 let leaseShutdownTimer: NodeJS.Timeout | undefined;
 type EditorSessionReport = {
   contentRoot: string;
@@ -679,6 +680,7 @@ app.post('/api/catalog/mutate', async (req, res) => {
 });
 
 app.get('/api/catalog/events', (req, res) => {
+  catalogEventStreams.add(res);
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Connection', 'keep-alive');
@@ -689,7 +691,14 @@ app.get('/api/catalog/events', (req, res) => {
   send();
   const unsubscribe = catalogSession.subscribe(send);
   const keepAlive = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
-  req.once('close', () => { clearInterval(keepAlive); unsubscribe(); });
+  const release = () => {
+    clearInterval(keepAlive);
+    unsubscribe();
+    catalogEventStreams.delete(res);
+  };
+  req.once('close', release);
+  res.once('close', release);
+  res.once('error', release);
 });
 
 app.get('/api/agent-integration/status', (_req, res) => {
@@ -1074,6 +1083,8 @@ function shutdownBridge(): Promise<void> {
     }
     for (const lease of uiLeases) lease.end();
     uiLeases.clear();
+    for (const stream of catalogEventStreams) stream.end();
+    catalogEventStreams.clear();
     clearInterval(idleTimer);
     await stopConfiguredMcp();
     await new Promise<void>(resolve => {

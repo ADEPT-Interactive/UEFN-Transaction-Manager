@@ -1,15 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { BridgeSession } from './bridgeSession.js';
 import type { LauncherState, ProjectCandidate, WindowAction } from './contracts.js';
 import { ProjectDiscovery, readProject } from './projectDiscovery.js';
 import { isAllowedNavigation as navigationIsAllowed, isHttpExternal } from './security.js';
 import { detectDistributionMode } from './distributionMode.js';
 import { UpdateManager } from './updateManager.js';
-import { isExpectedNavigationAbort, isNavigationAbortError, SerializedAsyncOperation, type ExpectedNavigation } from './navigation.js';
+import { createLauncherProtocolHandler } from './launcherProtocol.js';
+import { NavigationTransaction, SerializedAsyncOperation, type ExpectedNavigation } from './navigation.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -25,6 +25,7 @@ const launcherAssets = new Map([
 ]);
 const launcherUrl = 'uem-launcher://app/index.html';
 const showcaseMode = !app.isPackaged && process.env.UEM_SHOWCASE_MODE === '1';
+const hiddenTestMode = process.env.UEM_TEST_HIDDEN === '1';
 if (showcaseMode && process.env.UEM_SHOWCASE_STATE_ROOT) {
   app.setPath('userData', path.join(process.env.UEM_SHOWCASE_STATE_ROOT, 'user-data'));
 }
@@ -50,6 +51,7 @@ let discoveryActive = false;
 let updateManager: UpdateManager | null = null;
 let expectedNavigation: ExpectedNavigation | null = null;
 let navigationGeneration = 0;
+let activeNavigationTransaction: NavigationTransaction | null = null;
 const switchOperation = new SerializedAsyncOperation();
 let fatalErrorPromise: Promise<void> | null = null;
 
@@ -63,6 +65,20 @@ function diagnostic(message: string) {
   fs.appendFileSync(diagnosticPath, `${new Date().toISOString()}\n${message}\n`);
 }
 
+function readReleaseMetadata(): { version?: string; sourceRevision?: string } {
+  try {
+    const metadata = JSON.parse(fs.readFileSync(path.join(appRoot, 'version.json'), 'utf8')) as { version?: unknown; sourceRevision?: unknown };
+    return {
+      ...(typeof metadata.version === 'string' ? { version: metadata.version } : {}),
+      ...(typeof metadata.sourceRevision === 'string' ? { sourceRevision: metadata.sourceRevision } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+const releaseMetadata = readReleaseMetadata();
+
 function describeUrl(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
@@ -70,6 +86,11 @@ function describeUrl(rawUrl: string): string {
   } catch {
     return 'invalid URL';
   }
+}
+
+function diagnosticNavigationEvent(eventName: string, url?: string, details?: string): void {
+  const currentUrl = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : '';
+  diagnostic(`Navigation event ${eventName}: generation=${expectedNavigation?.generation ?? 0}; mode=${mode}; expectedTarget=${expectedNavigation ? describeUrl(expectedNavigation.targetUrl) : 'none'}; url=${url ? describeUrl(url) : 'none'}; currentUrl=${currentUrl ? describeUrl(currentUrl) : 'none'}${details ? `; ${details}` : ''}`);
 }
 
 function isAllowedNavigation(rawUrl: string): boolean {
@@ -184,48 +205,93 @@ async function loadProjectCandidates() {
   });
 }
 
-async function validateVisibleRenderer(expectedMode: 'launcher' | 'dashboard') {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+type RendererProbe = { bodyText: number; root: boolean; error?: string };
+
+async function probeRenderer(expectedMode: 'launcher' | 'dashboard'): Promise<RendererProbe> {
+  if (!mainWindow || mainWindow.isDestroyed()) return { bodyText: 0, root: false, error: 'The manager window is unavailable.' };
   try {
     const result = await mainWindow.webContents.executeJavaScript(`(() => ({ text: document.body?.innerText?.trim().length || 0, root: Boolean(${expectedMode === 'launcher' ? "document.querySelector('[data-uem-launcher-ready]')" : "document.getElementById('root')?.firstElementChild"}) }))()`);
-    if (!result.root || result.text < 20) throw new Error(`The ${expectedMode} renderer is blank or missing its expected root.`);
-    diagnostic(`${expectedMode === 'launcher' ? 'Project launcher' : 'Dashboard'} renderer ready: bodyText=${result.text}`);
+    return { bodyText: result.text, root: result.root, ...(!result.root || result.text < 20 ? { error: `The ${expectedMode} renderer is blank or missing its expected root.` } : {}) };
   } catch (error) {
-    await showFatalError(error instanceof Error ? error : new Error(String(error)));
+    return { bodyText: 0, root: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function validateVisibleRenderer(expectedMode: 'launcher' | 'dashboard'): Promise<void> {
+  const result = await probeRenderer(expectedMode);
+  if (!result.root || result.bodyText < 20) throw new Error(result.error ?? `The ${expectedMode} renderer is blank or missing its expected root.`);
+  diagnostic(`${expectedMode === 'launcher' ? 'Project launcher' : 'Dashboard'} renderer ready: bodyText=${result.bodyText}`);
+}
+
+async function waitForRendererReady(url: string, expectedMode: 'launcher' | 'dashboard', transaction?: NavigationTransaction): Promise<void> {
+  const deadline = Date.now() + 8000;
+  let lastError = 'the expected URL has not committed';
+  while (Date.now() < deadline) {
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error('The manager window was destroyed during navigation.');
+    const currentUrl = mainWindow.webContents.getURL();
+    if (currentUrl === url) {
+      const result = await probeRenderer(expectedMode);
+      if (result.root && result.bodyText >= 20) {
+        if (transaction && !transaction.markDestinationValidated(currentUrl)) throw new Error(`The validated renderer URL did not match the expected target: ${currentUrl}`);
+        diagnostic(`Navigation destination verified: generation=${transaction?.expected.generation ?? 0}; renderer=${expectedMode}; url=${describeUrl(currentUrl)}; bodyText=${result.bodyText}; root=true`);
+        return;
+      }
+      lastError = result.error ?? `bodyText=${result.bodyText}; root=${result.root}`;
+    } else if (currentUrl) {
+      lastError = `currentUrl=${describeUrl(currentUrl)}`;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  const currentUrl = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : 'window-destroyed';
+  throw new Error(`The ${expectedMode} renderer did not become usable at ${describeUrl(url)} within the bounded validation window; currentUrl=${describeUrl(currentUrl)}; lastObservation=${lastError}`);
 }
 
 function beginExpectedNavigation(targetUrl: string): ExpectedNavigation {
   const next = { generation: ++navigationGeneration, targetUrl };
   expectedNavigation = next;
+  activeNavigationTransaction = new NavigationTransaction(next);
   diagnostic(`Expected navigation started: generation=${next.generation}, target=${describeUrl(targetUrl)}`);
   return next;
 }
 
 function endExpectedNavigation(generation: number): void {
   if (expectedNavigation?.generation !== generation) return;
-  diagnostic(`Expected navigation completed: generation=${generation}, target=${describeUrl(expectedNavigation.targetUrl)}`);
+  diagnostic(`Expected navigation completed: generation=${generation}, target=${describeUrl(expectedNavigation.targetUrl)}; destinationVerified=${activeNavigationTransaction?.isValidated === true}`);
   expectedNavigation = null;
+  activeNavigationTransaction = null;
 }
 
 async function loadUrlExpecting(url: string): Promise<void> {
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error('The manager window is unavailable.');
-  const expected = expectedNavigation;
-  try {
-    await mainWindow.loadURL(url);
-    return;
-  } catch (error) {
-    if (!isExpectedNavigationAbort({ expected, error, url })) throw error;
-    diagnostic(`Expected navigation reported ERR_ABORTED: generation=${expected?.generation ?? 0}, target=${describeUrl(url)}`);
-    // Electron can reject the first loadURL promise after the old document has
-    // already interrupted it. Retry only the active, exact target so a stale
-    // or unrelated aborted navigation can never be converted into success.
-    if (mainWindow.isDestroyed() || mainWindow.webContents.getURL() === url) return;
-    await mainWindow.loadURL(url).catch(retryError => {
-      if (!isExpectedNavigationAbort({ expected, error: retryError, url })) throw retryError;
-      diagnostic(`Expected navigation retry also reported ERR_ABORTED: generation=${expected?.generation ?? 0}, target=${describeUrl(url)}`);
-    });
+  const transaction = activeNavigationTransaction?.expected.targetUrl === url ? activeNavigationTransaction : undefined;
+  const maxAttempts = transaction ? 2 : 1;
+  let lastLoadError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    diagnostic(`Navigation attempt started: generation=${transaction?.expected.generation ?? 0}; attempt=${attempt}/${maxAttempts}; target=${describeUrl(url)}`);
+    try {
+      await mainWindow.loadURL(url);
+      diagnostic(`Navigation loadURL promise resolved: generation=${transaction?.expected.generation ?? 0}; attempt=${attempt}; target=${describeUrl(url)}; currentUrl=${describeUrl(mainWindow.webContents.getURL())}`);
+    } catch (error) {
+      lastLoadError = error;
+      if (!transaction || !transaction.observeFailure({ error, url })) throw error;
+      diagnostic(`Navigation loadURL promise rejected but destination proof remains pending: generation=${transaction.expected.generation}; attempt=${attempt}; code=${(error as { code?: unknown })?.code ?? 'unknown'}; error=${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      await waitForRendererReady(url, 'launcher', transaction);
+      diagnostic(`Navigation attempt completed with verified destination: generation=${transaction?.expected.generation ?? 0}; attempt=${attempt}; target=${describeUrl(url)}`);
+      return;
+    } catch (error) {
+      lastLoadError = lastLoadError ?? error;
+      diagnostic(`Navigation destination proof unavailable: generation=${transaction?.expected.generation ?? 0}; attempt=${attempt}; target=${describeUrl(url)}; error=${error instanceof Error ? error.message : String(error)}`);
+      if (attempt === maxAttempts) {
+        if (transaction) throw transaction.failureAfterUnverifiedDestination();
+        throw error;
+      }
+      diagnostic(`Navigation recovery retry started: generation=${transaction?.expected.generation ?? 0}; nextAttempt=${attempt + 1}; target=${describeUrl(url)}`);
+    }
   }
+  throw lastLoadError instanceof Error ? lastLoadError : new Error(String(lastLoadError ?? 'Navigation failed.'));
 }
 
 async function loadLauncher(status?: string) {
@@ -242,7 +308,7 @@ async function loadLauncher(status?: string) {
   await loadProjectCandidates();
   if (status) sendLauncherState(status);
   await validateVisibleRenderer('launcher');
-  if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && selectedProjectId) {
+  if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && !(process.env.UEM_TEST_AUTO_EXIT === '1' && testSwitchCompleted) && selectedProjectId) {
     setTimeout(() => { if (selectedProjectId) void confirmProject(selectedProjectId); }, 150);
   }
 }
@@ -271,7 +337,8 @@ async function confirmProject(projectId: string): Promise<{ success: boolean; er
     await validateVisibleRenderer('dashboard');
     if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_SWITCH === '1' && !testSwitchCompleted) {
       testSwitchCompleted = true;
-      setTimeout(() => void switchProject(), 500);
+      const switchRequests = Math.max(1, Number.parseInt(process.env.UEM_TEST_AUTO_SWITCH_CLICKS ?? '1', 10) || 1);
+      setTimeout(() => { for (let request = 0; request < switchRequests; request += 1) void switchProject(); }, 500);
     }
     return { success: true };
   } catch (error) {
@@ -298,7 +365,11 @@ async function switchProject(): Promise<void> {
       bridgeSession = null;
       selectedProjectId = null;
       await loadLauncher('Previous project closed cleanly. Select the next project.');
-      if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && previous) {
+      if (process.env.UEM_TEST_AUTO_EXIT === '1') {
+        diagnostic('Project switch completed');
+        diagnostic('Hidden lifecycle test requested clean shutdown after verified launcher return.');
+        setTimeout(() => void shutdownAndQuit(), 100);
+      } else if (process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_AUTO_CONFIRM === '1' && previous) {
         const previousProject = [...projects.values()].find(project => project.projectFile.toLowerCase() === previous.toLowerCase());
         if (previousProject) {
           selectedProjectId = previousProject.id;
@@ -308,10 +379,6 @@ async function switchProject(): Promise<void> {
       } else diagnostic('Project switch completed');
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error));
-      if (isExpectedNavigationAbort({ expected, error: normalized, url: launcherUrl })) {
-        diagnostic(`Expected project-switch navigation abort was contained: generation=${expected.generation}`);
-        return;
-      }
       await showFatalError(normalized);
     } finally {
       endExpectedNavigation(expected.generation);
@@ -471,13 +538,7 @@ function createMainWindow() {
     },
   });
   window.removeMenu();
-  window.webContents.session.protocol.handle('uem-launcher', request => {
-    const target = new URL(request.url);
-    if (target.host !== 'app') return new Response('Not found', { status: 404 });
-    const asset = launcherAssets.get(target.pathname);
-    if (!asset || !fs.existsSync(asset.path)) return new Response('Not found', { status: 404 });
-    return net.fetch(pathToFileURL(asset.path).toString());
-  });
+  window.webContents.session.protocol.handle('uem-launcher', createLauncherProtocolHandler(launcherAssets, diagnostic, () => expectedNavigation?.generation ?? 0));
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
   window.webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -488,16 +549,24 @@ function createMainWindow() {
     else diagnostic(`New-window request rejected: ${describeUrl(url)}`);
     return { action: 'deny' };
   });
+  window.webContents.on('did-start-navigation', (_event, url, _isInPlace, isMainFrame) => diagnosticNavigationEvent('did-start-navigation', url, `mainFrame=${isMainFrame}`));
+  window.webContents.on('did-start-loading', () => diagnosticNavigationEvent('did-start-loading'));
   window.webContents.on('will-navigate', (event, url) => {
+    diagnosticNavigationEvent('will-navigate', url);
     if (isAllowedNavigation(url)) return;
     event.preventDefault();
     if (isHttpExternal(url)) void shell.openExternal(url, { activate: true });
     else diagnostic(`Navigation rejected: ${describeUrl(url)}`);
   });
+  window.webContents.on('did-navigate', (_event, url, httpResponseCode, httpStatusText) => diagnosticNavigationEvent('did-navigate', url, `status=${httpResponseCode}; statusText=${httpStatusText || 'none'}`));
+  window.webContents.on('did-frame-navigate', (_event, url, httpResponseCode, httpStatusText, isMainFrame) => diagnosticNavigationEvent('did-frame-navigate', url, `mainFrame=${isMainFrame}; status=${httpResponseCode}; statusText=${httpStatusText || 'none'}`));
+  window.webContents.on('did-finish-load', () => diagnosticNavigationEvent('did-finish-load'));
+  window.webContents.on('did-stop-loading', () => diagnosticNavigationEvent('did-stop-loading'));
   window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (!isMainFrame) return;
-    if (isExpectedNavigationAbort({ expected: expectedNavigation, code, url })) {
-      diagnostic(`Expected navigation failure contained: generation=${expectedNavigation?.generation ?? 0}, code=${code}, target=${describeUrl(url)}`);
+    diagnosticNavigationEvent('did-fail-load', url, `code=${code}; description=${description}`);
+    if (activeNavigationTransaction?.observeFailure({ code, description, url })) {
+      diagnostic(`Expected navigation failure deferred pending destination proof: generation=${activeNavigationTransaction.expected.generation}; code=${code}; target=${describeUrl(url)}`);
       return;
     }
     void showFatalError(new Error(`Navigation failed (${code} ${description}): ${describeUrl(url)}`));
@@ -512,6 +581,10 @@ function createMainWindow() {
     else void shutdownAndQuit();
   });
   window.once('ready-to-show', () => {
+    if (hiddenTestMode) {
+      diagnostic('Manager window ready in hidden test mode; foreground presentation skipped.');
+      return;
+    }
     window.show();
     window.focus();
     diagnostic(`Visible manager window created: handle=${window.getNativeWindowHandle().toString('hex')}`);
@@ -539,7 +612,7 @@ else {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uem:update:state', state);
       }, diagnostic);
       updateManager.initialize();
-      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}; distribution=${distributionMode}`);
+      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}; distribution=${distributionMode}; appVersion=${releaseMetadata.version ?? app.getVersion()}; sourceRevision=${releaseMetadata.sourceRevision ?? 'unknown'}`);
       await loadLauncher();
       if (portableUpdateResultPath && fs.existsSync(portableUpdateResultPath)) {
         try {
@@ -556,17 +629,5 @@ else {
 }
 
 app.on('window-all-closed', () => { if (!shutdownStarted) void shutdownAndQuit(); });
-process.on('uncaughtException', error => {
-  if (isExpectedNavigationAbort({ expected: expectedNavigation, error })) {
-    diagnostic('Expected navigation abort was contained after an uncaught exception callback.');
-    return;
-  }
-  void showFatalError(error);
-});
-process.on('unhandledRejection', error => {
-  if (isExpectedNavigationAbort({ expected: expectedNavigation, error })) {
-    diagnostic('Expected navigation abort was contained after an unhandled rejection callback.');
-    return;
-  }
-  void showFatalError(error instanceof Error ? error : new Error(String(error)));
-});
+process.on('uncaughtException', error => void showFatalError(error));
+process.on('unhandledRejection', error => void showFatalError(error instanceof Error ? error : new Error(String(error))));

@@ -156,8 +156,12 @@ function waitWithCancellation(milliseconds: number, signal: AbortSignal, stopped
 }
 
 function writeActiveSession(port: number, editorToken: string, project: ProjectCandidate, connectorScript: string): string {
-  // Compatibility: this state directory is shared with existing 4.0.1 installs.
-  const stateRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager');
+  // Compatibility: production state remains in the established 4.0.1 user-data
+  // namespace. Hidden lifecycle tests can provide an isolated root so a
+  // synthetic bridge never overwrites an owner's active session marker.
+  const stateRoot = process.env.UEM_TEST_STATE_ROOT
+    ? path.resolve(process.env.UEM_TEST_STATE_ROOT)
+    : path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager');
   fs.mkdirSync(stateRoot, { recursive: true });
   const statePath = path.join(stateRoot, 'active-session.json');
   const temporary = `${statePath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -429,6 +433,8 @@ export class BridgeSession {
   }
 
   private async stopInternal(): Promise<void> {
+    const startedAt = Date.now();
+    this.writeDiagnostic(`Bridge shutdown started: pid=${this.processId}, port=${this.port}`);
     try {
       if (this.child.exitCode === null) {
         try {
@@ -454,7 +460,7 @@ export class BridgeSession {
       } catch (error) {
         this.writeDiagnostic(`Editor connector session cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      this.writeDiagnostic(`Bridge shutdown completed: pid=${this.processId}, log=${this.logPath}`);
+      this.writeDiagnostic(`Bridge shutdown completed: pid=${this.processId}, port=${this.port}, durationMs=${Date.now() - startedAt}, log=${this.logPath}`);
     }
   }
 }

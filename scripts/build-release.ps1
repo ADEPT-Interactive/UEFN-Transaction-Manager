@@ -8,6 +8,10 @@ $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $canonicalVersion = (Get-Content -LiteralPath (Join-Path $toolRoot "version.json") -Raw | ConvertFrom-Json).version
 $appVersion = if ($VersionOverride) { $VersionOverride.Trim() } else { $canonicalVersion }
+$sourceRevision = (& git -C $toolRoot rev-parse HEAD).Trim()
+if ($sourceRevision -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve the exact source revision used for this release: $sourceRevision" }
+$worktreeStatus = (& git -C $toolRoot status --porcelain)
+if ($worktreeStatus) { throw "Release builds require a clean worktree at source revision $sourceRevision." }
 if ($appVersion -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
     throw "Release version is not valid semantic version syntax: $appVersion"
 }
@@ -51,12 +55,7 @@ function Copy-AppDirectory {
 function Copy-AppVersion {
     $destination = Join-Path $stagingApp "version.json"
     New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-    if ($VersionOverride) {
-        [IO.File]::WriteAllText($destination, (([ordered]@{ version = $appVersion } | ConvertTo-Json) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-    }
-    else {
-        Copy-AppFile -RelativePath "version.json"
-    }
+    [IO.File]::WriteAllText($destination, (([ordered]@{ version = $appVersion; sourceRevision = $sourceRevision } | ConvertTo-Json) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 }
 
 function Add-ReleaseChecksum {
@@ -169,6 +168,7 @@ try {
     $portableMarker = [ordered]@{
         distribution = "portable"
         version = $appVersion
+        sourceRevision = $sourceRevision
         schemaVersion = 1
         managedFiles = @($managedFiles + "portable.json")
     }
@@ -200,6 +200,7 @@ try {
     Write-Host "Verified byte-identical human aliases for installer and portable archive." -ForegroundColor Green
     $portableManifest = [ordered]@{
         version = $appVersion
+        sourceRevision = $sourceRevision
         filename = $portableFileName
         path = $portableFileName
         sha256 = $versionedPortableHash
