@@ -270,6 +270,28 @@ test('UTM capability derivation blocks first-run persistence until editor/native
   assert.equal(completeIdentity(projectIdentityFromContext(firstRun)), true);
 });
 
+test('preflight lease is invalidated when the authenticated editor process changes', () => {
+  let processId = 101;
+  const context = {
+    productVersion: '4.3.0',
+    projectName: project.projectName,
+    projectFile: project.projectFile,
+    projectRoot: project.projectRoot,
+    contentRoot: project.contentRoot,
+    assetMount: project.assetMount,
+    editorConnection: { editorConnected: true, processId },
+    nativeTextureAdoptionAvailable: true,
+    managedFileOwned: true,
+    catalogInitialization: 'initialized' as const,
+  };
+  const manager = new OperationPreflightManager(() => context, () => '17');
+  const request = { operation: 'catalog-only-migration' as const, mode: 'catalog-only' as const, approval: { approved: true, confirmation: 'synthetic owner approval' } };
+  const lease = manager.issue(manager.evaluate(request), request, 'connection-a');
+  processId = 102;
+  context.editorConnection = { editorConnected: true, processId };
+  assert.throws(() => manager.assert(lease.token, 'connection-a', 'catalog-only-migration', 'catalog'), { code: 'OPERATION_PREFLIGHT_STALE' });
+});
+
 function completeIdentity(identity: Partial<ProjectIdentity>): boolean {
   return Object.values(identity).every(value => typeof value === 'string' && value.length > 0);
 }

@@ -50,6 +50,7 @@ export interface PreflightLease {
 
 interface LeaseRecord extends PreflightLease {
   request: OperationPreflightRequest;
+  sessionFingerprint: string;
 }
 
 function pathDirectory(value: string): string {
@@ -71,6 +72,17 @@ export function projectIdentityFromContext(context: UTMPreflightContext): Projec
 function missingManagedAssetCount(context: UTMPreflightContext): number {
   const missing = context.projectReadiness?.missingManagedAssets;
   return Array.isArray(missing) ? missing.length : 0;
+}
+
+function sessionFingerprint(context: UTMPreflightContext): string {
+  const connection = context.editorConnection ?? {};
+  const processId = typeof connection.processId === 'number' && Number.isInteger(connection.processId) && connection.processId > 0
+    ? String(connection.processId)
+    : '';
+  const generation = typeof connection.connectionGeneration === 'string' ? connection.connectionGeneration.trim() : '';
+  const sessionId = typeof connection.sessionId === 'string' ? connection.sessionId.trim() : '';
+  const parts = [processId, generation, sessionId].filter(Boolean);
+  return parts.length ? parts.join('|') : 'no-editor-session';
 }
 
 export function deriveUtmCapabilities(context: UTMPreflightContext): Record<string, CapabilityEvidence> {
@@ -123,6 +135,10 @@ export class OperationPreflightManager {
     if (!report.ready || !report.safeToMutate || !report.requiresUtmMutation) {
       throw new OperationPreflightError('OPERATION_PREFLIGHT_REQUIRED', 'A successful UTM mutation-capable operation preflight is required before UTM state can change.', { operation: report.operation, blockers: report.blockers });
     }
+    const currentProject = projectIdentityFromContext(this.getProjectContext());
+    if (this.getRevision() !== report.revision || projectIdentityFingerprint(currentProject) !== projectIdentityFingerprint(report.project.utm)) {
+      throw new OperationPreflightError('OPERATION_PREFLIGHT_STALE', 'The project or catalog changed before the preflight lease was issued. Run preflight_operation again.', { reportRevision: report.revision, currentRevision: this.getRevision() });
+    }
     const now = this.now();
     const lease: LeaseRecord = {
       token: crypto.randomUUID(),
@@ -135,6 +151,7 @@ export class OperationPreflightManager {
       expiresAt: new Date(now + this.ttlMs).toISOString(),
       mutationDomains: [...AGENT_OPERATION_MANIFESTS[report.operation].mutationDomains],
       request,
+      sessionFingerprint: sessionFingerprint(this.getProjectContext()),
     };
     this.leases.set(lease.token, lease);
     return this.publicLease(lease);
@@ -158,6 +175,10 @@ export class OperationPreflightManager {
     if (projectIdentityFingerprint(currentProject) !== lease.projectFingerprint) {
       this.leases.delete(token);
       throw new OperationPreflightError('OPERATION_PREFLIGHT_STALE', 'The selected project changed after preflight. Run preflight_operation again for the current project.', { preflightProject: lease.projectFingerprint, currentProject: projectIdentityFingerprint(currentProject) });
+    }
+    if (sessionFingerprint(context) !== lease.sessionFingerprint) {
+      this.leases.delete(token);
+      throw new OperationPreflightError('OPERATION_PREFLIGHT_STALE', 'The authenticated UEFN editor session changed after preflight. Run preflight_operation again before retrying.', { preflightSession: lease.sessionFingerprint, currentSession: sessionFingerprint(context) });
     }
     const currentReport = this.evaluate(lease.request);
     if (!currentReport.ready || !currentReport.safeToMutate) {
@@ -190,7 +211,7 @@ export class OperationPreflightManager {
   }
 
   private publicLease(lease: LeaseRecord): PreflightLease {
-    const { request: _request, ...publicLease } = lease;
+    const { request: _request, sessionFingerprint: _sessionFingerprint, ...publicLease } = lease;
     return publicLease;
   }
 }
