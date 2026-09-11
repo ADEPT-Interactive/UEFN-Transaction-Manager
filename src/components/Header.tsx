@@ -1,7 +1,7 @@
 import React from 'react';
-import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, FolderOpen, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FolderOpen, Pencil, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
-import type { AgentIntegrationStatus } from '../services/fileService';
+import type { AgentActivity, AgentIntegrationStatus } from '../services/fileService';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { DISCORD_CONTROL_SIZE, DISCORD_ICON_SIZE, DiscordIcon } from './BrandControls';
 
@@ -52,6 +52,21 @@ export const Header: React.FC<HeaderProps> = ({
   const pathSegments = config.contentFolderPath.split(/[\\/]+/).filter(Boolean);
   const contentSegmentIndex = pathSegments.map(segment => segment.toLowerCase()).lastIndexOf('content');
   const projectName = contentSegmentIndex > 0 ? pathSegments[contentSegmentIndex - 1] : pathSegments[pathSegments.length - 1] || 'UEFN project';
+  const activityState = agentIntegrationStatus?.agentActivity;
+  const activity: AgentActivity | undefined = activityState?.current ?? activityState?.recent;
+  const activityIsActive = Boolean(activityState?.active && activity?.status === 'active');
+  const inspectionActivityLabel = 'Agent is inspecting UTM';
+  const mutationActivityLabel = 'Agent is modifying your UTM catalog';
+  const activityStatusLabel = activityIsActive
+    ? activity?.mode === 'mutating' ? mutationActivityLabel : inspectionActivityLabel
+    : activity?.status === 'success'
+      ? 'Agent activity completed'
+      : activity?.status === 'cancelled'
+        ? 'Agent activity cancelled'
+        : activity?.status === 'expired'
+          ? 'Agent activity expired'
+          : 'Agent activity failed';
+  const activityOperationLabel = activity?.operation.replace(/-/g, ' ');
 
   React.useEffect(() => {
     const closeMenus = (event: MouseEvent) => {
@@ -114,6 +129,13 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+      {activity && <div role="status" aria-live="polite" data-agent-activity={activity.mode} className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-1.5 text-xs ${activityIsActive ? activity.mode === 'mutating' ? 'border-amber-500/35 bg-amber-500/10 text-amber-200' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900/70 text-slate-300'}`}>
+        {activityIsActive ? activity.mode === 'mutating' ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+        <span className="font-extrabold">{activityStatusLabel}</span>
+        {activityOperationLabel && <span className="text-[11px] opacity-80">· {activityOperationLabel}</span>}
+        {activity.phase && <span className="text-[11px] opacity-80">· {activity.phase}</span>}
+        {activity.outcome && !activityIsActive && <span className="basis-full text-[11px] opacity-75">{activity.outcome}</span>}
+      </div>}
       {saveStatusMessage && <div role="status" aria-live="polite" className={`mt-2 flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${saveStatusIsError ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'}`}>{saveStatusIsError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}{saveStatusMessage}</div>}
     </header>
   );

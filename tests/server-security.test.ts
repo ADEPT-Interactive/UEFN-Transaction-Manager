@@ -37,7 +37,7 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
   const editorToken = 'editor-token-'.padEnd(48, 'x');
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     cwd: process.cwd(),
-    env: { ...process.env, LOCALAPPDATA: path.join(root, 'LocalAppData'), PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/SecurityTest', UEM_PROJECT_PYTHON_ENABLED: '1', UEM_IDLE_TIMEOUT_MS: '60000' },
+    env: { ...process.env, UEM_TEST_MODE: '1', UEM_TEST_NO_GLOBAL_UEFN_PROBE: '1', LOCALAPPDATA: path.join(root, 'LocalAppData'), PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: editorToken, UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/SecurityTest', UEM_PROJECT_PYTHON_ENABLED: '1', UEM_IDLE_TIMEOUT_MS: '60000' },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;

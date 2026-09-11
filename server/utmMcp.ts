@@ -7,11 +7,20 @@ import type { CatalogDocument, CatalogPatchOperation, CatalogSession } from '../
 import { CatalogDomainError, catalogForMcp } from '../src/services/catalogSession';
 import { describeIntegrationContract } from '../src/services/integrationContract';
 import { validateMigrationParityTable, type MigrationParityEntry } from '../src/services/migrationParity';
+import {
+  type AgentOperationMode,
+  type ExternalReadinessEvidence,
+  type OperationPreflightRequest,
+  type ProjectIdentity,
+} from '../shared/agentWorkflow';
+import { AgentActivityError, AgentActivityManager, type AgentActivityMode, type AgentActivityStatus, type PublicAgentActivityState } from './agentActivity';
+import { OperationPreflightError, OperationPreflightManager, projectIdentityFromContext } from './agentPreflight';
 
 export interface UTMProjectContext {
   productVersion: string;
   projectName: string;
   projectFile: string;
+  projectRoot?: string;
   contentRoot: string;
   assetMount: string;
   targetManagedVerseFile: string;
@@ -57,6 +66,9 @@ export interface UTMHostOptions {
   saveCatalog: () => Promise<SaveCatalogResult>;
   assertCatalogReady?: (document: CatalogDocument) => Promise<void>;
   onClientConnection?: (connection: UTMClientConnection) => void;
+  activity?: AgentActivityManager;
+  activityTtlMs?: number;
+  preflightTtlMs?: number;
 }
 
 export interface UTMClientConnection {
@@ -102,6 +114,58 @@ const migrationPolicy = z.object({
   mode: z.enum(['new-catalog', 'existing-project']).default('new-catalog').describe('Use existing-project for a legacy transaction migration; that mode requires an explicit parity table.'),
   parity: z.array(migrationParityEntrySchema).optional().describe('Required in existing-project mode. One explicit legacy-to-UTM comparison row per migrated transaction or offer.'),
 }).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [], mode: 'new-catalog' });
+const agentOperationSchema = z.enum([
+  'inspect-only',
+  'catalog-only-migration',
+  'full-existing-project-migration',
+  'native-icon-adoption',
+  'managed-device-wiring',
+  'verse-integration',
+  'compile-validation',
+  'live-session-inspection',
+]);
+const agentModeSchema = z.enum(['full', 'catalog-only']);
+const projectIdentitySchema = z.object({
+  projectName: z.string().min(1),
+  projectFile: z.string().min(1),
+  projectRoot: z.string().min(1),
+  contentRoot: z.string().min(1),
+  assetMount: z.string().min(1),
+});
+const capabilityEvidenceSchema = z.object({
+  available: z.boolean(),
+  schemaInspected: z.boolean(),
+  evidence: z.array(z.string().min(1)).max(20).optional(),
+  detail: z.string().max(240).optional(),
+});
+const externalReadinessSchema = z.object({
+  server: z.object({
+    available: z.boolean(),
+    schemaInspected: z.boolean(),
+    name: z.string().max(120).optional(),
+    version: z.string().max(120).optional(),
+  }),
+  project: projectIdentitySchema.optional(),
+  editorReady: z.boolean().optional(),
+  capabilities: z.record(capabilityEvidenceSchema),
+});
+const catalogOnlyApprovalSchema = z.object({ approved: z.boolean(), confirmation: z.string().min(1).max(500) });
+const operationPreflightSchema = {
+  operation: agentOperationSchema,
+  mode: agentModeSchema.optional(),
+  requestedProject: projectIdentitySchema.optional(),
+  requestedScope: z.record(z.unknown()).optional(),
+  externalReadiness: externalReadinessSchema.optional(),
+  approval: catalogOnlyApprovalSchema.optional(),
+};
+const mutationContextSchema = {
+  preflightToken: z.string().min(1).describe('Mutation token returned only by a successful mutation-capable preflight_operation call.'),
+  activityId: z.string().min(1).describe('Active mutating activity ID returned by begin_activity after preflight passes.'),
+};
+const dryRunMutationContextSchema = {
+  preflightToken: z.string().min(1).optional(),
+  activityId: z.string().min(1).optional(),
+};
 const patchOperationSchema = z.object({
   type: z.enum([
     'create_entitlement', 'update_entitlement', 'delete_entitlement',
@@ -127,6 +191,7 @@ function jsonResult(value: unknown, isError = false): McpResponse {
 
 function errorResult(error: unknown): McpResponse {
   if (error instanceof CatalogDomainError) return jsonResult({ error: { code: error.code, message: error.message, data: error.data } }, true);
+  if (error instanceof AgentActivityError || error instanceof OperationPreflightError) return jsonResult({ error: { code: error.code, message: error.message, data: error.data } }, true);
   return jsonResult({ error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'UTM MCP operation failed.' } }, true);
 }
 
@@ -154,8 +219,11 @@ function assertMigrationDeletionPolicy(operations: CatalogPatchOperation[], poli
   }
 }
 
-function registerTools(server: McpServer, options: UTMHostOptions): void {
+type MutationContext = { preflightToken: string; activityId: string };
+
+function registerTools(server: McpServer, options: UTMHostOptions, connectionId: string, preflight: OperationPreflightManager, activity: AgentActivityManager): void {
   const { catalog } = options;
+  let projectContextInspected = false;
   const assertProjectReady = () => {
     if (options.getProjectContext().managedFileOwned === false) {
       throw new CatalogDomainError('PROJECT_NOT_READY', 'The selected target Verse file is not managed by UTM. Choose a new managed target in the human interface before mutating.', {}, 409);
@@ -165,23 +233,128 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
     assertProjectReady();
     await options.assertCatalogReady?.(document);
   };
-  const mutate = async (operation: CatalogPatchOperation, revision: string, dryRun = false): Promise<McpResponse> => {
+  const assertMutationContext = (domain: 'catalog' | 'icon' | 'save', context: MutationContext): void => {
+    const lease = preflight.assert(context.preflightToken, connectionId, undefined, domain);
+    activity.assertMutating(context.activityId, connectionId, lease.operation);
+  };
+  const advanceMutationContext = (context: MutationContext, revision: string): void => {
+    preflight.advance(context.preflightToken, connectionId, revision);
+  };
+  const mutate = async (operation: CatalogPatchOperation, revision: string, dryRun = false, context?: MutationContext): Promise<McpResponse> => {
     try {
       assertProjectReady();
+      if (!dryRun) {
+        if (!context) throw new OperationPreflightError('OPERATION_PREFLIGHT_REQUIRED', 'This UTM mutation requires a successful operation preflight and active mutating activity before it can change state.', { operation: operation.type });
+        assertMutationContext('catalog', context);
+      }
       if (dryRun) return jsonResult(catalog.applyPatch([operation], revision, true));
       const proposed = catalog.applyPatch([operation], revision, true).snapshot;
       await assertCatalogReady(proposed);
-      return jsonResult(catalog.mutate(operation, revision));
+      const result = catalog.mutate(operation, revision);
+      advanceMutationContext(context!, result.snapshot.revision);
+      return jsonResult(result);
     } catch (error) {
       return errorResult(error);
     }
   };
 
+  server.registerTool('preflight_operation', {
+    title: 'Preflight agent operation',
+    description: 'Read-only operation readiness check. Evaluates only UTM-owned facts locally and accepts explicitly supplied agent-side Unreal MCP schema/project evidence; a successful mutation-capable result returns a short-lived, project- and revision-bound token. It does not change the catalog or project files.',
+    inputSchema: operationPreflightSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async args => {
+    try {
+      if (!projectContextInspected) throw new OperationPreflightError('PROJECT_CONTEXT_REQUIRED', 'Call get_project_context on this MCP connection before requesting an operation preflight.', { operation: args.operation }, 428);
+      const request: OperationPreflightRequest = {
+        operation: args.operation as OperationPreflightRequest['operation'],
+        ...(args.mode ? { mode: args.mode as AgentOperationMode } : {}),
+        ...(args.requestedProject ? { requestedProject: args.requestedProject as ProjectIdentity } : {}),
+        ...(args.requestedScope ? { requestedScope: args.requestedScope as Record<string, unknown> } : {}),
+        ...(args.externalReadiness ? { externalReadiness: args.externalReadiness as ExternalReadinessEvidence } : {}),
+        ...(args.approval ? { approval: args.approval } : {}),
+      };
+      const report = preflight.evaluate(request);
+      if (!report.ready) return jsonResult(report, true);
+      if (!report.requiresUtmMutation) return jsonResult(report);
+      const lease = preflight.issue(report, request, connectionId);
+      return jsonResult({ ...report, preflightToken: lease.token, lease: { issuedAt: lease.issuedAt, expiresAt: lease.expiresAt, mutationDomains: lease.mutationDomains } });
+    } catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool('begin_activity', {
+    title: 'Begin agent activity',
+    description: 'Creates a persistent, user-visible agent activity. Use read-only while discovering and preflighting; mutating activity requires the successful operation preflight token and is the only state in which UTM catalog mutations are accepted.',
+    inputSchema: {
+      operation: agentOperationSchema,
+      mode: z.enum(['read-only', 'mutating']),
+      phase: z.string().min(1).max(100).optional(),
+      description: z.string().min(1).max(160).optional(),
+      scope: z.record(z.unknown()).optional(),
+      preflightToken: z.string().min(1).optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async args => {
+    try {
+      if (args.mode === 'mutating') {
+        if (!args.preflightToken) throw new OperationPreflightError('OPERATION_PREFLIGHT_REQUIRED', 'A successful operation preflight is required before starting a mutating agent activity.', { operation: args.operation });
+        preflight.assert(args.preflightToken, connectionId, args.operation as OperationPreflightRequest['operation']);
+      }
+      const started = activity.begin({
+        operation: args.operation as OperationPreflightRequest['operation'],
+        mode: args.mode as AgentActivityMode,
+        ...(args.phase ? { phase: args.phase } : {}),
+        ...(args.description ? { description: args.description } : {}),
+        ...(args.scope ? { scope: args.scope as Record<string, unknown> } : {}),
+      }, connectionId);
+      return jsonResult({ activity: started, activityId: started.activityId, ...(args.preflightToken ? { preflightToken: args.preflightToken } : {}) });
+    } catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool('heartbeat_activity', {
+    title: 'Heartbeat agent activity',
+    description: 'Extends the active agent activity TTL. A completed, expired, wrong-project, or wrong-connection activity cannot be revived.',
+    inputSchema: { activityId: targetId },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async args => {
+    try { return jsonResult({ activity: activity.heartbeat(args.activityId, connectionId) }); }
+    catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool('update_activity_phase', {
+    title: 'Update agent activity phase',
+    description: 'Updates the short user-safe phase shown in UTM while an agent operation continues.',
+    inputSchema: { activityId: targetId, phase: z.string().min(1).max(100), description: z.string().min(1).max(160).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async args => {
+    try { return jsonResult({ activity: activity.updatePhase(args.activityId, connectionId, args.phase, args.description) }); }
+    catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool('end_activity', {
+    title: 'End agent activity',
+    description: 'Ends the caller-owned agent activity with success, failure, or cancellation. Ended activities cannot be heartbeated or revived.',
+    inputSchema: { activityId: targetId, status: z.enum(['success', 'failed', 'cancelled']), outcome: z.string().min(1).max(200).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async args => {
+    try { return jsonResult({ activity: activity.end(args.activityId, connectionId, args.status as Exclude<AgentActivityStatus, 'active' | 'expired'>, args.outcome) }); }
+    catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool('get_activity_status', {
+    title: 'Get agent activity status',
+    description: 'Read-only. Returns the current project’s user-safe persistent agent activity state. Idle MCP connections do not create activity.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async () => jsonResult(activity.getState()));
+
   server.registerTool('get_project_context', {
     title: 'Get project context',
     description: 'Read-only. Returns the verified project identity and UTM bridge/editor health. It does not change the catalog, files, or UEFN editor.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, async () => jsonResult({ ...options.getProjectContext(), catalog: { revision: catalog.currentRevision, dirty: catalog.snapshot().dirty } }));
+  }, async () => {
+    projectContextInspected = true;
+    return jsonResult({ ...options.getProjectContext(), catalog: { revision: catalog.currentRevision, dirty: catalog.snapshot().dirty }, agentActivity: activity.getState() });
+  });
 
   server.registerTool('get_catalog_snapshot', {
     title: 'Get catalog snapshot',
@@ -221,98 +394,98 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
   server.registerTool('create_entitlement', {
     title: 'Create entitlement',
     description: 'Mutates the shared draft by creating one entitlement and allocating its internal ID and stable Verse key. It does not save to disk or compile Verse. Requires expectedRevision.',
-    inputSchema: { expectedRevision, data },
+    inputSchema: { expectedRevision, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'create_entitlement', data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'create_entitlement', data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('update_entitlement', {
     title: 'Update entitlement',
     description: 'Mutates only the provided fields of one entitlement in the shared draft. It does not save to disk or compile Verse. Requires expectedRevision.',
-    inputSchema: { expectedRevision, entitlementId: targetId, data },
+    inputSchema: { expectedRevision, entitlementId: targetId, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'update_entitlement', entitlementId: args.entitlementId, data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'update_entitlement', entitlementId: args.entitlementId, data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('delete_entitlement', {
     title: 'Delete entitlement',
     description: 'Destructive shared-draft mutation. Removes the entitlement, its alternate offers, bundle references, and storefront references. It does not save to disk. Requires expectedRevision; use dryRun to inspect cascades.',
-    inputSchema: { expectedRevision, entitlementId: targetId, dryRun: z.boolean().default(false) },
+    inputSchema: { expectedRevision, entitlementId: targetId, dryRun: z.boolean().default(false), ...dryRunMutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, async args => mutate({ type: 'delete_entitlement', entitlementId: args.entitlementId }, args.expectedRevision, args.dryRun));
+  }, async args => mutate({ type: 'delete_entitlement', entitlementId: args.entitlementId }, args.expectedRevision, args.dryRun, { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }));
 
   server.registerTool('create_alternate_offer', {
     title: 'Create alternate offer',
     description: 'Creates an alternate purchase path under an existing entitlement and allocates its ID and stable Verse key. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, entitlementId: targetId, data },
+    inputSchema: { expectedRevision, entitlementId: targetId, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'create_alternate_offer', entitlementId: args.entitlementId, data: { ...(args.data ?? {}), entitlementId: args.entitlementId } }, args.expectedRevision));
+  }, async args => mutate({ type: 'create_alternate_offer', entitlementId: args.entitlementId, data: { ...(args.data ?? {}), entitlementId: args.entitlementId } }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('update_alternate_offer', {
     title: 'Update alternate offer',
     description: 'Patches only provided fields of an alternate offer in the shared draft. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, entitlementId: targetId, alternateOfferId: targetId, data },
+    inputSchema: { expectedRevision, entitlementId: targetId, alternateOfferId: targetId, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'update_alternate_offer', entitlementId: args.entitlementId, alternateOfferId: args.alternateOfferId, data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'update_alternate_offer', entitlementId: args.entitlementId, alternateOfferId: args.alternateOfferId, data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('delete_alternate_offer', {
     title: 'Delete alternate offer',
     description: 'Destructive shared-draft mutation. Removes an alternate offer and storefront references to it. It does not save or compile. Requires expectedRevision; use dryRun to inspect cascades.',
-    inputSchema: { expectedRevision, entitlementId: targetId, alternateOfferId: targetId, dryRun: z.boolean().default(false) },
+    inputSchema: { expectedRevision, entitlementId: targetId, alternateOfferId: targetId, dryRun: z.boolean().default(false), ...dryRunMutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, async args => mutate({ type: 'delete_alternate_offer', entitlementId: args.entitlementId, alternateOfferId: args.alternateOfferId }, args.expectedRevision, args.dryRun));
+  }, async args => mutate({ type: 'delete_alternate_offer', entitlementId: args.entitlementId, alternateOfferId: args.alternateOfferId }, args.expectedRevision, args.dryRun, { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }));
 
   server.registerTool('create_bundle', {
     title: 'Create bundle',
     description: 'Creates a transaction bundle and allocates its ID and stable Verse key. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, data },
+    inputSchema: { expectedRevision, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'create_bundle', data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'create_bundle', data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('update_bundle', {
     title: 'Update bundle',
     description: 'Patches only provided bundle fields in the shared draft. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, bundleId: targetId, data },
+    inputSchema: { expectedRevision, bundleId: targetId, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'update_bundle', bundleId: args.bundleId, data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'update_bundle', bundleId: args.bundleId, data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('delete_bundle', {
     title: 'Delete bundle',
     description: 'Destructive shared-draft mutation. Removes a bundle and its storefront references. It does not save or compile. Requires expectedRevision; use dryRun to inspect cascades.',
-    inputSchema: { expectedRevision, bundleId: targetId, dryRun: z.boolean().default(false) },
+    inputSchema: { expectedRevision, bundleId: targetId, dryRun: z.boolean().default(false), ...dryRunMutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, async args => mutate({ type: 'delete_bundle', bundleId: args.bundleId }, args.expectedRevision, args.dryRun));
+  }, async args => mutate({ type: 'delete_bundle', bundleId: args.bundleId }, args.expectedRevision, args.dryRun, { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }));
 
   server.registerTool('create_storefront', {
     title: 'Create storefront',
     description: 'Creates a storefront in the shared draft and allocates its ID and stable Verse key. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, data },
+    inputSchema: { expectedRevision, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'create_storefront', data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'create_storefront', data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('update_storefront', {
     title: 'Update storefront',
     description: 'Patches only provided focused-storefront fields in the shared draft. It does not save or compile. Requires expectedRevision.',
-    inputSchema: { expectedRevision, storefrontId: targetId, data },
+    inputSchema: { expectedRevision, storefrontId: targetId, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'update_storefront', storefrontId: args.storefrontId, data: args.data ?? {} }, args.expectedRevision));
+  }, async args => mutate({ type: 'update_storefront', storefrontId: args.storefrontId, data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('delete_storefront', {
     title: 'Delete storefront',
     description: 'Destructive shared-draft mutation. Removes one storefront. It does not save or compile. Requires expectedRevision; use dryRun to inspect the result.',
-    inputSchema: { expectedRevision, storefrontId: targetId, dryRun: z.boolean().default(false) },
+    inputSchema: { expectedRevision, storefrontId: targetId, dryRun: z.boolean().default(false), ...dryRunMutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, async args => mutate({ type: 'delete_storefront', storefrontId: args.storefrontId }, args.expectedRevision, args.dryRun));
+  }, async args => mutate({ type: 'delete_storefront', storefrontId: args.storefrontId }, args.expectedRevision, args.dryRun, { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }));
 
   server.registerTool('set_storefront_membership', {
     title: 'Set storefront membership',
     description: 'Replaces one storefront membership list in the shared draft. It does not save or compile. Use storefrontId all for All Offers. Requires expectedRevision.',
-    inputSchema: { expectedRevision, storefrontId: z.string().default('all'), entries: z.array(z.record(z.unknown())) },
+    inputSchema: { expectedRevision, storefrontId: z.string().default('all'), entries: z.array(z.record(z.unknown())), ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async args => mutate({ type: 'set_storefront_membership', storefrontId: args.storefrontId, data: { entries: args.entries } }, args.expectedRevision));
+  }, async args => mutate({ type: 'set_storefront_membership', storefrontId: args.storefrontId, data: { entries: args.entries } }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
   server.registerTool('apply_catalog_patch', {
     title: 'Apply catalog patch',
     description: 'Atomically evaluates typed transaction-domain operations against a cloned shared draft, normalizes and validates them, and either applies the full patch or nothing. Requires expectedRevision. dryRun never mutates or saves. Migration patches preserve existing UTM records unless replacement is proven or deletion is explicitly authorized.',
-    inputSchema: { expectedRevision, dryRun: z.boolean().default(true), operations: z.array(patchOperationSchema), migration: migrationPolicy },
+    inputSchema: { expectedRevision, dryRun: z.boolean().default(true), operations: z.array(patchOperationSchema), migration: migrationPolicy, ...dryRunMutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   }, async args => {
     try {
@@ -324,9 +497,12 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
         if (!parity.valid) throw new CatalogDomainError('MIGRATION_PARITY_FAILED', 'The migration parity table is incomplete or changes legacy commercial/gameplay semantics. Resolve every issue before applying the patch.', { parity }, 422);
       }
       if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
+      assertMutationContext('catalog', { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' });
       const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true).snapshot;
       await assertCatalogReady(proposed);
-      return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false));
+      const result = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false);
+      advanceMutationContext({ preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }, result.snapshot.revision);
+      return jsonResult(result);
     }
     catch (error) { return errorResult(error); }
   });
@@ -338,10 +514,13 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
       expectedRevision,
       target: z.object({ kind: z.enum(['primary', 'entitlement', 'alternate', 'alternate_offer', 'bundle']), id: targetId, parentId: z.string().optional() }),
       sourceAssetPath: z.string().min(1),
+      ...mutationContextSchema,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => {
     try {
+      const context = { preflightToken: args.preflightToken, activityId: args.activityId };
+      assertMutationContext('icon', context);
       assertProjectReady();
       if (!/^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*\.[A-Za-z_][A-Za-z0-9_]*$/.test(args.sourceAssetPath)) throw new CatalogDomainError('ASSET_ADOPTION_FAILED', 'sourceAssetPath must be a real project Texture2D object path returned by Epic MCP.', {}, 400);
       const kind = targetKind(args.target.kind);
@@ -354,17 +533,21 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
       await assertCatalogReady(snapshot);
       const result = await options.adoptIcon({ sourceAssetPath: args.sourceAssetPath, assetFolderName: snapshot.config.assetFolderName, assetName: `${item.verseKey}_Icon` });
       if (!result.success || !result.verseAssetPath) throw new CatalogDomainError('ASSET_ADOPTION_FAILED', result.error ?? 'The controlled Texture2D adoption did not complete.', {}, 422);
-      return jsonResult(catalog.assignIcon({ kind, id: args.target.id, parentId: args.target.parentId }, result.verseAssetPath, result.imageData, args.expectedRevision));
+      const assigned = catalog.assignIcon({ kind, id: args.target.id, parentId: args.target.parentId }, result.verseAssetPath, result.imageData, args.expectedRevision);
+      advanceMutationContext(context, assigned.snapshot.revision);
+      return jsonResult(assigned);
     } catch (error) { return errorResult(error); }
   });
 
   server.registerTool('save_catalog', {
     title: 'Save catalog',
     description: 'Validates and atomically persists the current shared catalog through UTM generation and managed-file hash compare-and-swap. It does not compile Verse or modify external project Verse. Requires expectedRevision.',
-    inputSchema: { expectedRevision },
+    inputSchema: { expectedRevision, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => {
     try {
+      const context = { preflightToken: args.preflightToken, activityId: args.activityId };
+      assertMutationContext('save', context);
       assertProjectReady();
       const snapshot = catalog.snapshot();
       if (snapshot.revision !== args.expectedRevision) throw new CatalogDomainError('CATALOG_REVISION_CONFLICT', 'The catalog changed before save.', { expectedRevision: args.expectedRevision, currentRevision: snapshot.revision }, 409);
@@ -373,7 +556,9 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
       await assertCatalogReady(snapshot);
       const saved = await options.saveCatalog();
       if (!saved.success || !saved.contentHash) throw new CatalogDomainError(saved.code === 'PROJECT_NOT_READY' ? 'PROJECT_NOT_READY' : saved.status === 409 ? 'MANAGED_FILE_CHANGED' : 'CATALOG_VALIDATION_FAILED', saved.error ?? 'The catalog could not be saved.', { currentHash: saved.currentHash ?? null, fileName: saved.fileName }, saved.status ?? 422);
-      return jsonResult({ ...saved, snapshot: catalog.markSaved(saved.contentHash) });
+      const savedSnapshot = catalog.markSaved(saved.contentHash);
+      advanceMutationContext(context, savedSnapshot.revision);
+      return jsonResult({ ...saved, snapshot: savedSnapshot });
     } catch (error) { return errorResult(error); }
   });
 }
@@ -381,12 +566,20 @@ function registerTools(server: McpServer, options: UTMHostOptions): void {
 export class UTMcpHost {
   private listener: http.Server | null = null;
   private port = 0;
-  private readonly transports = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer; client?: UTMClientConnection }>();
+  private readonly transports = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer; connectionId: string; client?: UTMClientConnection }>();
+  private readonly activity: AgentActivityManager;
+  private readonly preflight: OperationPreflightManager;
+  private readonly ownsActivity: boolean;
 
-  constructor(private readonly options: UTMHostOptions) {}
+  constructor(private readonly options: UTMHostOptions) {
+    this.ownsActivity = !options.activity;
+    this.activity = options.activity ?? new AgentActivityManager(() => projectIdentityFromContext(options.getProjectContext()), { ttlMs: options.activityTtlMs });
+    this.preflight = new OperationPreflightManager(options.getProjectContext, () => options.catalog.currentRevision, { ttlMs: options.preflightTtlMs });
+  }
 
   get running(): boolean { return this.listener !== null; }
   get boundPort(): number { return this.port; }
+  get activityState(): PublicAgentActivityState { return this.activity.getState(); }
 
   async start(port: number): Promise<void> {
     if (this.listener) return;
@@ -405,11 +598,16 @@ export class UTMcpHost {
   async stop(): Promise<void> {
     const transports = [...this.transports.values()];
     this.transports.clear();
+    for (const entry of transports) {
+      this.activity.cancelOwner(entry.connectionId);
+      this.preflight.invalidateOwner(entry.connectionId);
+    }
     await Promise.all(transports.map(async entry => { await entry.transport.close().catch(() => undefined); await entry.server.close().catch(() => undefined); }));
     const listener = this.listener;
     this.listener = null;
     this.port = 0;
     if (listener) await new Promise<void>(resolve => listener.close(() => resolve()));
+    if (this.ownsActivity) this.activity.dispose();
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -435,10 +633,15 @@ export class UTMcpHost {
       if (req.method !== 'POST') { res.writeHead(404).end(JSON.stringify({ error: 'MCP session was not found. Reinitialize.' })); return; }
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
       const server = new McpServer({ name: 'utm-mcp', title: 'UEFN Transaction Manager', version: this.options.version });
-      registerTools(server, this.options);
-      transport.onclose = () => { if (transport.sessionId) this.transports.delete(transport.sessionId); };
+      const connectionId = crypto.randomUUID();
+      registerTools(server, this.options, connectionId, this.preflight, this.activity);
+      transport.onclose = () => {
+        this.activity.cancelOwner(connectionId);
+        this.preflight.invalidateOwner(connectionId);
+        if (transport.sessionId) this.transports.delete(transport.sessionId);
+      };
       await server.connect(transport);
-      entry = { transport, server };
+      entry = { transport, server, connectionId };
       if (transport.sessionId) this.transports.set(transport.sessionId, entry);
     }
     if (body && typeof body === 'object' && !Array.isArray(body)) {

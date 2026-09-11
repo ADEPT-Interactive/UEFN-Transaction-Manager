@@ -20,6 +20,8 @@ import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingM
 import { createProjectBackup } from '../shared/projectBackups';
 import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess, type UefnProjectLifecycle } from '../shared/editorLifecycle';
 import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
+import { AgentActivityManager } from './agentActivity';
+import { projectIdentityFromContext } from './agentPreflight';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -33,6 +35,9 @@ const initialProjectPythonEnabled = process.env.UEM_PROJECT_PYTHON_ENABLED === '
 const autoConnectorInstalled = process.env.UEM_AUTO_CONNECTOR_INSTALLED === '1';
 const launchedUefnProcessId = Number(process.env.UEM_UEFN_PROCESS_ID || 0);
 const idleTimeoutMs = Number(process.env.UEM_IDLE_TIMEOUT_MS || 120000);
+// Synthetic bridge tests must not let an unrelated live UEFN instance on the
+// host satisfy the no-descriptor project-identity probe.
+const isolateGlobalUefnProbe = process.env.UEM_TEST_MODE === '1' && process.env.UEM_TEST_NO_GLOBAL_UEFN_PROBE === '1';
 
 if (!sessionToken || sessionToken.length < 32) throw new Error('UEM_SESSION_TOKEN is required and must contain at least 32 characters.');
 if (!editorSessionToken || editorSessionToken.length < 32) throw new Error('UEM_EDITOR_TOKEN is required and must contain at least 32 characters.');
@@ -211,6 +216,7 @@ function processIdIsRunning(processId: number): boolean {
 
 function uefnIsRunning(): boolean {
   if (connectorHeartbeatIsFresh()) return true;
+  if (isolateGlobalUefnProbe) return false;
   if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
   const now = Date.now();
   if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
@@ -341,6 +347,7 @@ function currentProjectContext(): UTMProjectContext {
     productVersion: versionInfo.version,
     projectName: configuredProjectFile ? path.basename(configuredProjectFile, path.extname(configuredProjectFile)) : path.basename(contentRoot),
     projectFile: configuredProjectFile ?? '',
+    projectRoot: configuredProjectFile ? path.dirname(configuredProjectFile) : path.dirname(contentRoot),
     contentRoot,
     assetMount: configuredAssetMount!,
     targetManagedVerseFile: snapshot.config.targetVerseFileName,
@@ -368,6 +375,8 @@ function currentProjectContext(): UTMProjectContext {
     },
   };
 }
+
+const agentActivity = new AgentActivityManager(() => projectIdentityFromContext(currentProjectContext()));
 
 function installedAgentSkillPath(): string {
   const packaged = path.resolve(__dirname, '..', 'resources', 'agent-skills', 'uefn-transaction-manager');
@@ -406,6 +415,7 @@ function publicAgentIntegrationStatus() {
     clientConnection: lastAgentConnection
       ? { state: verified ? 'verified' : 'connected', ...lastAgentConnection }
       : { state: 'not-verified', message: 'Start or reload the configured coding agent, then ask it to call get_project_context.' },
+    agentActivity: mcpHost?.activityState ?? agentActivity.getState(),
   };
 }
 
@@ -550,6 +560,7 @@ async function startConfiguredMcp(): Promise<boolean> {
     adoptIcon: adoptIconThroughBridge,
     saveCatalog: async () => saveGeneratedCatalog(),
     assertCatalogReady,
+    activity: agentActivity,
     onClientConnection: connection => { lastAgentConnection = connection; },
   });
   try {
@@ -1087,6 +1098,7 @@ function shutdownBridge(): Promise<void> {
     catalogEventStreams.clear();
     clearInterval(idleTimer);
     await stopConfiguredMcp();
+    agentActivity.dispose();
     await new Promise<void>(resolve => {
       if (!server.listening) {
         resolve();

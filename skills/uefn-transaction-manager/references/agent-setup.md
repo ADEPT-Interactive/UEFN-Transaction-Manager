@@ -18,6 +18,10 @@ After guided setup:
 3. Confirm both `utm-mcp` and `unreal-mcp` are visible to that fresh session.
 4. Ask the agent to call `get_project_context` and compare it with Epic's project context before doing any mutation.
 
+The first operation call must be a read-only `begin_activity`. The agent then discovers the live tool schemas and both canonical project contexts and calls UTM `preflight_operation` with the selected operation manifest. A successful mutation-capable response contains a short-lived `preflightToken`; a blocked response is terminal for that operation and must be reported before any catalog, generated Verse, source, asset, device, compile, or session mutation. Every later UTM mutation carries the token and its mutating `activityId`.
+
+Full existing-project migration never downgrades itself. If Unreal MCP is unavailable, request a separate `catalog-only-migration` only after explicit owner approval and keep that result labeled partial. `begin_activity`, `heartbeat_activity`, `update_activity_phase`, and `end_activity` are server-owned lifecycle calls; the server binds them to the MCP connection and selected project and expires stale heartbeats.
+
 When the port changes, copy a fresh entry and repeat the reload/verification sequence. If UTM restarts, an MCP session that disconnected must still reconnect.
 
 If UTM MCP is unavailable, diagnose the configuration/listener/process boundary and stop. Do not open localhost in a browser or attempt unsupported desktop automation as a substitute for MCP.

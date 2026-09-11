@@ -2,6 +2,8 @@
 
 After catalog save, compile the generated managed Verse through Epic MCP and inspect structured diagnostics. A successful UTM save is not a compile result.
 
+Before every mutation, retain the current UTM `preflightToken`, `activityId`, and `expectedRevision`. Recheck the preflight after any project/editor transition, MCP reconnect, capability change, or revision change. If preflight expires or the activity loses its heartbeat, stop, end the activity if still active, and start a new operation; never retry with stale credentials.
+
 After catalog save, use an explicit compile request when compile evidence is needed and inspect its structured diagnostics. Managed-device placement, editable assignments, caller wiring, and gameplay remain creator-owned UEFN setup and are not inferred or gated by UTM. A static caller reference or a successful forced grant does not prove that a normal gameplay interaction reaches the Marketplace prompt.
 
 For sessions, use:

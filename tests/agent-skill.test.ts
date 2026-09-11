@@ -21,6 +21,13 @@ test('Agent Skill is discoverable, reference-driven, and does not hardcode gener
   assert.match(skill, /manual UEFN wiring/);
   assert.match(skill, /capability availability is not project readiness/i);
   assert.match(skill, /project browser/i);
+  assert.match(skill, /DISCOVER -> PREFLIGHT -> USER BLOCKER\/APPROVAL IF NEEDED -> ACTIVITY TRANSITION -> MUTATE -> VERIFY -> COMPLETE/);
+  assert.match(skill, /preflight_operation/);
+  assert.match(skill, /preflightToken/);
+  assert.match(skill, /catalog-only-migration/);
+  assert.match(skill, /never (silently )?(downgrade|allowed to fall back)/i);
+  assert.match(skill, /heartbeat/i);
+  assert.match(skill, /exactly once/i);
   assert.doesNotMatch(skill, /Open[A-Z][A-Za-z]+Purchase\(Player/);
   for (const file of ['new-project-workflow.md', 'existing-project-adoption.md', 'transaction-semantics.md', 'dynamic-transactions.md', 'asset-adoption.md', 'verification.md', 'tool-discovery.md', 'agent-setup.md']) {
     assert.ok(fs.existsSync(path.join(skillRoot, 'references', file)), file);
@@ -35,6 +42,9 @@ test('agent setup UI exposes migration discovery, distinct readiness states, and
   assert.match(appSource, /transactions in this project/);
   assert.match(appSource, /openAgentIntegration\('migrate'\)/);
   assert.match(headerSource, /agentIntegrationStatus/);
+  assert.match(headerSource, /Agent is inspecting UTM/);
+  assert.match(headerSource, /Agent is modifying your UTM catalog/);
+  assert.match(headerSource, /data-agent-activity/);
   assert.match(headerSource, /Agent/);
   assert.match(panelSource, /Set up your coding agent/);
   assert.match(panelSource, /Connection readiness/);
@@ -44,6 +54,7 @@ test('agent setup UI exposes migration discovery, distinct readiness states, and
   assert.match(panelSource, /Open skill location/);
   assert.match(panelSource, /data-app-chrome-aware/);
   assert.match(panelSource, /max-h-full/);
+  assert.match(panelSource, /heartbeat required/);
   assert.match(panelSource, /style=\{\{ top:/);
   assert.match(panelSource, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(panelSource, /action=\{hasVerifiedSkillLocation/);

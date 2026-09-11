@@ -22,6 +22,20 @@ UTM's main workspace now exposes **Agent** directly. If the catalog is empty, **
 
 UTM reports these states separately: server running, Agent Skill installed, agent setup ready, and connection verified. **UTM MCP Running** does not mean the current coding agent has loaded the new entry.
 
+## Operation preflight and activity state
+
+Every agent operation follows one ordered contract:
+
+`DISCOVER -> PREFLIGHT -> USER BLOCKER/APPROVAL IF NEEDED -> ACTIVITY TRANSITION -> MUTATE -> VERIFY -> COMPLETE`
+
+The packaged skill selects an operation manifest before it starts. It then discovers the live schemas and project/editor context from both MCP servers and submits that evidence to UTM's read-only `preflight_operation` tool. UTM proves its own project identity, catalog revision, managed-file ownership, editor/native readiness, and UTM capabilities. The agent must label Unreal MCP evidence as agent-reported; a server name, endpoint, process, retained heartbeat, or remembered tool name is not capability proof.
+
+UTM compares the canonical project file, project root, project name, Content root, and asset mount. A missing Unreal server, uninspected schema, missing capability, editor-not-ready state, or identity mismatch returns a blocker and no mutation token. A UTM-mutation-capable result returns a short-lived, connection-owned, project- and revision-bound `preflightToken`; the UTM mutation tools enforce that token at the API boundary and also require an active caller-owned mutating activity. External-only mutations remain agent-side and are not represented as UTM catalog modification. Dry runs and read-only inspection remain available without a mutation token.
+
+The UI polls server-owned activity state and shows only safe status text: **Agent is inspecting UTM** or **Agent is modifying your UTM catalog**, followed by the current phase. Activities require heartbeats, expire automatically when heartbeats stop, cannot be revived after expiry, are bound to the selected project and MCP connection, and allow at most one mutating activity per project. Connection close cancels its active activities.
+
+Full existing-project migration is a single all-capability operation. It never silently falls back to catalog-only. If Unreal MCP is unavailable or incomplete, the full operation stops before catalog, generated Verse, source, asset, device, compile, or session mutation. A separate `catalog-only-migration` request is permitted only with explicit owner approval, is returned and displayed as partial, and leaves native icon adoption, device wiring, Verse callers, compilation, and live acceptance open.
+
 ## Manual fallback
 
 For another MCP client, expand **Safety and manual setup** in Agent Integration. Copy the complete packaged folder, including `SKILL.md` and `references`, into the client's supported user-skill location and add the displayed `utm-mcp` entry manually. The default endpoint is `http://127.0.0.1:8001/mcp`; the panel supplies the current endpoint if the port was changed.

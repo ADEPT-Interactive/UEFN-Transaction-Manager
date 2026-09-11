@@ -121,6 +121,31 @@ export interface AgentIntegrationStatus {
     connectedAt?: string;
     verifiedAt?: string;
   };
+  agentActivity?: AgentActivityState;
+}
+
+export interface AgentActivity {
+  activityId: string;
+  projectName: string;
+  operation: string;
+  mode: 'read-only' | 'mutating';
+  phase: string;
+  description?: string;
+  label: 'Agent is inspecting UTM' | 'Agent is modifying your UTM catalog';
+  status: 'active' | 'success' | 'failed' | 'cancelled' | 'expired';
+  startedAt: string;
+  lastHeartbeatAt: string;
+  expiresAt: string;
+  endedAt?: string;
+  outcome?: string;
+}
+
+export interface AgentActivityState {
+  active: boolean;
+  state: 'idle' | 'active' | 'recent';
+  current?: AgentActivity;
+  recent?: AgentActivity;
+  activities: AgentActivity[];
 }
 
 export interface AgentSkillInstallationStatus {

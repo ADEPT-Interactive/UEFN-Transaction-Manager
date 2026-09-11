@@ -332,7 +332,7 @@ test('Case I: MCP mutation runs the same readiness preflight before changing the
   let checks = 0;
   const host = new UTMcpHost({
     version: '4.3.0', catalog,
-    getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Readiness', projectFile: '', contentRoot: root, assetMount: '/ReadinessProject', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false, managedFileOwned: true }),
+    getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Readiness', projectFile: path.join(root, 'Readiness.uefnproject'), projectRoot: root, contentRoot: root, assetMount: '/ReadinessProject', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: {}, nativeTextureAdoptionAvailable: false, managedFileOwned: true }),
     adoptIcon: async () => ({ success: false, error: 'unused' }),
     saveCatalog: async () => ({ success: false, error: 'unused' }),
     assertCatalogReady: async () => { checks += 1; throw new CatalogDomainError('PROJECT_NOT_READY', 'first setup is not ready'); },
@@ -342,7 +342,14 @@ test('Case I: MCP mutation runs the same readiness preflight before changing the
   try {
     await host.start(port);
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
-    const result = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Blocked MCP offer' } } });
+    await client.callTool({ name: 'get_project_context', arguments: {} });
+    const preflight = await client.callTool({ name: 'preflight_operation', arguments: { operation: 'catalog-only-migration', mode: 'catalog-only', approval: { approved: true, confirmation: 'Synthetic test approval for readiness preflight.' } } });
+    assert.equal(preflight.isError, undefined);
+    const preflightPayload = JSON.parse((preflight.content?.[0] as { text: string }).text) as { preflightToken: string };
+    const activity = await client.callTool({ name: 'begin_activity', arguments: { operation: 'catalog-only-migration', mode: 'mutating', preflightToken: preflightPayload.preflightToken } });
+    assert.equal(activity.isError, undefined);
+    const activityPayload = JSON.parse((activity.content?.[0] as { text: string }).text) as { activityId: string };
+    const result = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Blocked MCP offer' }, preflightToken: preflightPayload.preflightToken, activityId: activityPayload.activityId } });
     assert.equal(result.isError, true);
     assert.equal(checks, 1);
     assert.equal(catalog.currentRevision, '1');

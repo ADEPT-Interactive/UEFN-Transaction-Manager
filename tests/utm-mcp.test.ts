@@ -70,7 +70,10 @@ test('UTM MCP uses unauthenticated local Streamable HTTP with clear identity and
     assert.equal(listed.status, 200);
     const listBody = await mcpJson(listed) as { result: { tools: Array<{ name: string }> } };
     const names = listBody.result.tools.map(tool => tool.name);
-    assert.equal(names.length, 21);
+    assert.equal(names.length, 27);
+    assert.ok(names.includes('preflight_operation'));
+    assert.ok(names.includes('begin_activity'));
+    assert.ok(names.includes('get_activity_status'));
     assert.ok(names.includes('get_catalog_snapshot'));
     assert.ok(names.includes('apply_catalog_patch'));
     assert.ok(names.includes('validate_migration_parity'));
@@ -102,7 +105,7 @@ test('UTM MCP is consumable through the official local Streamable HTTP client', 
     assert.equal(client.getServerVersion()?.version, '4.3.0');
     assert.equal(client.getServerVersion()?.title, 'UEFN Transaction Manager');
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 21);
+    assert.equal(listed.tools.length, 27);
     const snapshot = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
     assert.match(JSON.stringify(snapshot), /"revision":"1"/);
     const context = await client.callTool({ name: 'get_project_context', arguments: {} });
@@ -149,18 +152,94 @@ test('UTM MCP mutations enforce revisions and expose structured conflicts withou
   const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
   try {
     await client.connect(transport);
-    const created = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Agent Offer', shortDescription: 'Agent offer', description: 'Agent offer' } } });
+    const blockedWithoutPreflight = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Blocked Offer', shortDescription: 'Blocked offer', description: 'Blocked offer' } } });
+    assert.equal(blockedWithoutPreflight.isError, true);
+    assert.match(JSON.stringify(blockedWithoutPreflight), /preflightToken/);
+    const unchanged = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
+    assert.match(JSON.stringify(unchanged), /"revision":"1"/);
+    assert.doesNotMatch(JSON.stringify(unchanged), /Blocked Offer/);
+    await client.callTool({ name: 'get_project_context', arguments: {} });
+
+    const preflight = await client.callTool({ name: 'preflight_operation', arguments: {
+      operation: 'catalog-only-migration',
+      mode: 'catalog-only',
+      approval: { approved: true, confirmation: 'Synthetic test approval for catalog-only mutation.' },
+    } });
+    assert.equal(preflight.isError, undefined);
+    const preflightPayload = JSON.parse((preflight.content?.[0] as { text: string }).text) as { ready: boolean; safeToMutate: boolean; preflightToken: string };
+    assert.equal(preflightPayload.ready, true);
+    assert.equal(preflightPayload.safeToMutate, true);
+    assert.ok(preflightPayload.preflightToken);
+    const activity = await client.callTool({ name: 'begin_activity', arguments: { operation: 'catalog-only-migration', mode: 'mutating', phase: 'Applying synthetic catalog mutation', preflightToken: preflightPayload.preflightToken } });
+    assert.equal(activity.isError, undefined);
+    const activityPayload = JSON.parse((activity.content?.[0] as { text: string }).text) as { activityId: string; activity: { label: string } };
+    assert.equal(activityPayload.activity.label, 'Agent is modifying your UTM catalog');
+    const mutationContext = { preflightToken: preflightPayload.preflightToken, activityId: activityPayload.activityId };
+    const created = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Agent Offer', shortDescription: 'Agent offer', description: 'Agent offer' }, ...mutationContext } });
     assert.equal(created.isError, undefined);
-    const conflict = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Stale Offer' } } });
+    const conflict = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Stale Offer' }, ...mutationContext } });
     assert.equal(conflict.isError, true);
     assert.match(JSON.stringify(conflict), /CATALOG_REVISION_CONFLICT/);
     const snapshot = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
     assert.match(JSON.stringify(snapshot), /"revision":"2"/);
     assert.match(JSON.stringify(snapshot), /Agent Offer/);
     assert.doesNotMatch(JSON.stringify(snapshot), /Stale Offer/);
+    const activityStatus = await client.callTool({ name: 'get_activity_status', arguments: {} });
+    assert.match(JSON.stringify(activityStatus), /Agent is modifying your UTM catalog/);
+    const ended = await client.callTool({ name: 'end_activity', arguments: { activityId: activityPayload.activityId, status: 'success', outcome: 'Synthetic mutation verified.' } });
+    assert.equal(ended.isError, undefined);
   } finally {
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
+    await host.stop();
+  }
+});
+
+test('full existing-project migration is a zero-mutation blocker when Unreal MCP is unavailable', async () => {
+  const catalog = makeCatalog();
+  const port = await freePort();
+  let adoptCalls = 0;
+  let saveCalls = 0;
+  const host = new UTMcpHost({
+    version: '4.3.0',
+    catalog,
+    getProjectContext: () => ({ productVersion: '4.3.0', projectName: 'Flashlight Tag', projectFile: 'C:/UEFN/Flashlight Tag/Flashlight Tag.uefnproject', projectRoot: 'C:/UEFN/Flashlight Tag', contentRoot: 'C:/UEFN/Flashlight Tag/Content', assetMount: '/FlashlightTag', targetManagedVerseFile: 'managed_transactions.verse', configuredIconFolder: 'EntitlementIcons', editorConnection: { editorConnected: true }, nativeTextureAdoptionAvailable: true, managedFileOwned: true, catalogInitialization: 'initialized' }),
+    adoptIcon: async () => { adoptCalls += 1; return { success: false, error: 'not used' }; },
+    saveCatalog: async () => { saveCalls += 1; return { success: true, contentHash: 'h'.repeat(64), fileName: 'managed_transactions.verse' }; },
+  });
+  const client = new Client({ name: 'flashlight-zero-mutation-test', version: '1.0.0' });
+  try {
+    await host.start(port);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+    await client.callTool({ name: 'get_project_context', arguments: {} });
+    const preflight = await client.callTool({ name: 'preflight_operation', arguments: { operation: 'full-existing-project-migration' } });
+    assert.equal(preflight.isError, true);
+    const report = JSON.parse((preflight.content?.[0] as { text: string }).text) as { ready: boolean; safeToMutate: boolean; blockers: Array<{ code: string }> };
+    assert.equal(report.ready, false);
+    assert.equal(report.safeToMutate, false);
+    assert.ok(report.blockers.some(blocker => blocker.code === 'UNREAL_MCP_UNAVAILABLE'));
+    assert.equal('preflightToken' in report, false);
+
+    const attemptedMutation = await client.callTool({ name: 'create_entitlement', arguments: { expectedRevision: '1', data: { name: 'Must Not Exist' } } });
+    assert.equal(attemptedMutation.isError, true);
+    assert.match(JSON.stringify(attemptedMutation), /preflightToken/);
+    const attemptedPatch = await client.callTool({ name: 'apply_catalog_patch', arguments: { expectedRevision: '1', dryRun: false, operations: [{ type: 'create_entitlement', data: { name: 'Must Not Exist Either' } }] } });
+    assert.equal(attemptedPatch.isError, true);
+    assert.match(JSON.stringify(attemptedPatch), /OPERATION_PREFLIGHT_REQUIRED/);
+    const attemptedSave = await client.callTool({ name: 'save_catalog', arguments: { expectedRevision: '1' } });
+    assert.equal(attemptedSave.isError, true);
+    assert.match(JSON.stringify(attemptedSave), /preflightToken/);
+    const attemptedIcon = await client.callTool({ name: 'adopt_icon', arguments: { expectedRevision: '1', target: { kind: 'primary', id: 'missing' }, sourceAssetPath: '/FlashlightTag/EntitlementIcons/Icon.Icon' } });
+    assert.equal(attemptedIcon.isError, true);
+    assert.match(JSON.stringify(attemptedIcon), /preflightToken/);
+    assert.equal(adoptCalls, 0);
+    assert.equal(saveCalls, 0);
+    const snapshot = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
+    assert.match(JSON.stringify(snapshot), /"revision":"1"/);
+    assert.doesNotMatch(JSON.stringify(snapshot), /Must Not Exist/);
+    assert.doesNotMatch(JSON.stringify(snapshot), /Must Not Exist Either/);
+  } finally {
+    await client.close().catch(() => undefined);
     await host.stop();
   }
 });

@@ -28,6 +28,13 @@ export const CATALOG_ERROR_CODES = {
   editorConnectionRequired: 'EDITOR_CONNECTION_REQUIRED',
   migrationParityRequired: 'MIGRATION_PARITY_REQUIRED',
   migrationParityFailed: 'MIGRATION_PARITY_FAILED',
+  operationPreflightRequired: 'OPERATION_PREFLIGHT_REQUIRED',
+  operationPreflightStale: 'OPERATION_PREFLIGHT_STALE',
+  operationPreflightScope: 'OPERATION_PREFLIGHT_SCOPE',
+  operationPreflightOwnership: 'OPERATION_PREFLIGHT_OWNERSHIP',
+  agentActivityRequired: 'AGENT_ACTIVITY_REQUIRED',
+  agentActivityInvalid: 'AGENT_ACTIVITY_INVALID',
+  agentActivityConflict: 'AGENT_ACTIVITY_CONFLICT',
 } as const;
 
 export type CatalogErrorCode = typeof CATALOG_ERROR_CODES[keyof typeof CATALOG_ERROR_CODES];
