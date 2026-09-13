@@ -3,6 +3,24 @@ import type { CatalogPatchOperation } from './catalogSession';
 export type MigrationParityKind = 'entitlement' | 'alternate_offer' | 'bundle';
 export type MigrationParityStatus = 'confirmed' | 'inferred' | 'ambiguous' | 'absent';
 export type MigrationConsequenceBoundary = 'grant' | 'successful-consumption' | 'removal' | 'reconciliation' | 'other';
+export type MigrationInitialStateMode = 'reconciliation' | 'authoritative-query' | 'none';
+export type MigrationLiveChangeMode = 'persistent-granted-event' | 'persistent-granted-and-removed-events' | 'persistent-consumed-event' | 'authoritative-ad-hoc' | 'none';
+export type MigrationExternalStateMode = 'mirrored' | 'event-driven' | 'authoritative-ad-hoc' | 'none';
+
+export interface MigrationRuntimePropagation {
+  initialState: {
+    source: string;
+    mode: MigrationInitialStateMode;
+  };
+  liveChange: {
+    source: string;
+    mode: MigrationLiveChangeMode;
+  };
+  externalState: {
+    description: string;
+    mode: MigrationExternalStateMode;
+  };
+}
 
 export interface MigrationParityPair<T = unknown> {
   legacy: T;
@@ -34,6 +52,12 @@ export interface MigrationParityEntry {
   consequenceBoundary: MigrationParityPair<MigrationConsequenceBoundary>;
   repeatedPurchaseBehavior: MigrationParityPair<string>;
   relationships: MigrationParityPair<string>;
+  /**
+   * Runtime propagation is deliberately part of the parity row. A durable
+   * migration can preserve every catalog field and still be incomplete if a
+   * project-owned gameplay mirror is only initialized at player join.
+   */
+  runtimePropagation: MigrationParityPair<MigrationRuntimePropagation>;
 }
 
 export interface MigrationParityIssue {
@@ -98,6 +122,94 @@ function operationTarget(operation: CatalogPatchOperation): string | undefined {
   return text(value) || undefined;
 }
 
+const initialStateModes = new Set<MigrationInitialStateMode>(['reconciliation', 'authoritative-query', 'none']);
+const liveChangeModes = new Set<MigrationLiveChangeMode>([
+  'persistent-granted-event', 'persistent-granted-and-removed-events', 'persistent-consumed-event', 'authoritative-ad-hoc', 'none',
+]);
+const externalStateModes = new Set<MigrationExternalStateMode>(['mirrored', 'event-driven', 'authoritative-ad-hoc', 'none']);
+
+function addRuntimeIssue(entry: MigrationParityEntry, field: string, message: string, issues: MigrationParityIssue[]): void {
+  issues.push({
+    legacySourceIdentity: text(entry.legacySourceIdentity),
+    proposedId: text(entry.proposedId) || undefined,
+    field: `runtimePropagation.${field}`,
+    message,
+  });
+}
+
+function runtimeSide(value: unknown): value is MigrationRuntimePropagation {
+  if (!isRecord(value)) return false;
+  const initialState = value.initialState;
+  const liveChange = value.liveChange;
+  const externalState = value.externalState;
+  return isRecord(initialState)
+    && typeof initialState.source === 'string'
+    && typeof initialState.mode === 'string'
+    && isRecord(liveChange)
+    && typeof liveChange.source === 'string'
+    && typeof liveChange.mode === 'string'
+    && isRecord(externalState)
+    && typeof externalState.description === 'string'
+    && typeof externalState.mode === 'string';
+}
+
+function validateRuntimePropagation(entry: MigrationParityEntry, issues: MigrationParityIssue[]): void {
+  const propagation = pair(entry, 'runtimePropagation');
+  if (!propagation) return;
+
+  for (const side of ['legacy', 'proposed'] as const) {
+    const value = propagation[side];
+    if (!runtimeSide(value)) {
+      addRuntimeIssue(entry, side, `${side} runtime propagation must identify initial state, live-change, and external-state handling.`, issues);
+      continue;
+    }
+    const initial = value.initialState;
+    const live = value.liveChange;
+    const external = value.externalState;
+    if (!initial.source.trim()) addRuntimeIssue(entry, `${side}.initialState.source`, 'Record the authoritative initial-state helper or reconciliation path.', issues);
+    if (!live.source.trim()) addRuntimeIssue(entry, `${side}.liveChange.source`, 'Record the live ownership/use event path or explicitly state that it is not applicable.', issues);
+    if (!external.description.trim()) addRuntimeIssue(entry, `${side}.externalState.description`, 'Record the external state that mirrors or depends on the entitlement.', issues);
+    if (!initialStateModes.has(initial.mode as MigrationInitialStateMode)) addRuntimeIssue(entry, `${side}.initialState.mode`, 'Initial state mode must be reconciliation, authoritative-query, or none.', issues);
+    if (!liveChangeModes.has(live.mode as MigrationLiveChangeMode)) addRuntimeIssue(entry, `${side}.liveChange.mode`, 'Live-change mode is not supported by the migration contract.', issues);
+    if (!externalStateModes.has(external.mode as MigrationExternalStateMode)) addRuntimeIssue(entry, `${side}.externalState.mode`, 'External state mode is not supported by the migration contract.', issues);
+  }
+
+  const proposedType = pair(entry, 'itemType')?.proposed;
+  const proposed = propagation.proposed;
+  if (!runtimeSide(proposed) || !proposedType) return;
+
+  if (proposedType === 'durable' && proposed.externalState.mode === 'mirrored') {
+    if (proposed.initialState.mode !== 'reconciliation' || !/reconcil/i.test(proposed.initialState.source)) {
+      addRuntimeIssue(entry, 'proposed.initialState', 'A gameplay-affecting durable mirror must be initialized from authoritative join/reconciliation state; a join-only flag without explicit reconciliation evidence is incomplete.', issues);
+    }
+    if (!['persistent-granted-event', 'persistent-granted-and-removed-events'].includes(proposed.liveChange.mode)) {
+      addRuntimeIssue(entry, 'proposed.liveChange', 'A gameplay-affecting durable mirror requires a persistent Granted-event path for same-session acquisition; reconnect is not a substitute.', issues);
+    }
+    if (!/Await(?:<Stem>|[A-Za-z0-9]+)GrantedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange.source', 'Record the generated Await<Stem>GrantedEvent API used to keep the durable mirror current.', issues);
+    }
+    if (proposed.liveChange.mode === 'persistent-granted-and-removed-events' && !/Await(?:<Stem>|[A-Za-z0-9]+)RemovedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange.source', 'The removal-aware live path must name the actual generated Await<Stem>RemovedEvent API.', issues);
+    }
+  }
+
+  if (proposedType === 'durable' && proposed.externalState.mode === 'authoritative-ad-hoc') {
+    if (proposed.initialState.mode !== 'authoritative-query') addRuntimeIssue(entry, 'proposed.initialState.mode', 'A durable queried ad hoc from authoritative state must identify an authoritative-query initial mode.', issues);
+    if (!['authoritative-ad-hoc', 'none'].includes(proposed.liveChange.mode)) addRuntimeIssue(entry, 'proposed.liveChange.mode', 'Do not require a mirrored live listener for a durable that is explicitly queried ad hoc from authoritative state.', issues);
+  }
+
+  if (proposedType === 'durable' && proposed.externalState.mode === 'none') {
+    if (proposed.initialState.mode !== 'none' || proposed.liveChange.mode !== 'none') addRuntimeIssue(entry, 'proposed', 'A durable with no external state must mark both initial and live propagation as not applicable.', issues);
+  }
+
+  const immediateConsume = pair(entry, 'immediateConsume')?.proposed;
+  if (proposedType === 'consumable' && immediateConsume === true) {
+    if (proposed.liveChange.mode !== 'persistent-consumed-event' || !/Await(?:<Stem>|[A-Za-z0-9]+)ConsumedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange', 'An immediate-use consumable must use its generated Await<Stem>ConsumedEvent path, not a Granted callback, for the gameplay consequence.', issues);
+    }
+  }
+}
+
 export function validateMigrationParityTable(entries: MigrationParityEntry[], operations: CatalogPatchOperation[] = [], requireConfirmed = false): MigrationParityReport {
   const issues: MigrationParityIssue[] = [];
   const warnings: MigrationParityIssue[] = [];
@@ -106,7 +218,7 @@ export function validateMigrationParityTable(entries: MigrationParityEntry[], op
     'name', 'description', 'shortDescription', 'itemType', 'maxCount',
     'immediateConsume', 'autoConsume', 'priceVBucks', 'restrictions',
     'iconSource', 'gameplayConsequence', 'consequenceBoundary',
-    'repeatedPurchaseBehavior', 'relationships',
+    'repeatedPurchaseBehavior', 'relationships', 'runtimePropagation',
   ];
 
   if (!entries.length) issues.push({ field: 'entries', message: 'Existing-project migration requires one parity row for every migrated transaction or offer.' });
@@ -142,6 +254,8 @@ export function validateMigrationParityTable(entries: MigrationParityEntry[], op
     if (type && maxCount && type.proposed === 'durable' && maxCount.proposed !== 1) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'maxCount', message: 'Durable migration rows must propose MaxCount 1.' });
     const boundary = pair(entry, 'consequenceBoundary');
     if (boundary && boundary.legacy !== boundary.proposed) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'consequenceBoundary', message: 'The gameplay consequence boundary changed between legacy and proposed integration.' });
+
+    validateRuntimePropagation(entry, issues);
 
     for (const exactField of ['name', 'description', 'shortDescription', 'itemType', 'maxCount', 'priceVBucks', 'restrictions'] as const) {
       const values = pair(entry, exactField);

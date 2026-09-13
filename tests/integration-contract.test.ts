@@ -17,6 +17,14 @@ test('integration contract is derived from generator naming for static, alternat
   assert.equal(contract.generatorVersion, '4.3.0');
   assert.equal(contract.managedVerseFile, 'managed_transactions.verse');
   assert.ok(contract.entitlements.some(item => item.primaryPurchaseHelper?.name === 'OpenSeasonPassPurchase'));
+  const seasonContract = contract.entitlements.find(item => item.stableId === 'ent-1');
+  assert.equal(seasonContract?.reconciliationHelper, 'AwaitSeasonPassReconciledEvent');
+  assert.deepEqual(seasonContract?.ownershipLifecycle, {
+    initialState: 'AwaitSeasonPassReconciledEvent, then HasSeasonPass or GetSeasonPassCount for the project-owned mirror.',
+    liveState: 'Persistent AwaitSeasonPassGrantedEvent loop updates the mirror immediately in the same session.',
+    lossState: 'AwaitSeasonPassRemovedEvent updates the mirror when ownership loss is supported and semantically relevant.',
+    reconciliationIsNotSubscription: 'The reconciliation notification establishes initial truth; the persistent delta listener keeps it current.',
+  });
   const coinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
   assert.equal((coinsContract?.awaitEvents as { consumed?: string }).consumed, 'AwaitCoinsConsumedEvent');
   assert.equal((coinsContract?.editableFields as { successTriggers?: string }).successTriggers, 'Coins_SuccessTriggers');
@@ -36,4 +44,7 @@ test('integration contract is derived from generator naming for static, alternat
   assert.match(verse, /RuntimePackRuntimeOptions/);
   assert.match(verse, /CoinsQuantity:int/);
   assert.doesNotMatch(verse, /Ent-2Quantity:int/);
+  assert.ok(contract.runtimeConstraints.some(rule => /Reconciliation establishes initial truth.*delta events keep current truth current/i.test(rule)));
+  assert.ok(contract.runtimeConstraints.some(rule => /gameplay-affecting durable.*persistent.*Granted.*same-session/i.test(rule)));
+  assert.ok(contract.runtimeConstraints.some(rule => /durable Granted.*consumable Consumed/i.test(rule)));
 });

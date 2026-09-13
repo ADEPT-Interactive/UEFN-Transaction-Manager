@@ -22,6 +22,18 @@ function parityEntry(overrides: Partial<MigrationParityEntry> = {}): MigrationPa
     consequenceBoundary: { legacy: 'other', proposed: 'other' },
     repeatedPurchaseBehavior: { legacy: 'Quantity accumulates up to MaxCount.', proposed: 'Quantity remains available up to MaxCount.' },
     relationships: { legacy: 'Primary offer in All Offers.', proposed: 'Primary entitlement in All Offers.' },
+    runtimePropagation: {
+      legacy: {
+        initialState: { source: 'legacy player-join reconciliation', mode: 'reconciliation' },
+        liveChange: { source: 'legacy entitlement delta listener', mode: 'persistent-granted-event' },
+        externalState: { description: 'Inventory quantity mirror.', mode: 'mirrored' },
+      },
+      proposed: {
+        initialState: { source: 'AwaitItemReconciledEvent plus GetItemCount during player initialization', mode: 'reconciliation' },
+        liveChange: { source: 'persistent AwaitItemGrantedEvent loop updates the inventory mirror', mode: 'persistent-granted-event' },
+        externalState: { description: 'Inventory quantity mirror.', mode: 'mirrored' },
+      },
+    },
     ...overrides,
   };
 }
@@ -40,6 +52,18 @@ test('migration parity fixture distinguishes inventory consumable, immediate-use
       gameplayConsequence: { legacy: 'Grant toss strength after successful consumption.', proposed: 'External Verse awaits the Consumed event and grants toss strength.' },
       consequenceBoundary: { legacy: 'successful-consumption', proposed: 'successful-consumption' },
       repeatedPurchaseBehavior: { legacy: 'Repeated purchases are immediately used.', proposed: 'Repeated grants auto-consume and do not accumulate.' },
+      runtimePropagation: {
+        legacy: {
+          initialState: { source: 'legacy immediate-use purchase path', mode: 'none' },
+          liveChange: { source: 'legacy successful-use event', mode: 'persistent-consumed-event' },
+          externalState: { description: 'One-shot gameplay effect.', mode: 'event-driven' },
+        },
+        proposed: {
+          initialState: { source: 'No initial inventory state; effect is event-driven.', mode: 'none' },
+          liveChange: { source: 'persistent AwaitTossLevelsConsumedEvent loop applies the effect', mode: 'persistent-consumed-event' },
+          externalState: { description: 'One-shot gameplay effect.', mode: 'event-driven' },
+        },
+      },
     }),
     parityEntry({
       legacySourceIdentity: 'legacy.vip_pass', proposedId: 'utm-vip-pass', kind: 'entitlement',
@@ -53,6 +77,18 @@ test('migration parity fixture distinguishes inventory consumable, immediate-use
       gameplayConsequence: { legacy: 'VIP access while owned.', proposed: 'External Verse checks durable ownership.' },
       consequenceBoundary: { legacy: 'grant', proposed: 'grant' },
       repeatedPurchaseBehavior: { legacy: 'Ownership is capped at one.', proposed: 'Durable MaxCount remains one.' },
+      runtimePropagation: {
+        legacy: {
+          initialState: { source: 'legacy player-join ownership reconciliation', mode: 'reconciliation' },
+          liveChange: { source: 'legacy durable ownership listener', mode: 'persistent-granted-event' },
+          externalState: { description: 'VIP access mirror.', mode: 'mirrored' },
+        },
+        proposed: {
+          initialState: { source: 'AwaitVipPassReconciledEvent and HasVipPass during player initialization', mode: 'reconciliation' },
+          liveChange: { source: 'persistent AwaitVipPassGrantedEvent loop updates the VIP access mirror', mode: 'persistent-granted-event' },
+          externalState: { description: 'VIP access mirror.', mode: 'mirrored' },
+        },
+      },
     }),
   ];
   const report = validateMigrationParityTable(entries, [
@@ -92,4 +128,70 @@ test('migration parity requires explicit stable operation coverage', () => {
   const report = validateMigrationParityTable([parityEntry()], [{ type: 'create_entitlement', data: { name: 'No stable id' } }], true);
   assert.equal(report.valid, false);
   assert.ok(report.issues.some(issue => issue.field === 'operations.create_entitlement'));
+});
+
+test('migration parity rejects a durable mirror that only reconciles at join', () => {
+  const report = validateMigrationParityTable([parityEntry({
+    itemType: { legacy: 'durable', proposed: 'durable' },
+    maxCount: { legacy: 1, proposed: 1 },
+    gameplayConsequence: { legacy: 'Access is enabled while owned.', proposed: 'External Verse reads OwnsPass.' },
+    runtimePropagation: {
+      legacy: {
+        initialState: { source: 'legacy player-join reconciliation', mode: 'reconciliation' },
+        liveChange: { source: 'no live path; reconnect reconciles again', mode: 'none' },
+        externalState: { description: 'OwnsPass mirror.', mode: 'mirrored' },
+      },
+      proposed: {
+        initialState: { source: 'AwaitPassReconciledEvent and HasPass at player join', mode: 'reconciliation' },
+        liveChange: { source: 'reconnect only; no persistent listener', mode: 'none' },
+        externalState: { description: 'OwnsPass mirror.', mode: 'mirrored' },
+      },
+    },
+  })], [], true);
+  assert.equal(report.valid, false);
+  assert.ok(report.issues.some(issue => issue.field === 'runtimePropagation.proposed.liveChange'));
+  assert.ok(report.issues.some(issue => /same-session|persistent Granted/i.test(issue.message)));
+});
+
+test('migration parity permits a durable with no mirror when it is queried ad hoc from authoritative state', () => {
+  const report = validateMigrationParityTable([parityEntry({
+    itemType: { legacy: 'durable', proposed: 'durable' },
+    maxCount: { legacy: 1, proposed: 1 },
+    gameplayConsequence: { legacy: 'No live state; query ownership when needed.', proposed: 'No cached state; query HasPass at use time.' },
+    runtimePropagation: {
+      legacy: {
+        initialState: { source: 'No cached state.', mode: 'authoritative-query' },
+        liveChange: { source: 'Query authoritative ownership when needed.', mode: 'authoritative-ad-hoc' },
+        externalState: { description: 'No project-owned mirror.', mode: 'authoritative-ad-hoc' },
+      },
+      proposed: {
+        initialState: { source: 'HasPass is queried when the feature is used.', mode: 'authoritative-query' },
+        liveChange: { source: 'HasPass remains authoritative at each use.', mode: 'authoritative-ad-hoc' },
+        externalState: { description: 'No project-owned mirror.', mode: 'authoritative-ad-hoc' },
+      },
+    },
+  })], [], true);
+  assert.equal(report.valid, true);
+});
+
+test('migration parity rejects a consumable immediate-use consequence wired to Granted', () => {
+  const report = validateMigrationParityTable([parityEntry({
+    immediateConsume: { legacy: true, proposed: true },
+    autoConsume: { legacy: true, proposed: true },
+    runtimePropagation: {
+      legacy: {
+        initialState: { source: 'No initial inventory state.', mode: 'none' },
+        liveChange: { source: 'legacy successful-use event', mode: 'persistent-consumed-event' },
+        externalState: { description: 'One-shot gameplay effect.', mode: 'event-driven' },
+      },
+      proposed: {
+        initialState: { source: 'No initial inventory state.', mode: 'none' },
+        liveChange: { source: 'persistent AwaitItemGrantedEvent loop applies the effect', mode: 'persistent-granted-event' },
+        externalState: { description: 'One-shot gameplay effect.', mode: 'event-driven' },
+      },
+    },
+  })], [], true);
+  assert.equal(report.valid, false);
+  assert.ok(report.issues.some(issue => issue.field === 'runtimePropagation.proposed.liveChange'));
+  assert.ok(report.issues.some(issue => /Consumed.*not.*Granted/i.test(issue.message)));
 });

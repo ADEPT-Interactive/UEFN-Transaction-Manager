@@ -107,12 +107,24 @@ const migrationParityEntrySchema = z.object({
   consequenceBoundary: z.object({ legacy: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']), proposed: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']) }),
   repeatedPurchaseBehavior: z.object({ legacy: z.string(), proposed: z.string() }),
   relationships: z.object({ legacy: z.string(), proposed: z.string() }),
+  runtimePropagation: z.object({
+    legacy: z.object({
+      initialState: z.object({ source: z.string(), mode: z.enum(['reconciliation', 'authoritative-query', 'none']) }),
+      liveChange: z.object({ source: z.string(), mode: z.enum(['persistent-granted-event', 'persistent-granted-and-removed-events', 'persistent-consumed-event', 'authoritative-ad-hoc', 'none']) }),
+      externalState: z.object({ description: z.string(), mode: z.enum(['mirrored', 'event-driven', 'authoritative-ad-hoc', 'none']) }),
+    }),
+    proposed: z.object({
+      initialState: z.object({ source: z.string(), mode: z.enum(['reconciliation', 'authoritative-query', 'none']) }),
+      liveChange: z.object({ source: z.string(), mode: z.enum(['persistent-granted-event', 'persistent-granted-and-removed-events', 'persistent-consumed-event', 'authoritative-ad-hoc', 'none']) }),
+      externalState: z.object({ description: z.string(), mode: z.enum(['mirrored', 'event-driven', 'authoritative-ad-hoc', 'none']) }),
+    }),
+  }),
 });
 const migrationPolicy = z.object({
   preserveUnmatchedExisting: z.boolean().default(true).describe('Keep existing UTM records unless replacement is proven or deletion is explicitly authorized.'),
   authorizedDeletionIds: z.array(z.string().min(1)).default([]).describe('IDs explicitly authorized for deletion during this migration.'),
   mode: z.enum(['new-catalog', 'existing-project']).default('new-catalog').describe('Use existing-project for a legacy transaction migration; that mode requires an explicit parity table.'),
-  parity: z.array(migrationParityEntrySchema).optional().describe('Required in existing-project mode. One explicit legacy-to-UTM comparison row per migrated transaction or offer.'),
+  parity: z.array(migrationParityEntrySchema).optional().describe('Required in existing-project mode. One explicit legacy-to-UTM comparison row per migrated transaction or offer, including initial and live runtime propagation.'),
 }).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [], mode: 'new-catalog' });
 const agentOperationSchema = z.enum([
   'inspect-only',
@@ -371,7 +383,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
 
   server.registerTool('validate_migration_parity', {
     title: 'Validate migration parity',
-    description: 'Read-only. Validates the required legacy-to-UTM semantic parity table before an existing-project patch. It does not mutate, save, or compile anything.',
+    description: 'Read-only. Validates the required legacy-to-UTM semantic parity table, including durable initial/live runtime propagation, before an existing-project patch. It does not mutate, save, or compile anything.',
     inputSchema: {
       entries: z.array(migrationParityEntrySchema),
       operations: z.array(patchOperationSchema).default([]),
@@ -492,9 +504,9 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
       assertProjectReady();
       assertMigrationDeletionPolicy(args.operations as CatalogPatchOperation[], args.migration);
       if (args.migration.mode === 'existing-project') {
-        if (!args.migration.parity?.length) throw new CatalogDomainError('MIGRATION_PARITY_REQUIRED', 'Existing-project migration requires a pre-apply semantic parity table. Call validate_migration_parity with one row for every migrated transaction or offer, then include the same table here.', {}, 422);
+        if (!args.migration.parity?.length) throw new CatalogDomainError('MIGRATION_PARITY_REQUIRED', 'Existing-project migration requires a pre-apply semantic parity table with runtime propagation. Call validate_migration_parity with one row for every migrated transaction or offer, then include the same table here.', {}, 422);
         const parity = validateMigrationParityTable(args.migration.parity as MigrationParityEntry[], args.operations as CatalogPatchOperation[], true);
-        if (!parity.valid) throw new CatalogDomainError('MIGRATION_PARITY_FAILED', 'The migration parity table is incomplete or changes legacy commercial/gameplay semantics. Resolve every issue before applying the patch.', { parity }, 422);
+        if (!parity.valid) throw new CatalogDomainError('MIGRATION_PARITY_FAILED', 'The migration parity table is incomplete, omits runtime propagation, or changes legacy commercial/gameplay semantics. Resolve every issue before applying the patch.', { parity }, 422);
       }
       if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
       assertMutationContext('catalog', { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' });

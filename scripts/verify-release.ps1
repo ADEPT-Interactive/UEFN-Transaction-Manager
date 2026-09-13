@@ -114,6 +114,18 @@ try {
     )
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_) })
     if ($missing) { throw "The extracted Electron release is incomplete: $($missing -join ', ')" }
+    $packagedSkillPath = Join-Path $appRoot "resources\agent-skills\uefn-transaction-manager\SKILL.md"
+    $packagedSkill = Get-Content -LiteralPath $packagedSkillPath -Raw
+    foreach ($requiredSkillText in @(
+        'Reconciliation establishes initial truth. Generated delta events keep current truth current.',
+        'persistent listener loop for `Await<Stem>GrantedEvent()`',
+        'same-session durable acquisition',
+        'join-only flag',
+        'Await<Stem>ConsumedEvent()'
+    )) {
+        if (-not $packagedSkill.Contains($requiredSkillText)) { throw "The packaged Agent Skill is missing the durable lifecycle contract text: $requiredSkillText" }
+    }
+    Write-Host "Verified packaged Agent Skill durable lifecycle contract: reconciliation plus persistent same-session Granted propagation." -ForegroundColor Green
 
     $forbiddenNames = @("WebView2Loader.dll", "msedgewebview2.exe", "hostfxr.dll", "hostpolicy.dll", "coreclr.dll", "node.exe")
     $forbidden = @(Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Where-Object {

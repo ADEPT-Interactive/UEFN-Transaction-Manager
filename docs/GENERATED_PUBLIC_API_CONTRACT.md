@@ -96,6 +96,19 @@ Transaction Manager custom notification values use the generated await functions
 
 Player-start reconciliation makes one `GetPurchasedEntitlements` query against Transaction Manager's generated castable `basic_entitlement` base. The returned concrete entitlement instances are classified locally, counts are aggregated, and every managed private `<Stem>_ReconciledSignal` is signaled, including zero for an absent entitlement. This batch path is separate from the public concrete-entitlement query helpers, which remain fresh current-state queries. Auto-consume remains attached only to positive entitlement-change grant processing; reconciliation does not consume inventory.
 
+### Durable lifecycle contract
+
+`Reconciliation establishes initial truth. Generated delta events keep current truth current.` The generated device's internal `ReconcilePlayerEntitlements` implementation is not an external integration API; project Verse uses the public `Await<Stem>ReconciledEvent()`, `Has<Stem>`, and `Get<Stem>Count` surface to initialize its own state after player start.
+
+For a durable entitlement whose ownership affects live gameplay, UI, access, permissions, progression, multipliers, toggles, or another session-scoped behavior, a project integration must do both of the following:
+
+1. Initialize the external mirror/cache from the authoritative reconciliation path during player initialization.
+2. Maintain a persistent await loop for `Await<Stem>GrantedEvent()` for the integration's lifetime and update the external state immediately for a same-session acquisition. A join-only flag, successful initial query, or reconnect check is not synchronization.
+
+If the project needs ownership loss/revocation and the current generated contract supports it, use the actual `Await<Stem>RemovedEvent()` path as well. Do not invent a removal API. A durable with no live gameplay consequence that is queried ad hoc through authoritative helpers may explicitly omit a mirrored listener.
+
+This lifecycle rule is separate from consumable semantics: immediate-use gameplay effects wait for `Await<Stem>ConsumedEvent()`, while durable `Granted` is an ownership delta and never a consumption boundary.
+
 Dynamic remaining-quantity bundles are generated from the same source configuration as their static bundle offer. Name, Description, ShortDescription, duration and odds disclosure, icon, price, restrictions, and configured entitlement offer variant remain shared; only the runtime `Offers` quantity changes. The supported dynamic model is one entitlement entry at quantity 1, with remaining quantity calculated at purchase time from the authoritative generated `MaxCount` and current ownership. Zero remaining quantity does not call `BuyOffer` and releases the Marketplace UI lock. Nested and multi-entry dynamic bundles are rejected by validation.
 
 Dynamic remaining bundles are direct-purchase-only. Transaction Manager omits them from the all-offers storefront and rejects explicit storefront membership because a static storefront offer cannot safely display or calculate player-specific remaining quantity. Static bundles retain their configured entitlement contents and alternate-offer references; a bundle's configured price remains the price of the bundle rather than the selected content offer.

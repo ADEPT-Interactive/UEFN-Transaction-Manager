@@ -94,6 +94,35 @@ Inventory-bearing consumables must leave `autoConsume` disabled and should apply
 
 Use `.Await()` through these generated helpers for Transaction Manager notifications. Epic-provided device events such as Button, Trigger, and playspace events are separate APIs and may use `.Subscribe()`.
 
+### Durable initialization and live propagation
+
+Reconciliation is not a subscription. The generated device performs its join-time reconciliation; the project integration must initialize its own mirror from authoritative state and then keep that mirror current with persistent delta watchers:
+
+```verse
+var OwnsAccessPass : [player]logic = map{}
+
+OnPlayerInitialized(Player:player)<suspends>:void =
+    # This query is authoritative; use it after the generated player-start reconciliation path.
+    if (Transactions.HasAccessPass(Player)):
+        set OwnsAccessPass[Player] = true
+    else:
+        set OwnsAccessPass[Player] = false
+
+WatchAccessPassGranted()<suspends>:void =
+    loop:
+        (Player, Quantity) := Transactions.AwaitAccessPassGrantedEvent()
+        if (Quantity > 0):
+            set OwnsAccessPass[Player] = true
+
+WatchAccessPassRemoved()<suspends>:void =
+    loop:
+        (Player, Quantity) := Transactions.AwaitAccessPassRemovedEvent()
+        if (Quantity > 0):
+            set OwnsAccessPass[Player] = false
+```
+
+Start the `Granted` watcher for the integration/device lifetime, and start the `Removed` watcher only when the current contract and project semantics require loss handling. A successful `HasAccessPass` check at join does not keep `OwnsAccessPass` synchronized after a same-session purchase; the persistent `AwaitAccessPassGrantedEvent()` path does. Repeat the same pattern independently for another durable such as `PowerPass`, using its own generated stem and mirror. For an initial event-driven implementation, use `AwaitAccessPassReconciledEvent()` to route the generated current count instead of inventing a reconciliation API.
+
 ## Dynamic offer guidance
 
 Keep calculations in your project Verse. Transaction Manager supplies the generated option type, validates the final values, creates the Marketplace offer, and exposes the purchase helper. Your project should own rules such as discounts, progression, player eligibility, and game-state-dependent quantities.

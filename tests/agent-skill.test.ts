@@ -34,6 +34,29 @@ test('Agent Skill is discoverable, reference-driven, and does not hardcode gener
   }
 });
 
+test('Agent Skill makes the durable initialization and same-session lifecycle non-optional', () => {
+  const skill = read('SKILL.md');
+  assert.match(skill, /Reconciliation establishes initial truth\. Generated delta events keep current truth current\./i);
+  assert.match(skill, /gameplay-affecting durable/i);
+  assert.match(skill, /persistent listener loop for `Await<Stem>GrantedEvent\(\)`/i);
+  assert.match(skill, /same-session durable acquisition.*without reconnecting/i);
+  assert.match(skill, /join-only flag.*incomplete integration/i);
+  assert.match(skill, /Await<Stem>RemovedEvent\(\)/i);
+  assert.match(skill, /Await<Stem>ConsumedEvent\(\)/i);
+  assert.match(skill, /real purchase.*owner-only|owner-only.*real purchase/i);
+
+  const adoption = read('references/existing-project-adoption.md');
+  const semantics = read('references/transaction-semantics.md');
+  const verification = read('references/verification.md');
+  for (const reference of [adoption, semantics, verification]) {
+    assert.match(reference, /Reconciliation establishes initial truth|reconciliation.*initial truth/i);
+    assert.match(reference, /persistent/i);
+    assert.match(reference, /Granted/i);
+    assert.match(reference, /same-session/i);
+  }
+  assert.match(verification, /owner.*real.*purchase|real.*purchase.*owner/i);
+});
+
 test('agent setup UI exposes migration discovery, distinct readiness states, and a safe advanced label', () => {
   const appSource = fs.readFileSync(path.join(root, 'src', 'App.tsx'), 'utf8');
   const panelSource = fs.readFileSync(path.join(root, 'src', 'components', 'AgentIntegrationPanel.tsx'), 'utf8');
@@ -72,4 +95,6 @@ test('release packaging includes the skill without changing public README scope'
   assert.match(verify, /resources\\agent-skills\\uefn-transaction-manager\\SKILL.md/);
   assert.match(readme, /Version 4\.3\.0/);
   assert.match(readme, /utm-mcp|Agent Integration/);
+  assert.match(verify, /packagedSkillPath = Join-Path \$appRoot "resources\\agent-skills\\uefn-transaction-manager\\SKILL\.md"/);
+  assert.match(verify, /persistent.*Granted|same-session.*durable|Durable.*lifecycle/i);
 });

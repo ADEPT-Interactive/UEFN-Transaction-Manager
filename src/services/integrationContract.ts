@@ -38,7 +38,15 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
     countHelper: `Get${stem}Count`,
     grantHelper: `Grant${stem}`,
     consumeHelper: item.itemType === 'consumable' ? `Consume${stem}` : undefined,
-    reconciliationHelper: 'ReconcilePlayerEntitlements',
+    reconciliationHelper: `Await${stem}ReconciledEvent`,
+    ownershipLifecycle: item.itemType === 'durable'
+      ? {
+        initialState: `Await${stem}ReconciledEvent, then Has${stem} or Get${stem}Count for the project-owned mirror.`,
+        liveState: `Persistent Await${stem}GrantedEvent loop updates the mirror immediately in the same session.`,
+        lossState: `Await${stem}RemovedEvent updates the mirror when ownership loss is supported and semantically relevant.`,
+        reconciliationIsNotSubscription: 'The reconciliation notification establishes initial truth; the persistent delta listener keeps it current.',
+      }
+      : undefined,
     awaitEvents: {
       granted: `Await${stem}GrantedEvent`,
       removed: `Await${stem}RemovedEvent`,
@@ -151,6 +159,10 @@ export function describeIntegrationContract(
       'Use Granted/Removed or ownership/count helpers for inventory state; use the consumable Consumed event for effects that represent successful use.',
       'The Consumed event is emitted only for the matched portion of an authoritative negative entitlement delta correlated to a generated Consume helper intent; Removed is not proof of explicit consumption.',
       'Immediate-use legacy transactions must be mapped to consumable autoConsume and their gameplay consequence must wait for the Consumed event.',
+      'Reconciliation establishes initial truth; generated delta events keep current truth current.',
+      'For every gameplay-affecting durable with mirrored project state, initialize from reconciliation and maintain a persistent Await<Stem>GrantedEvent path for same-session acquisition; a join-only cache is incomplete.',
+      'When ownership loss is supported and relevant, use the generated Await<Stem>RemovedEvent path; do not invent removal semantics.',
+      'Do not treat durable Granted as a consumable use boundary or consumable Consumed as a durable ownership boundary.',
       'Runtime price and quantity options must be calculated by external project Verse.',
       'Regeneration replaces the managed file; external Verse must remain outside the managed file.',
     ],
