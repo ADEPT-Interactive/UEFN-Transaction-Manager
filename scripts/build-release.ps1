@@ -94,7 +94,7 @@ try {
         main = "dist-electron/main.cjs"
         type = "commonjs"
         dependencies = [ordered]@{
-            sharp = "0.35.3"
+            sharp = "0.35.4"
             koffi = "3.1.5"
         }
         build = $builderConfig
