@@ -1,4 +1,4 @@
-import { autoUpdater } from 'electron-updater';
+import * as electronUpdater from 'electron-updater';
 import type { ProgressInfo, UpdateInfo } from 'electron-updater';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -18,6 +18,27 @@ export interface UpdateActionResult {
 type StateListener = (state: UpdateState) => void;
 type DiagnosticWriter = (message: string) => void;
 
+export interface UpdateManagerUpdater {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  autoRunAppAfterInstall: boolean;
+  allowPrerelease: boolean;
+  allowDowngrade: boolean;
+  logger: unknown;
+  forceDevUpdateConfig: boolean;
+  on(event: string, listener: (...args: any[]) => void): unknown;
+  checkForUpdates(): Promise<{ updateInfo: UpdateInfo } | null>;
+  downloadUpdate(): Promise<unknown>;
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
+}
+
+function resolveDefaultUpdater(): UpdateManagerUpdater {
+  const module = electronUpdater as unknown as { autoUpdater?: UpdateManagerUpdater; default?: { autoUpdater?: UpdateManagerUpdater } };
+  const updater = module.autoUpdater ?? module.default?.autoUpdater;
+  if (!updater) throw new Error('electron-updater is unavailable in this runtime.');
+  return updater;
+}
+
 function candidateFromInfo(info: UpdateInfo): UpdateCandidate {
   return {
     version: info.version,
@@ -36,6 +57,7 @@ export class UpdateManager {
   private readonly executablePath: string;
   private readonly writeDiagnostic: DiagnosticWriter;
   private readonly listen: StateListener;
+  private readonly updater: UpdateManagerUpdater;
   private state: UpdateState;
   private checkPromise: Promise<UpdateState> | null = null;
   private candidate: UpdateCandidate | null = null;
@@ -52,6 +74,7 @@ export class UpdateManager {
     executablePath: string,
     listen: StateListener,
     writeDiagnostic: DiagnosticWriter,
+    updater?: UpdateManagerUpdater,
   ) {
     this.currentVersion = currentVersion;
     this.enabled = platform === 'win32' && (isPackaged || process.env.UEM_UPDATE_TEST_CONFIG === '1');
@@ -60,6 +83,7 @@ export class UpdateManager {
     this.executablePath = executablePath;
     this.listen = listen;
     this.writeDiagnostic = writeDiagnostic;
+    this.updater = updater ?? resolveDefaultUpdater();
     this.state = { status: 'idle', currentVersion, distributionMode };
   }
 
@@ -69,27 +93,27 @@ export class UpdateManager {
 
   public initialize() {
     if (!this.enabled || this.isPortable()) return;
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.autoRunAppAfterInstall = true;
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.allowDowngrade = false;
-    autoUpdater.logger = {
-      info: message => this.writeDiagnostic(`Updater: ${String(message)}`),
-      warn: message => this.writeDiagnostic(`Updater warning: ${String(message)}`),
-      error: message => this.writeDiagnostic(`Updater error: ${String(message)}`),
-      debug: message => this.writeDiagnostic(`Updater debug: ${String(message)}`),
+    this.updater.autoDownload = false;
+    this.updater.autoInstallOnAppQuit = false;
+    this.updater.autoRunAppAfterInstall = true;
+    this.updater.allowPrerelease = false;
+    this.updater.allowDowngrade = false;
+    this.updater.logger = {
+      info: (message: unknown) => this.writeDiagnostic(`Updater: ${String(message)}`),
+      warn: (message: unknown) => this.writeDiagnostic(`Updater warning: ${String(message)}`),
+      error: (message: unknown) => this.writeDiagnostic(`Updater error: ${String(message)}`),
+      debug: (message: unknown) => this.writeDiagnostic(`Updater debug: ${String(message)}`),
     };
-    if (process.env.UEM_UPDATE_TEST_CONFIG === '1') autoUpdater.forceDevUpdateConfig = !process.env.UEM_UPDATE_TEST_PRODUCTION;
-    autoUpdater.on('checking-for-update', () => this.publish({ status: 'checking', currentVersion: this.currentVersion }));
-    autoUpdater.on('update-available', info => { this.candidate = candidateFromInfo(info); });
-    autoUpdater.on('update-not-available', info => {
+    if (process.env.UEM_UPDATE_TEST_CONFIG === '1') this.updater.forceDevUpdateConfig = !process.env.UEM_UPDATE_TEST_PRODUCTION;
+    this.updater.on('checking-for-update', () => this.publish({ status: 'checking', currentVersion: this.currentVersion }));
+    this.updater.on('update-available', info => { this.candidate = candidateFromInfo(info); });
+    this.updater.on('update-not-available', info => {
       this.candidate = candidateFromInfo(info);
       this.dismissedVersion = null;
       this.publish({ status: 'up-to-date', currentVersion: this.currentVersion, message: `You are using the latest version, ${this.currentVersion}.` }, false);
     });
-    autoUpdater.on('download-progress', progress => this.setDownloading(progress));
-    autoUpdater.on('update-downloaded', event => {
+    this.updater.on('download-progress', progress => this.setDownloading(progress));
+    this.updater.on('update-downloaded', event => {
       const candidate = candidateFromInfo(event);
       this.candidate = candidate;
       this.publish({
@@ -101,7 +125,7 @@ export class UpdateManager {
         progress: 100,
       });
     });
-    autoUpdater.on('error', error => {
+    this.updater.on('error', error => {
       this.writeDiagnostic(`Updater error event: ${error.stack ?? error.message}`);
     });
   }
@@ -123,7 +147,7 @@ export class UpdateManager {
   }
 
   private async checkInstalled(manual: boolean): Promise<UpdateState> {
-    return autoUpdater.checkForUpdates().then(result => {
+    return this.updater.checkForUpdates().then(result => {
       if (!result) return this.getState();
       const candidate = candidateFromInfo(result.updateInfo);
       this.candidate = candidate;
@@ -134,7 +158,8 @@ export class UpdateManager {
         this.publish(state);
         return state;
       }
-      return this.setAvailable(result.updateInfo, manual, manual);
+      // Availability is always renderer-visible; manual only controls dismissal semantics.
+      return this.setAvailable(result.updateInfo, true, manual);
     }).catch(error => this.handleCheckError(error, manual));
   }
 
@@ -146,7 +171,8 @@ export class UpdateManager {
       const manifest = parsePortableUpdateManifest(await response.json());
       this.portableManifest = manifest;
       this.candidate = { version: manifest.version, releaseName: manifest.version, releaseNotes: manifest.notes };
-      if (shouldOfferUpdate(this.currentVersion, this.candidate)) return this.setAvailableFromCandidate(this.candidate, manual, manual);
+      // Availability is always renderer-visible; manual only controls dismissal semantics.
+      if (shouldOfferUpdate(this.currentVersion, this.candidate)) return this.setAvailableFromCandidate(this.candidate, true, manual);
       const state = (manual
         ? { status: 'up-to-date', currentVersion: this.currentVersion, message: `You are using the latest version, ${this.currentVersion}.` }
         : { status: 'idle', currentVersion: this.currentVersion }) satisfies UpdateState;
@@ -173,7 +199,7 @@ export class UpdateManager {
     this.publish({ ...this.state, status: 'downloading', progress: 0, message: 'Downloading the update…' });
     if (this.isPortable()) return this.downloadPortable();
     try {
-      await autoUpdater.downloadUpdate();
+      await this.updater.downloadUpdate();
       return { success: true };
     } catch (error) {
       this.writeDiagnostic(`Update download failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
@@ -229,7 +255,7 @@ export class UpdateManager {
     try {
       await stopOwnedProcesses();
       if (this.isPortable()) return this.startPortableReplacement();
-      autoUpdater.quitAndInstall(false, true);
+      this.updater.quitAndInstall(false, true);
       return { success: true };
     } catch (error) {
       this.writeDiagnostic(`Update installation failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);

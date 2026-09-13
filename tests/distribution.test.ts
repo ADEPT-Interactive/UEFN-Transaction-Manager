@@ -6,7 +6,7 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '..');
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8');
 
-test('4.3.0 development line preserves the ADEPT distribution contract and renamed human aliases', () => {
+test('4.3.1 hotfix line preserves the ADEPT distribution contract and renamed human aliases', () => {
   const version = JSON.parse(read('version.json')).version as string;
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
@@ -14,7 +14,7 @@ test('4.3.0 development line preserves the ADEPT distribution contract and renam
   const installerScript = read('electron/installer.nsh');
   const readme = read('README.md');
   const userReadme = read('README-USER.txt');
-  assert.equal(version, '4.3.0');
+  assert.equal(version, '4.3.1');
   assert.equal(pkg.version, version);
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);
@@ -126,7 +126,7 @@ test('portable updater is marker-driven, uses separate metadata, and cannot fall
   assert.match(manager, /detectDistributionMode|distributionMode/);
   assert.match(manager, /portable-latest\.json/);
   assert.match(manager, /if \(this\.isPortable\(\)\) return this\.startPortableReplacement\(\);/);
-  assert.match(manager, /autoUpdater\.quitAndInstall\(false, true\);/);
+  assert.match(manager, /this\.updater\.quitAndInstall\(false, true\);/);
   assert.match(helper, /rollback|Write-Result|relaunch/i);
   assert.match(release, /distribution = "portable"/);
   assert.match(release, /managedFiles/);
