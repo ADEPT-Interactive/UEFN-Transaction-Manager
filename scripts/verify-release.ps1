@@ -326,7 +326,9 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     try {
         $env:UEM_UI_APP_ROOT = $appRoot
         $env:UEM_UI_ELECTRON_PATH = $desktop
-        & $desktop $uiScript
+        $uiElectronRunner = Join-Path $toolRoot "node_modules\\electron\\dist\\electron.exe"
+        if (-not (Test-Path -LiteralPath $uiElectronRunner -PathType Leaf)) { throw "The Electron runner is missing for packaged renderer verification: $uiElectronRunner" }
+        & $uiElectronRunner $uiScript
         if ($LASTEXITCODE -ne 0) { throw "The packaged renderer regression check failed with exit code $LASTEXITCODE." }
         Write-Host "Verified packaged renderer flags, dialogs, constrained scrolling, and native select focus without screenshots." -ForegroundColor Green
     }
