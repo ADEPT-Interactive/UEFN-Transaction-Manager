@@ -80,6 +80,7 @@ function request(pathname, method = 'GET', body) {
       response.on('end', () => resolve({ status: response.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
     });
     requestRef.once('error', reject);
+    requestRef.setTimeout(3000, () => requestRef.destroy(new Error(`Renderer test bridge request timed out: ${pathname}`)));
     requestRef.end(body);
   });
 }
