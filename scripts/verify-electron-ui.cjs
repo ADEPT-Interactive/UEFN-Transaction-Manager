@@ -552,7 +552,10 @@ app.whenReady().then(async () => {
   try {
     await main();
     await cleanup();
-    app.quit();
+    // This is a bounded verification process, not the interactive manager.
+    // Force the Electron host to terminate after cleanup so packaged callers
+    // cannot retain a hidden parent process after a passing probe.
+    app.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     await cleanup();
