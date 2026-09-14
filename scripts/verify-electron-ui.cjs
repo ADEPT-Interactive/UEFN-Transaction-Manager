@@ -485,7 +485,12 @@ async function cleanup() {
     // Cleanup continues even if Chromium has already exited.
   }
   if (bridgeProcess && bridgeProcess.exitCode === null) {
-    try { await request('/api/session/shutdown', 'POST', '{}'); } catch { /* the bridge may already be stopping */ }
+    try {
+      await Promise.race([
+        request('/api/session/shutdown', 'POST', '{}'),
+        wait(3000).then(() => { throw new Error('The renderer test bridge shutdown exceeded its bounded cleanup window.'); }),
+      ]);
+    } catch { /* the bridge may already be stopping or unreachable */ }
     await Promise.race([
       new Promise(resolve => bridgeProcess.once('exit', resolve)),
       wait(3000),
