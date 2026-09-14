@@ -1,0 +1,18 @@
+{
+  "style": "flat-cartoon-vector-sticker-v2",
+  "generator": "GPT ImageGen 2",
+  "sourceDirectory": "<codex-generated-images>/01a09f98-92cb-7512-a87f-b6c04acbb440",
+  "destinationDirectory": "<UTM_Demo>/Resources/GeneratedIcons",
+  "icons": [
+    { "name": "Holo Trail", "source": "exec-c01410cb-47b9-435f-82d6-5c2632a6e850.png", "destination": "HoloTrail.png" },
+    { "name": "Access Pass", "source": "exec-a7b47313-4171-4c09-9777-39aea3265117.png", "destination": "AccessPass.png" },
+    { "name": "Builder Kit", "source": "exec-1b695218-4909-48ec-b35d-53338b62dbc2.png", "destination": "BuilderKit.png" },
+    { "name": "Firework Charge", "source": "exec-56089d61-1c48-406e-ab99-1b1655b74ec7.png", "destination": "FireworkCharge.png" },
+    { "name": "Ember Coins", "source": "exec-c7346879-b4e6-49aa-8ec2-dc46c91794e9.png", "destination": "EmberCoins.png" },
+    { "name": "Vault Ticket", "source": "exec-93a643da-d372-4ad3-b856-99bd3060f7db.png", "destination": "VaultTicket.png" },
+    { "name": "Mystery Cache", "source": "exec-47808796-4f6c-4838-b721-ea5a4e2cbcac.png", "destination": "MysteryCache.png" },
+    { "name": "Starter Bundle", "source": "exec-0697a1d6-b926-4662-8e01-bdb6d0927445.png", "destination": "StarterBundle.png" },
+    { "name": "Coin Restock", "source": "exec-496fc2fb-d722-4faf-8d1f-7f786f287a89.png", "destination": "CoinRestock.png" },
+    { "name": "Event Loadout", "source": "exec-d3f05093-4160-427f-9fcd-2a9689d911e1.png", "destination": "EventLoadout.png" }
+  ]
+}

@@ -1,12 +1,12 @@
 # UEFN Transaction Manager distribution and update infrastructure
 
-Transaction Manager 4.3.2 separates human downloads from machine updates and keeps portable upgrades in-place.
+Transaction Manager 4.3.3 separates human downloads from machine updates and keeps portable upgrades in-place.
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
 ## Current supported release
 
-`v4.3.2` is the sole supported retained public release. The release tag and Git history remain intact; this describes the current public distribution state only.
+`v4.3.3` is the sole supported retained public release. The release tag and Git history remain intact; this describes the current public distribution state only.
 
 ## Human downloads
 
@@ -32,14 +32,14 @@ A reserved future beta path is `uem/beta/`. The preferred R2 bucket is `adept-so
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Transaction-Manager-Setup-4.3.2.exe
-uem/stable/UEFN-Transaction-Manager-Setup-4.3.2.exe.blockmap
-uem/stable/manifests/4.3.2.yml
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.3.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.3.exe.blockmap
+uem/stable/manifests/4.3.3.yml
 uem/stable/portable-latest.json
-uem/stable/UEFN-Transaction-Manager-4.3.2-Portable.zip
+uem/stable/UEFN-Transaction-Manager-4.3.3-Portable.zip
 ```
 
-The stable R2 origin currently contains only the active 4.3.2 payload and feed objects listed above. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.2 artifacts are immutable for this release. Git history retains earlier source and release records, but older public artifacts are not supported by this document.
+The stable R2 origin currently contains only the active 4.3.3 payload and feed objects listed above. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.3 artifacts are immutable for this release. Git history retains earlier source and release records, but older public artifacts are not supported by this document.
 
 ### Build and installer contract
 
@@ -84,7 +84,7 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 ## Recovery and cutoff
 
-Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the supported 4.3.2 payload until a separately authorized release is ready.
+Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the supported 4.3.3 payload until a separately authorized release is ready.
 
 The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; this does not retain older public release artifacts. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
@@ -99,7 +99,7 @@ The compatibility namespace and updater path continue to support existing instal
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The 4.3.2 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work remain part of the 4.3 release line.
+The 4.3.3 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work remain part of the 4.3 release line.
 
 ## Rename compatibility boundary
 

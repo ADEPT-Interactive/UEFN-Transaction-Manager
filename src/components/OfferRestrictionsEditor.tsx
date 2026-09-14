@@ -21,7 +21,11 @@ const Flag: React.FC<{ code: string }> = ({ code }) => {
   const cellWidth = 26;
   const cellHeight = 20;
   const gutter = 1;
-  return <span className="h-[18px] w-6 shrink-0 rounded-sm border border-white/10 bg-no-repeat shadow-sm" style={{ backgroundImage: 'url(/flag-sprite.webp)', backgroundPosition: `${-(column * cellWidth + gutter)}px ${-(row * cellHeight + gutter)}px`, backgroundSize: `${16 * cellWidth}px ${Math.ceil(COUNTRY_CODE_OPTIONS.length / 16) * cellHeight}px` }} aria-hidden="true" />;
+  const rows = Math.ceil(COUNTRY_CODE_OPTIONS.length / 16);
+  // The atlas is authored at 2x for crisp small flags. Scale both the full
+  // background and the offsets together so the 24x18 viewport maps to one
+  // complete 48x36 source tile rather than an empty/adjacent slice.
+  return <span className="h-[18px] w-6 shrink-0 rounded-sm border border-white/10 bg-no-repeat shadow-sm" style={{ backgroundImage: 'url(/flag-sprite.webp)', backgroundPosition: `${-(column * cellWidth + gutter)}px ${-(row * cellHeight + gutter)}px`, backgroundSize: `${16 * cellWidth}px ${rows * cellHeight}px` }} aria-hidden="true" />;
 };
 
 const PlatformIcon: React.FC<{ platform: string }> = ({ platform }) => {

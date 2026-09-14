@@ -16,6 +16,7 @@ import { DEFAULT_PRESETS } from '../constants/presets';
 import { EntitlementCard } from './EntitlementCard';
 import { VBucksIcon } from './VBucksIcon';
 import { isNewCreationRequest } from '../services/creationIntent';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface EntitlementListProps {
   entitlements: EntitlementItem[];
@@ -257,14 +258,16 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
 
 const CreationChooser: React.FC<{ onClose: () => void; onScratch: () => void; onPreset: (index: number) => void }> = ({ onClose, onScratch, onPreset }) => {
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus({ open: true, dialogRef, onEscape: onClose });
   return (
   <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
-    <div role="dialog" aria-modal="true" aria-labelledby="creation-chooser-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#0d1326] p-6 shadow-2xl">
-      <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-300">Create an offer</p><h2 id="creation-chooser-title" className="mt-1 text-xl font-extrabold text-white">Choose a starting category</h2><p className="mt-1 text-xs text-slate-400">Categories set up manager fields only. Connect the actual gameplay behavior in your own Verse or device logic.</p></div><button type="button" aria-label="Close creation chooser" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="w-5 h-5" /></button></div>
-      <div className="mt-5 space-y-3">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="creation-chooser-title" tabIndex={-1} className="flex min-h-0 max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-[#0d1326] shadow-2xl">
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-800 px-6 py-5"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-300">Create an offer</p><h2 id="creation-chooser-title" className="mt-1 text-xl font-extrabold text-white">Choose a starting category</h2><p className="mt-1 text-xs text-slate-400">Categories set up manager fields only. Connect the actual gameplay behavior in your own Verse or device logic.</p></div><button type="button" aria-label="Close creation chooser" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="w-5 h-5" /></button></div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6"><div className="space-y-3">
         <button type="button" onClick={onScratch} className="flex w-full items-center justify-between gap-4 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 text-left transition hover:border-cyan-300 hover:bg-cyan-500/15"><div className="flex min-w-0 items-center gap-3"><FilePlus2 className="h-5 w-5 shrink-0 text-cyan-300" /><div className="min-w-0"><span className="block whitespace-nowrap text-sm font-bold text-cyan-200">Start from scratch</span><span className="block text-[11px] text-slate-400">Create a blank offer with no category-specific settings.</span></div></div><span className="shrink-0 text-xs font-bold text-cyan-300">Create</span></button>
         <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"><div className="flex items-center gap-2 text-slate-200"><WandSparkles className="h-5 w-5 text-cyan-300" /><span className="text-sm font-bold">Start with a template</span></div><div className="mt-3 space-y-2">{DEFAULT_PRESETS.map((preset, index) => { const selected = selectedPreset === index; return <div key={`${preset.verseKey}-${index}`} className={`overflow-hidden rounded-xl border bg-slate-950/70 transition ${selected ? 'border-cyan-500/60' : 'border-slate-800 hover:border-slate-700'}`}><button type="button" aria-expanded={selected} onClick={() => setSelectedPreset(selected ? null : index)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"><span className="min-w-0 whitespace-nowrap text-xs font-bold text-white">{preset.presetTitle}</span><ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition ${selected ? 'rotate-180 text-cyan-300' : ''}`} /></button>{selected && <div className="border-t border-slate-800 px-3 pb-3 pt-2"><p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Configured</p><p className="mt-1 text-[11px] leading-4 text-slate-300">{preset.presetDescription}</p><p className="mt-2 text-[11px] text-slate-400"><span className="font-semibold text-cyan-300">Example:</span> {preset.presetExample}</p><button type="button" onClick={() => onPreset(index)} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-xs font-extrabold text-slate-950 hover:bg-cyan-300">Use this template</button></div>}</div>; })}</div></div>
-      </div>
+      </div></div>
     </div>
   </div>
   );

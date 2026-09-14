@@ -26,13 +26,14 @@ function directPurchaseExample(config: ProjectConfig, key: string): string {
 function entitlementContract(item: EntitlementItem, config: ProjectConfig): Record<string, unknown> {
   const stem = toVerseApiStem(item.verseKey);
   const dynamic = dynamicPriceEnabled(item.dynamicOffer);
+  const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: item.id,
     verseKey: item.verseKey,
     objectType: item.itemType,
     primaryPurchaseHelper: {
       name: `Open${stem}Purchase`,
-      signature: dynamic ? `(Player:player, Options:${stem}RuntimeOptions):void` : '(Player:player):void',
+      signature: dynamic ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
     },
     ownershipHelper: `Has${stem}`,
     countHelper: `Get${stem}Count`,
@@ -58,39 +59,41 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       purchaseButtons: item.triggers.generateButtonBinding ? entitlementEditableNames(item.verseKey).purchaseButtons : undefined,
       successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey).successTriggers : undefined,
     },
-    runtimeOptionsType: dynamic ? `${stem}RuntimeOptions` : undefined,
+    runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
     dynamicOfferFactory: dynamic ? `Make${stem}DynamicOffer` : undefined,
     constraints: item.itemType === 'durable' ? ['Durable ownership is capped at one.'] : [`Consumable quantity must be positive and cannot exceed ${item.maxCount}.`],
   };
 }
 
-function alternateContract(parent: EntitlementItem, key: string): Record<string, unknown> {
+function alternateContract(parent: EntitlementItem, key: string, config: ProjectConfig): Record<string, unknown> {
   const offer = (parent.alternateOffers ?? []).find(candidate => candidate.verseKey === key);
   if (!offer) return { stableId: key, verseKey: key };
   const stem = toVerseApiStem(offer.verseKey);
   const dynamic = dynamicPriceEnabled(offer.dynamicOffer);
+  const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: offer.id,
     parentStableId: parent.id,
     verseKey: offer.verseKey,
     objectType: 'alternate_offer',
     purchaseHelper: `Open${stem}Purchase`,
-    signature: dynamic ? `(Player:player, Options:${stem}RuntimeOptions):void` : '(Player:player):void',
-    runtimeOptionsType: dynamic ? `${stem}RuntimeOptions` : undefined,
+    signature: dynamic ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
+    runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
     dynamicOfferFactory: dynamic ? `Make${stem}DynamicOffer` : undefined,
   };
 }
 
-function bundleContract(bundle: BundleOffer): Record<string, unknown> {
+function bundleContract(bundle: BundleOffer, config: ProjectConfig): Record<string, unknown> {
   const stem = toVerseApiStem(bundle.verseKey);
   const runtime = isDynamicBundle(bundle) && (dynamicPriceEnabled(bundle.dynamicOffer) || bundle.items.some(entry => bundleQuantityBehavior(bundle, entry) === 'runtime'));
+  const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: bundle.id,
     verseKey: bundle.verseKey,
     objectType: 'bundle',
     purchaseHelper: `Open${stem}Purchase`,
-    signature: runtime ? `(Player:player, Options:${stem}RuntimeOptions):void` : '(Player:player):void',
-    runtimeOptionsType: runtime ? `${stem}RuntimeOptions` : undefined,
+    signature: runtime ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
+    runtimeOptionsType: runtime ? runtimeOptionsType : undefined,
     dynamicOfferFactory: runtime ? `Make${stem}DynamicOffer` : undefined,
     items: bundle.items,
   };
@@ -167,8 +170,8 @@ export function describeIntegrationContract(
       'Regeneration replaces the managed file; external Verse must remain outside the managed file.',
     ],
     entitlements: currentEntitlements.map(item => entitlementContract(item, config)),
-    alternateOffers: currentEntitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => alternateContract(item, offer.verseKey))),
-    bundles: currentBundles.map(bundleContract),
+    alternateOffers: currentEntitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => alternateContract(item, offer.verseKey, config))),
+    bundles: currentBundles.map(bundle => bundleContract(bundle, config)),
     storefronts: currentStorefronts.map(group => storefrontContract(group)),
     examples: currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey)] : [],
   };

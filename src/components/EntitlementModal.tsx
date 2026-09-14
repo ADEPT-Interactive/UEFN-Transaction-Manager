@@ -208,11 +208,11 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="entitlement-dialog-title" tabIndex={-1} className="relative w-full max-w-2xl bg-[#0d1326] border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden animate-modal flex flex-col max-h-[90vh] outline-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="entitlement-dialog-title" tabIndex={-1} className="relative flex min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-700/80 bg-[#0d1326] shadow-2xl animate-modal max-h-[90vh] outline-none">
         
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900/50 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-md shadow-cyan-500/20">
               <Sparkles className="w-5 h-5" />
@@ -237,7 +237,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div role="tablist" aria-label="Offer editor sections" className="flex overflow-x-auto border-b border-slate-800 bg-[#090e1a] px-6 gap-1">
+        <div role="tablist" aria-label="Offer editor sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 bg-[#090e1a] px-6">
           <button
             type="button"
             id="offer-tab-general"
@@ -307,7 +307,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           </button>}
         </div>
 
-        {isCreating && <div className="border-b border-slate-800 bg-[#0b1220] px-6 py-3" aria-label="Offer creation progress">
+        {isCreating && <div className="shrink-0 border-b border-slate-800 bg-[#0b1220] px-6 py-3" aria-label="Offer creation progress">
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500"><span>New offer setup</span><span className="text-cyan-300">Step {creationStep + 1} of 3</span></div>
           <div className="mt-2 grid grid-cols-3 gap-1.5">
             {['General & Pricing', 'Icon & Texture', 'Behavior & Moderation'].map((label, index) => <div key={label} className={`h-1 rounded-full ${index <= creationStep ? 'bg-cyan-400' : 'bg-slate-800'}`} aria-label={`${label}: ${index < creationStep ? 'complete' : index === creationStep ? 'current' : 'upcoming'}`} />)}
@@ -315,7 +315,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </div>}
 
         {/* Modal Scrollable Body */}
-        <form id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} onSubmit={handleSave} className="p-6 overflow-y-auto space-y-5 flex-1">
+        <form id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} onSubmit={handleSave} className="min-h-0 flex-1 overflow-y-auto p-6 space-y-5">
           
           {/* TAB 1: General & Pricing */}
           {activeTab === 'general' && (
@@ -379,7 +379,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 <div className="flex items-center justify-between">
                   <label htmlFor="offer-price" className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                     <VBucksIcon className="h-4 w-4 text-sky-400" />
-                    <span>Price in V-Bucks ({MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to {MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} VB, step {MARKETPLACE_CONSTRAINTS.priceStepVBucks})</span>
+                    <span>Price in V-Bucks ({MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to {MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} VB, increments of {MARKETPLACE_CONSTRAINTS.priceStepVBucks})</span>
                   </label>
                   <span className="font-mono text-base font-extrabold text-sky-400">
                     <span className="inline-flex items-center gap-1.5" aria-label={`${formData.priceVBucks.toLocaleString()} V-Bucks`}><VBucksIcon className="h-4 w-4" />{formData.priceVBucks.toLocaleString()}</span>
@@ -424,7 +424,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 <legend className="px-1 text-xs font-extrabold text-cyan-200">Price source</legend>
                 <label className="flex items-center justify-between gap-3 text-xs text-slate-300">
                   <span><span className="block font-bold text-white">How is this price set?</span><span className="text-slate-400">Choose a fixed catalog price or let your project supply it at purchase time.</span></span>
-                  <select aria-label="Offer price behavior" value={formData.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(prev => ({ ...prev, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined }))} className="w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs">
+                  <select aria-label="Offer price behavior" value={formData.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(prev => ({ ...prev, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined }))} className="utm-native-select w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs">
                     <option value="fixed">Fixed in UTM</option>
                     <option value="runtime">Set by Verse at runtime</option>
                   </select>
@@ -449,7 +449,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                    <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price source</span><span className="text-slate-500">Choose the catalog price or project-supplied runtime price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed price</option><option value="runtime">Set by Verse at runtime</option></select></label>
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price source</span><span className="text-slate-500">Choose the catalog price or project-supplied runtime price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="utm-native-select rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed price</option><option value="runtime">Set by Verse at runtime</option></select></label>
                     <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
                   </div>
                 ))}

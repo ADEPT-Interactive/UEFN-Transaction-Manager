@@ -14,6 +14,21 @@
   -moz-appearance: textfield;
 }
 
+/* Native selects keep their keyboard/pointer behavior, but Chromium on
+   Windows can add a platform-colored focus artifact over the app surface.
+   Use one shared focus treatment everywhere instead of a custom select. */
+.utm-native-select {
+  color-scheme: dark;
+}
+
+.utm-native-select:focus,
+.utm-native-select:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.7) !important;
+  outline-offset: 1px;
+  border-color: var(--border-focus) !important;
+  box-shadow: none !important;
+}
+
 :root {
   --bg-primary: #070a13;
   --bg-card: #0f1629;
