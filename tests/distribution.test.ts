@@ -56,7 +56,6 @@ test('creator-facing MCP terminology separates human product prose from technica
     'docs/AGENT_INTEGRATION.md',
     'docs/assets/utm-mcp-workflow.svg',
     'docs/assets/utm-mcp-workflow-mobile.svg',
-    'docs/RELEASE-DISTRIBUTION.md',
     'docs/DISTRIBUTION.md',
   ];
   const integrationFiles = [
