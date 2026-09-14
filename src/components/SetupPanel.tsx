@@ -66,12 +66,12 @@ export const SetupModal: React.FC<SetupPanelProps & { open: boolean; onClose: ()
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="animate-modal max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#0d1326] p-6 shadow-2xl outline-none">
-        <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="animate-modal flex min-h-0 max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-[#0d1326] shadow-2xl outline-none">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-800 px-6 py-5">
           <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300"><BookOpenCheck className="h-5 w-5" /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">UEFN workflow</p><h2 id={titleId} className="mt-0.5 text-xl font-extrabold text-white">Need Help?</h2><p className="mt-1 text-xs text-slate-400">Enable Python, then compile, place, and connect your generated transaction device.</p></div></div>
           <button type="button" aria-label="Close help" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <SetupPanel {...panelProps} />
+        <div className="min-h-0 flex-1 overflow-y-auto p-6"><SetupPanel {...panelProps} /></div>
       </div>
     </div>
   );

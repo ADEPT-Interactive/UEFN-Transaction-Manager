@@ -7,7 +7,7 @@ import { normalizeEntitlement, normalizeBundle } from '../src/services/projectSc
 
 test('integration contract is derived from generator naming for static, alternate, bundle, storefront, and runtime objects', () => {
   const config = defaultProjectConfig('C:/Demo/Content');
-  const entitlement = normalizeEntitlement({ id: 'ent-1', verseKey: 'season_pass', name: 'Season Pass', shortDescription: 'Pass', description: 'Pass', itemType: 'durable', alternateOffers: [{ id: 'alt-1', verseKey: 'season_pass_discount', name: 'Discount', shortDescription: 'Discount', description: 'Discount' }] }, 0);
+  const entitlement = normalizeEntitlement({ id: 'ent-1', verseKey: 'season_pass', name: 'Season Pass', shortDescription: 'Pass', description: 'Pass', itemType: 'durable', alternateOffers: [{ id: 'alt-1', verseKey: 'season_pass_discount', name: 'Discount', shortDescription: 'Discount', description: 'Discount', priceVBucks: 200, dynamicOffer: { priceBehavior: 'runtime' } }] }, 0);
   const consumable = normalizeEntitlement({ id: 'ent-2', verseKey: 'coins', name: 'Coins', shortDescription: 'Coins', description: 'Coins', itemType: 'consumable', dynamicOffer: { priceBehavior: 'runtime' } }, 1);
   const bundle = normalizeBundle({ id: 'bundle-1', verseKey: 'starter_pack', name: 'Starter Pack', shortDescription: 'Pack', description: 'Pack', items: [{ entitlementId: entitlement.id, quantity: 1 }] }, 0);
   const runtimeBundle = normalizeBundle({ id: 'bundle-2', verseKey: 'runtime_pack', name: 'Runtime Pack', shortDescription: 'Pack', description: 'Pack', dynamicOffer: { priceBehavior: 'runtime' }, items: [{ entitlementId: consumable.id, quantity: 1, quantityBehavior: 'runtime' }] }, 1);
@@ -31,7 +31,16 @@ test('integration contract is derived from generator naming for static, alternat
   assert.equal((contract.entitlements.find(item => item.stableId === 'ent-1')?.awaitEvents as { consumed?: string }).consumed, undefined);
   assert.ok(contract.alternateOffers.some(item => item.purchaseHelper === 'OpenSeasonPassDiscountPurchase'));
   assert.ok(contract.bundles.some(item => item.purchaseHelper === 'OpenStarterPackPurchase'));
-  assert.ok(contract.bundles.some(item => item.runtimeOptionsType === 'RuntimePackRuntimeOptions'));
+  const runtimeCoinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
+  assert.equal(runtimeCoinsContract?.runtimeOptionsType, `${config.offersModuleName}.CoinsRuntimeOptions`);
+  assert.equal((runtimeCoinsContract?.primaryPurchaseHelper as { signature: string }).signature, `(Player:player, Options:${config.offersModuleName}.CoinsRuntimeOptions):void`);
+  const alternateContract = contract.alternateOffers.find(item => item.stableId === 'alt-1');
+  assert.equal(alternateContract?.runtimeOptionsType, `${config.offersModuleName}.SeasonPassDiscountRuntimeOptions`);
+  assert.equal(alternateContract?.signature, `(Player:player, Options:${config.offersModuleName}.SeasonPassDiscountRuntimeOptions):void`);
+  const runtimeBundleContract = contract.bundles.find(item => item.stableId === 'bundle-2');
+  assert.equal(runtimeBundleContract?.runtimeOptionsType, `${config.offersModuleName}.RuntimePackRuntimeOptions`);
+  assert.equal(runtimeBundleContract?.signature, `(Player:player, Options:${config.offersModuleName}.RuntimePackRuntimeOptions):void`);
+  assert.ok(contract.bundles.some(item => item.runtimeOptionsType === `${config.offersModuleName}.RuntimePackRuntimeOptions`));
   assert.ok(contract.storefronts.some(item => item.openHelper === 'OpenFeatured'));
   for (const item of contract.entitlements) {
     const purchase = (item.primaryPurchaseHelper as { name: string }).name;

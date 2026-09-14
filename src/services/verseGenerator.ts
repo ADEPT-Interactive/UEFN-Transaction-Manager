@@ -273,23 +273,36 @@ function dynamicOfferClass(
     `        var ShortDescription<override>:message = ${metadataKey}.ShortDescription`,
     `        var Icon<override>:texture = ${iconTexture}`,
     `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementKey}_entitlement`,
-    `        var RuntimePrice:float = ${priceModule}.${priceKey}`,
-    `        Price<override>:price_dimension = MakePriceVBucks(RuntimePrice)`,
+    // Verse does not allow an instance member to be read from another member
+    // initializer. The runtime factory supplies the overridden Price field
+    // when it constructs this offer class.
+    `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${priceKey})`,
     restrictionLines(restrictions),
     '',
   ].filter(Boolean).join('\n');
 }
 
 function runtimePriceChoices(): string {
-  return Array.from(
+  const choices = Array.from(
     { length: (MARKETPLACE_CONSTRAINTS.priceMaxVBucks - MARKETPLACE_CONSTRAINTS.priceMinVBucks) / MARKETPLACE_CONSTRAINTS.priceStepVBucks + 1 },
     (_, index) => `${MARKETPLACE_CONSTRAINTS.priceMinVBucks + index * MARKETPLACE_CONSTRAINTS.priceStepVBucks}.0`,
-  ).map(value => `PriceVBucks = ${value}`).join(' or ');
+  ).map(value => `PriceVBucks = ${value}`);
+
+  // Verse parses a long left-associative `or` chain as a deeply nested
+  // expression. Keep the exact marketplace allow-list, but balance the tree
+  // so runtime-priced catalogs remain below Verse's expression-depth limit.
+  const balancedOr = (values: string[]): string => {
+    if (values.length === 1) return values[0];
+    const midpoint = Math.ceil(values.length / 2);
+    return `(${balancedOr(values.slice(0, midpoint))} or ${balancedOr(values.slice(midpoint))})`;
+  };
+
+  return balancedOr(choices);
 }
 
 function runtimePriceValidationLines(functionName: string): string[] {
   return [
-    `    ${functionName}(PriceVBucks:float):logic =`,
+    `    ${functionName}(PriceVBucks:float)<transacts>:logic =`,
     `        if (${runtimePriceChoices()}):`,
     '            return true',
     '        false',
@@ -309,9 +322,9 @@ function directRuntimeOfferLines(
     '',
     ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
     `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
-    `        if (not IsValid${pascal}RuntimePrice(Options.PriceVBucks)):`,
+    `        if (IsValid${pascal}RuntimePrice(Options.PriceVBucks) = false):`,
     '            return false',
-    `        option{${offersModule}.${itemKey}_dynamic_offer{RuntimePrice := Options.PriceVBucks}}`,
+    `        option{${offersModule}.${itemKey}_dynamic_offer{Price := MakePriceVBucks(Options.PriceVBucks)}}`,
     '',
   ];
 }
@@ -357,21 +370,16 @@ function bundleOfferClass(
   ].filter(Boolean).join('\n');
 }
 
-function dynamicBundleOfferClass(source: GeneratedBundleOffer, runtimePrice: boolean): string {
+function dynamicBundleOfferClass(source: GeneratedBundleOffer): string {
   const classKey = `${source.key}_dynamic`;
-  const runtimePriceLines = runtimePrice
-    ? [`        var RuntimePrice:float = ${source.priceReference}`]
-    : [];
-  const priceExpression = runtimePrice ? 'RuntimePrice' : source.priceReference;
   return [
     `    ${classKey}_offer<public> := class(bundle_offer):`,
     `        var Name<override>:message = ${source.metadataKey}.Name`,
     `        var Description<override>:message = ${source.metadataKey}.Description`,
     `        var ShortDescription<override>:message = ${source.metadataKey}.ShortDescription`,
     `        var Icon<override>:texture = ${source.iconTexture}`,
-    ...runtimePriceLines,
     `        Offers<override>:[]tuple(offer, int) = array{}`,
-    `        Price<override>:price_dimension = MakePriceVBucks(${priceExpression})`,
+    `        Price<override>:price_dimension = MakePriceVBucks(${source.priceReference})`,
     restrictionLines(source.restrictions),
     '',
   ].filter(Boolean).join('\n');
@@ -608,7 +616,7 @@ export function generateVerseCode(
         bundleOfferClass(bundleSource, 'array{}', '_dynamic'),
       );
     } else if (hasRuntimeBundleValues(bundle)) {
-      push(dynamicBundleOfferClass(bundleSource, dynamicPriceEnabled(bundle.dynamicOffer)));
+      push(dynamicBundleOfferClass(bundleSource));
     }
   }
 
@@ -633,7 +641,7 @@ export function generateVerseCode(
       ? [
           ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
           `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
-          `        if (not IsValid${pascal}RuntimePrice(Options.PriceVBucks)):`,
+          `        if (IsValid${pascal}RuntimePrice(Options.PriceVBucks) = false):`,
           '            return false',
         ]
       : [
@@ -674,7 +682,7 @@ export function generateVerseCode(
     push(
       '        if (RuntimeOffers.Length = 0):',
       '            return false',
-      `        option{${offersModule}.${bundle.verseKey}_dynamic_offer{${dynamicPriceEnabled(bundle.dynamicOffer) ? 'RuntimePrice := Options.PriceVBucks, ' : ''}Offers := RuntimeOffers}}`,
+      `        option{${offersModule}.${bundle.verseKey}_dynamic_offer{${dynamicPriceEnabled(bundle.dynamicOffer) ? 'Price := MakePriceVBucks(Options.PriceVBucks), ' : ''}Offers := RuntimeOffers}}`,
       '',
     );
   }
@@ -1076,14 +1084,14 @@ export function generateVerseCode(
     }
     if (runtimePrice) {
       push(
-        `    ${purchaseEntryName}<public>(Player:player, Options:${pascal}RuntimeOptions):void =`,
+        `    ${purchaseEntryName}<public>(Player:player, Options:${offersModule}.${pascal}RuntimeOptions):void =`,
         `        LogDebug("[UTM-PROMPT-TRACE] P4 managed device received key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
         `        LogDebug("[UTM-PROMPT-TRACE] P5 key/product resolved key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
         `            spawn{ExecuteDynamicPurchase${pascal}(Player, Options)}`,
         '',
-        `    ExecuteDynamicPurchase${pascal}(Player:player, Options:${pascal}RuntimeOptions)<suspends>:void =`,
+        `    ExecuteDynamicPurchase${pascal}(Player:player, Options:${offersModule}.${pascal}RuntimeOptions)<suspends>:void =`,
         `        if (DynamicOffer := ${offersModule}.Make${pascal}DynamicOffer(Options)?):`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
@@ -1106,12 +1114,12 @@ export function generateVerseCode(
       const altPascal = toVerseApiStem(alternate.verseKey);
       if (dynamicPriceEnabled(alternate.dynamicOffer)) {
         push(
-          `    Open${altPascal}Purchase<public>(Player:player, Options:${altPascal}RuntimeOptions):void =`,
+          `    Open${altPascal}Purchase<public>(Player:player, Options:${offersModule}.${altPascal}RuntimeOptions):void =`,
           '        Acquired := TryAcquireMarketplaceUI(Player)',
           '        if (Acquired?):',
           `            spawn{ExecuteDynamicPurchase${altPascal}(Player, Options)}`,
           '',
-          `    ExecuteDynamicPurchase${altPascal}(Player:player, Options:${altPascal}RuntimeOptions)<suspends>:void =`,
+          `    ExecuteDynamicPurchase${altPascal}(Player:player, Options:${offersModule}.${altPascal}RuntimeOptions)<suspends>:void =`,
           `        if (DynamicOffer := ${offersModule}.Make${altPascal}DynamicOffer(Options)?):`,
           `            ExecutePurchase(Player, DynamicOffer, "${escapeVerseString(alternate.name)}")`,
           '        else:',

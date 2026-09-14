@@ -26,7 +26,7 @@ export function validateRuntimePrice(value: RuntimeOfferValue): string | undefin
   if (value < MARKETPLACE_CONSTRAINTS.priceMinVBucks || value > MARKETPLACE_CONSTRAINTS.priceMaxVBucks) {
     return `Price must be between ${MARKETPLACE_CONSTRAINTS.priceMinVBucks} and ${MARKETPLACE_CONSTRAINTS.priceMaxVBucks} V-Bucks.`;
   }
-  if (value % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) return `Price must use ${MARKETPLACE_CONSTRAINTS.priceStepVBucks}-V-Buck increments.`;
+  if (value % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) return `Price must use increments of ${MARKETPLACE_CONSTRAINTS.priceStepVBucks} V-Bucks.`;
   return undefined;
 }
 
