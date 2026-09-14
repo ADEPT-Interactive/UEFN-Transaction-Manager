@@ -4,6 +4,10 @@ Transaction Manager 4.3.2 separates human downloads from machine updates and kee
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
+## Current supported release
+
+`v4.3.2` is the sole supported retained public release. The release tag and Git history remain intact; this describes the current public distribution state only.
+
 ## Human downloads
 
 GitHub Releases is the manual distribution surface. The stable aliases are:
@@ -12,7 +16,7 @@ GitHub Releases is the manual distribution surface. The stable aliases are:
 - [Portable ZIP](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest/download/UEFN-Transaction-Manager-Portable.zip)
 - [Latest release page](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/latest)
 
-Starting with 4.2.0, the custom GitHub assets are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, portable metadata, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
+The custom GitHub assets for the current release are only those two unversioned aliases. Versioned installers, blockmaps, `latest.yml`, portable metadata, checksums, and inventories are internal release artifacts or machine-update objects, not release-page clutter.
 
 ## Machine updates
 
@@ -24,7 +28,7 @@ The ADEPT-wide convention is:
 
 `https://updates.adeptinteractive.net/{product}/{channel}/`
 
-The reserved future beta path is `uem/beta/`; Transaction Manager 4.1.0 has no beta UI. The preferred R2 bucket is `adept-software-updates`, with these stable objects:
+A reserved future beta path is `uem/beta/`. The preferred R2 bucket is `adept-software-updates`, with these stable objects:
 
 ```text
 uem/stable/latest.yml
@@ -35,7 +39,18 @@ uem/stable/portable-latest.json
 uem/stable/UEFN-Transaction-Manager-4.3.2-Portable.zip
 ```
 
-Versioned artifacts and manifest history are immutable and retained. `latest.yml` and `portable-latest.json` are the two mutable pointers; their referenced versioned artifacts are immutable.
+The stable R2 origin currently contains only the active 4.3.2 payload and feed objects listed above. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.2 artifacts are immutable for this release. Git history retains earlier source and release records, but older public artifacts are not supported by this document.
+
+### Build and installer contract
+
+The canonical release version is read from `version.json`, and a tagged release must use the matching `v<version>` tag. The release build targets Windows x64 and the NSIS installer is the primary end-user artifact. Run the complete local candidate flow from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release.ps1
+```
+
+The per-user NSIS installer creates Start Menu and desktop shortcuts plus uninstall registrations while preserving Transaction Manager user data on uninstall. Its custom install macro recreates both shortcuts against the current executable and refreshes their AppUserModelID on every installer upgrade. The portable ZIP is a marked `win-unpacked` application directory; portable updates use `portable-latest.json`, staged extraction, rollback, and same-location relaunch without NSIS registrations or shortcuts.
 
 ### Portable application updates
 
@@ -69,9 +84,9 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 ## Recovery and cutoff
 
-Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Do not delete versioned release history during recovery.
+Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the supported 4.3.2 payload until a separately authorized release is ready.
 
-The 4.0.0, 4.0.1, and 4.1.0 releases remain historical compatibility releases. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
+The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; this does not retain older public release artifacts. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
 ## Release checklist
 
