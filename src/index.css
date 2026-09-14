@@ -23,8 +23,8 @@
 
 .utm-native-select:focus,
 .utm-native-select:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.7) !important;
-  outline-offset: 1px;
+  outline: none !important;
+  outline-offset: 0;
   border-color: var(--border-focus) !important;
   box-shadow: none !important;
 }

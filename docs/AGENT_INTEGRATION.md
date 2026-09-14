@@ -22,6 +22,18 @@ UTM's main workspace now exposes **Agent** directly. If the catalog is empty, **
 
 UTM reports these states separately: server running, Agent Skill installed, agent setup ready, and connection verified. **UTM MCP Running** does not mean the current coding agent has loaded the new entry.
 
+## Runtime purchase callers
+
+After the catalog is saved, call `describe_integration_contract` and use the returned device helper, fully qualified runtime options type, and reported option fields. The external caller owns player and game-state calculations; the generated device owns validation, Marketplace offer construction, locking, and result handling.
+
+```verse
+Price := CalculatePriceForPlayer(Player)
+Options := ManagedOffers.AccessPassRuntimeOptions{PriceVBucks := Price}
+Transactions.OpenAccessPassPurchase(Player, Options)
+```
+
+Use the alternate offer stem for a runtime alternate. A quantity-only bundle passes its generated `<Stem>Quantity` fields without `PriceVBucks`; a bundle configured for both runtime price and runtime quantities passes both. The contract may report a fully qualified `dynamicOfferFactory` for lower-level generated-offer construction and diagnostics, but normal project callers should use `Open<Stem>Purchase` so the generated device retains its guard and Marketplace plumbing.
+
 ## Operation preflight and activity state
 
 Every agent operation follows one ordered contract:

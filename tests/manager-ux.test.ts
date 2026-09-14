@@ -71,6 +71,10 @@ test('Manager editors use lifecycle-stable focus, shared dirty confirmation, and
   assert.match(countrySource, /useClickAway/);
   assert.match(countrySource, /onKeyDownCapture/);
   assert.match(countrySource, /countryTriggerRef\.current\?\.focus/);
+  assert.match(modalSource, /<form id="offer-editor-form"/);
+  assert.match(modalSource, /<div id="offer-editor-panel" role="tabpanel"/);
+  assert.match(modalSource, /id="offer-editor-panel"[\s\S]*overflow-y-auto/);
+  assert.match(modalSource, /<\/div>\s*\n\s*\{\/\* Modal Footer Controls \*\//);
 });
 
 test('4.3 creator workflow keeps keys and native assets managed while exposing concise controls', () => {

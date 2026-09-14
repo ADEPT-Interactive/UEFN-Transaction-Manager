@@ -19,8 +19,28 @@ export interface IntegrationContract {
   examples: string[];
 }
 
-function directPurchaseExample(config: ProjectConfig, key: string): string {
-  return `using { /Fortnite.com/Devices }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\nOnOffer(Player:player):void =\n    Transactions.Open${toVerseApiStem(key)}Purchase(Player)`;
+function directPurchaseExample(config: ProjectConfig, key: string, runtimeFields: string[] = []): string {
+  const stem = toVerseApiStem(key);
+  const runtimeValues = runtimeFields.map(field => field === 'PriceVBucks'
+    ? '    RuntimePrice := CalculatePriceForPlayer(Player)'
+    : `    Runtime${field} := Calculate${field}ForPlayer(Player)`);
+  const options = runtimeFields.map(field => `${field} := ${field === 'PriceVBucks' ? 'RuntimePrice' : `Runtime${field}`}`).join(', ');
+  const optionLines = runtimeFields.length
+    ? `${runtimeValues.join('\n')}\n    Options := ${config.offersModuleName}.${stem}RuntimeOptions{${options}}\n`
+    : '';
+  const call = runtimeFields.length
+    ? `Transactions.Open${stem}Purchase(Player, Options)`
+    : `Transactions.Open${stem}Purchase(Player)`;
+  return `using { /Fortnite.com/Devices }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\nOnOffer(Player:player):void =\n${optionLines}    ${call}`;
+}
+
+function runtimeFactoryContract(stem: string, config: ProjectConfig): Record<string, string> {
+  const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
+  return {
+    dynamicOfferFactory: `${config.offersModuleName}.Make${stem}DynamicOffer`,
+    dynamicOfferFactorySignature: `(Options:${runtimeOptionsType})<transacts>:?offer`,
+    dynamicOfferFactoryRole: 'Lower-level generated-offer construction API; use the guarded device purchase helper for normal purchases.',
+  };
 }
 
 function entitlementContract(item: EntitlementItem, config: ProjectConfig): Record<string, unknown> {
@@ -60,7 +80,8 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey).successTriggers : undefined,
     },
     runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
-    dynamicOfferFactory: dynamic ? `Make${stem}DynamicOffer` : undefined,
+    runtimeOptionsFields: dynamic ? ['PriceVBucks'] : undefined,
+    ...(dynamic ? runtimeFactoryContract(stem, config) : {}),
     constraints: item.itemType === 'durable' ? ['Durable ownership is capped at one.'] : [`Consumable quantity must be positive and cannot exceed ${item.maxCount}.`],
   };
 }
@@ -79,13 +100,30 @@ function alternateContract(parent: EntitlementItem, key: string, config: Project
     purchaseHelper: `Open${stem}Purchase`,
     signature: dynamic ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
     runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
-    dynamicOfferFactory: dynamic ? `Make${stem}DynamicOffer` : undefined,
+    runtimeOptionsFields: dynamic ? ['PriceVBucks'] : undefined,
+    ...(dynamic ? runtimeFactoryContract(stem, config) : {}),
   };
 }
 
-function bundleContract(bundle: BundleOffer, config: ProjectConfig): Record<string, unknown> {
+function bundleRuntimeFields(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[]): string[] {
+  const fields: string[] = [];
+  if (dynamicPriceEnabled(bundle.dynamicOffer)) fields.push('PriceVBucks');
+  for (const entry of bundle.items) {
+    if (bundleQuantityBehavior(bundle, entry) !== 'runtime') continue;
+    const key = entry.entitlementId
+      ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
+      : entry.bundleId
+        ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
+        : 'entry';
+    fields.push(`${toVerseApiStem(key)}Quantity`);
+  }
+  return fields;
+}
+
+function bundleContract(bundle: BundleOffer, config: ProjectConfig, entitlements: EntitlementItem[], bundles: BundleOffer[]): Record<string, unknown> {
   const stem = toVerseApiStem(bundle.verseKey);
-  const runtime = isDynamicBundle(bundle) && (dynamicPriceEnabled(bundle.dynamicOffer) || bundle.items.some(entry => bundleQuantityBehavior(bundle, entry) === 'runtime'));
+  const runtimeFields = bundleRuntimeFields(bundle, entitlements, bundles);
+  const runtime = isDynamicBundle(bundle) && runtimeFields.length > 0;
   const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: bundle.id,
@@ -94,7 +132,8 @@ function bundleContract(bundle: BundleOffer, config: ProjectConfig): Record<stri
     purchaseHelper: `Open${stem}Purchase`,
     signature: runtime ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
     runtimeOptionsType: runtime ? runtimeOptionsType : undefined,
-    dynamicOfferFactory: runtime ? `Make${stem}DynamicOffer` : undefined,
+    runtimeOptionsFields: runtime ? runtimeFields : undefined,
+    ...(runtime ? runtimeFactoryContract(stem, config) : {}),
     items: bundle.items,
   };
 }
@@ -171,8 +210,17 @@ export function describeIntegrationContract(
     ],
     entitlements: currentEntitlements.map(item => entitlementContract(item, config)),
     alternateOffers: currentEntitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => alternateContract(item, offer.verseKey, config))),
-    bundles: currentBundles.map(bundle => bundleContract(bundle, config)),
+    bundles: currentBundles.map(bundle => bundleContract(bundle, config, currentEntitlements, currentBundles)),
     storefronts: currentStorefronts.map(group => storefrontContract(group)),
-    examples: currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey)] : [],
+    examples: [
+      ...(currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey)] : []),
+      ...currentEntitlements.filter(item => dynamicPriceEnabled(item.dynamicOffer)).slice(0, 1)
+        .map(item => directPurchaseExample(config, item.verseKey, ['PriceVBucks'])),
+      ...currentEntitlements.flatMap(item => (item.alternateOffers ?? [])
+        .filter(offer => dynamicPriceEnabled(offer.dynamicOffer)).slice(0, 1)
+        .map(offer => directPurchaseExample(config, offer.verseKey, ['PriceVBucks']))),
+      ...currentBundles.filter(bundle => bundleRuntimeFields(bundle, currentEntitlements, currentBundles).length > 0)
+        .map(bundle => directPurchaseExample(config, bundle.verseKey, bundleRuntimeFields(bundle, currentEntitlements, currentBundles))),
+    ],
   };
 }
