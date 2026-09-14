@@ -70,8 +70,8 @@ export async function sha256File(filePath: string): Promise<{ digest: string; si
   return { digest: hash.digest('hex'), size };
 }
 
-async function runPowerShell(script: string, args: string[]) {
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, ...args], { windowsHide: true, maxBuffer: 1024 * 1024 * 8 });
+async function runPowerShell(script: string) {
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, maxBuffer: 1024 * 1024 * 8 });
 }
 
 function quotePowerShell(value: string): string {
@@ -93,8 +93,8 @@ async function listFiles(root: string): Promise<string[]> {
 
 export async function extractPortableArchive(archivePath: string, destinationRoot: string): Promise<PortableArchiveInspection> {
   await fsp.mkdir(destinationRoot, { recursive: true });
-  const script = `$archive = $args[0]; $destination = $args[1]; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force`;
-  await runPowerShell(script, [archivePath, destinationRoot]);
+  const script = `$archive = ${quotePowerShell(archivePath)}; $destination = ${quotePowerShell(destinationRoot)}; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force`;
+  await runPowerShell(script);
   const candidates = [destinationRoot, ...(await fsp.readdir(destinationRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => path.join(destinationRoot, entry.name))];
   for (const root of candidates) {
     const markerPath = path.join(root, 'portable.json');

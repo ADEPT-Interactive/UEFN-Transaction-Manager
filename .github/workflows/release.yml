@@ -45,7 +45,8 @@ jobs:
             "release/UEFN-Transaction-Manager-Installer.exe",
             "release/UEFN-Transaction-Manager-Portable.zip"
           )
-          $hotfixLine = if ($version -eq "4.3.1") { "- Fixed an update-notification issue that could leave older builds showing `"Checking for updates...`" after a newer version was found.`n" } else { "" }
+          $releaseFixLine = if ($version -eq "4.3.2") { "- Fixed portable update extraction so future portable releases can be verified and installed in place correctly.`n" } elseif ($version -eq "4.3.1") { "- Fixed an update-notification issue that could leave older builds showing `"Checking for updates...`" after a newer version was found.`n" } else { "" }
+          $compatibilityNote = if ($version -eq "4.3.2") { "Portable copies older than 4.3.2 may require a one-time manual download because those builds contain an older portable updater implementation." } else { "Existing portable copies from before 4.2.0 may need to download the new Portable ZIP manually once because those older binaries predate the in-place portable updater. Portable copies updated to 4.2.0 and later remain portable." }
           $notes = @"
           # UEFN Transaction Manager $version
 
@@ -66,9 +67,9 @@ jobs:
           - Use the polished project launcher and connected catalog-to-Verse workflow with improved validation and update notifications.
           - Import supported artwork as native UEFN Texture2D assets or adopt an existing project Texture2D.
           - Portable updates now stay portable and replace the application in the same folder after verification.
-          $hotfixLine
+          $releaseFixLine
 
-          Existing portable copies from before 4.2.0 may need to download the new Portable ZIP manually once because those older binaries predate the in-place portable updater. Portable copies updated to 4.2.0 and later remain portable.
+          $compatibilityNote
 
           ## Windows SmartScreen
 

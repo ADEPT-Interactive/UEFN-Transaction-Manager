@@ -1,6 +1,6 @@
 {
   "name": "uefn-entitlement-manager",
-  "version": "4.3.1",
+  "version": "4.3.2",
   "private": true,
   "description": "Project-scoped In-Island Transactions and Verse transaction manager for UEFN creators",
   "main": "dist-electron/main.cjs",
