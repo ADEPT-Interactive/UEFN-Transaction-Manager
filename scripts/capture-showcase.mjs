@@ -266,6 +266,7 @@ let cdp;
 try {
   const showcaseRuntimeRoot = path.join(root, 'docs', 'showcase', 'runtime');
   const fixtureRoot = path.join(showcaseRuntimeRoot, 'Creator Commerce Demo');
+  const showcaseAgentHome = path.join(showcaseStateRoot, 'agent-home');
   fs.rmSync(showcaseRuntimeRoot, { recursive: true, force: true });
   const fixtureCommand = process.platform === 'win32'
     ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', 'npm run showcase:fixture']]
@@ -279,7 +280,7 @@ try {
   const electronPath = path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
   child = spawn(electronPath, [`--remote-debugging-port=${cdpPort}`, '.'], {
     cwd: root,
-    env: { ...process.env, APPDATA: showcaseStateRoot, LOCALAPPDATA: showcaseStateRoot, UEM_SHOWCASE_MODE: '1', UEM_SHOWCASE_STATE_ROOT: showcaseStateRoot, UEM_TEST_MODE: '1' },
+    env: { ...process.env, APPDATA: showcaseStateRoot, LOCALAPPDATA: showcaseStateRoot, UEM_AGENT_HOME: showcaseAgentHome, UEM_SHOWCASE_MODE: '1', UEM_SHOWCASE_STATE_ROOT: showcaseStateRoot, UEM_TEST_MODE: '1' },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -302,6 +303,8 @@ try {
   const showcaseMcpPort = await freeLoopbackPort();
   const agentConfigResult = await cdp.evaluate(`fetch('/api/agent-integration/config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ port: ${showcaseMcpPort} }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
   if (!agentConfigResult?.body?.success || !agentConfigResult.body.status?.running) throw new Error(`Showcase UTM MCP did not start: ${JSON.stringify(agentConfigResult)}`);
+  const agentSetupResult = await cdp.evaluate(`fetch('/api/agent-integration/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ agent: 'codex' }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
+  if (!agentSetupResult?.body?.success || !agentSetupResult.body.skill?.upToDate) throw new Error(`Showcase Codex Agent Skill setup did not complete: ${JSON.stringify(agentSetupResult)}`);
   await waitFor(cdp, "document.body.innerText.includes('This project is open and fully connected')", 'healthy connected state');
 
   await capture(cdp, 'catalog-overview', { width: 1440, height: 980 });

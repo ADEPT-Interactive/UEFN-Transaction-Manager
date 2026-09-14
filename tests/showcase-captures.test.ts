@@ -75,6 +75,8 @@ test('showcase capture selects the deterministic creator project before opening 
   const captureSource = read('scripts/capture-showcase.mjs');
   assert.match(captureSource, /clickText\(cdp, 'Creator Commerce Demo', '#projects \.project'\)/);
   assert.match(captureSource, /fs\.rmSync\(showcaseRuntimeRoot, \{ recursive: true, force: true \}\)/);
+  assert.match(captureSource, /UEM_AGENT_HOME: showcaseAgentHome/);
+  assert.match(captureSource, /api\/agent-integration\/setup/);
   assert.match(captureSource, /verifyAgentModalLayout/);
   assert.match(captureSource, /125% scaling/);
   assert.match(captureSource, /150% scaling/);
