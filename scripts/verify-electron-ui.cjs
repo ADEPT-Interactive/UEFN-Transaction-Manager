@@ -326,6 +326,201 @@ async function assertDialogLayout(dialogSelector, bodySelector, description, req
   }
 }
 
+async function offerEditorGeometry() {
+  return evaluate(`() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="entitlement-dialog-title"]');
+    const tabList = dialog?.querySelector('[role="tablist"]');
+    const panel = dialog?.querySelector('#offer-editor-panel');
+    const footer = dialog?.querySelector('#offer-editor-footer');
+    const rect = element => {
+      if (!element) return null;
+      const value = element.getBoundingClientRect();
+      return { left: value.left, top: value.top, right: value.right, bottom: value.bottom, width: value.width, height: value.height };
+    };
+    const tabReports = [...(tabList?.querySelectorAll('[role="tab"]') ?? [])].map(tab => {
+      const label = tab.querySelector('span');
+      return { rect: rect(tab), labelRect: rect(label), label: label?.textContent?.trim() ?? '', height: tab.getBoundingClientRect().height, scrollWidth: tab.scrollWidth, clientWidth: tab.clientWidth };
+    });
+    const buttons = [...(footer?.querySelectorAll('button') ?? [])];
+    const save = buttons.find(button => button.type === 'submit');
+    const cancel = buttons.find(button => button.textContent?.trim() === 'Cancel');
+    const footerStyle = footer ? getComputedStyle(footer) : null;
+    return {
+      dialog: rect(dialog),
+      tabList: rect(tabList),
+      footer: rect(footer),
+      save: rect(save),
+      cancel: rect(cancel),
+      tabs: tabReports,
+      tabListScrollWidth: tabList?.scrollWidth ?? 0,
+      tabListClientWidth: tabList?.clientWidth ?? 0,
+      tabListOverflowX: tabList ? getComputedStyle(tabList).overflowX : '',
+      footerParent: footer?.parentElement?.tagName ?? '',
+      footerInsidePanel: Boolean(footer && panel?.contains(footer)),
+      footerPaddingLeft: Number.parseFloat(footerStyle?.paddingLeft ?? '0'),
+      footerPaddingRight: Number.parseFloat(footerStyle?.paddingRight ?? '0'),
+      footerPaddingBottom: Number.parseFloat(footerStyle?.paddingBottom ?? '0'),
+    };
+  }`);
+}
+
+function assertRectClose(actual, expected, field, description, tolerance = 1) {
+  assert.ok(Math.abs(actual[field] - expected[field]) <= tolerance, `${description} ${field} changed from ${expected[field]} to ${actual[field]} (tolerance ${tolerance}px)`);
+}
+
+function assertOfferGeometryParity(measurements, description) {
+  assert.ok(measurements.length > 1, `${description} should include more than one geometry sample`);
+  const baseline = measurements[0];
+  for (const [index, measurement] of measurements.entries()) {
+    for (const field of ['top', 'bottom', 'height', 'width']) assertRectClose(measurement.dialog, baseline.dialog, field, `${description} dialog sample ${index + 1}`);
+    for (const field of ['top', 'bottom']) assertRectClose(measurement.tabList, baseline.tabList, field, `${description} tab-list sample ${index + 1}`);
+    for (const field of ['top', 'bottom']) assertRectClose(measurement.footer, baseline.footer, field, `${description} footer sample ${index + 1}`);
+  }
+}
+
+async function assertOfferFooterLayout(description) {
+  const report = await offerEditorGeometry();
+  assert.ok(report.dialog && report.footer && report.save && report.cancel, `${description} should expose dialog footer actions`);
+  assert.equal(report.footerParent, 'FORM', `${description} footer must stay outside the scroll panel but inside the form`);
+  assert.equal(report.footerInsidePanel, false, `${description} footer must not be inside the scroll owner`);
+  assert.ok(report.footerPaddingLeft >= 20 && report.footerPaddingRight >= 20, `${description} footer must provide meaningful horizontal inset: ${JSON.stringify(report)}`);
+  assert.ok(report.footerPaddingBottom >= 12, `${description} footer must provide meaningful bottom inset: ${JSON.stringify(report)}`);
+  assert.ok(report.save.right <= report.dialog.right - 18, `${description} Save Offer must have a right inset: ${JSON.stringify(report)}`);
+  assert.ok(report.save.bottom <= report.dialog.bottom - 12, `${description} Save Offer must have a bottom inset: ${JSON.stringify(report)}`);
+  for (const [label, action] of [['Save Offer', report.save], ['Cancel', report.cancel]]) {
+    assert.ok(action.left >= report.dialog.left - 1 && action.right <= report.dialog.right + 1 && action.top >= report.dialog.top - 1 && action.bottom <= report.dialog.bottom + 1, `${description} ${label} must remain inside the dialog: ${JSON.stringify(report)}`);
+  }
+}
+
+async function assertOfferTabLayout(description, expectedCount) {
+  const report = await offerEditorGeometry();
+  assert.equal(report.tabs.length, expectedCount, `${description} should expose ${expectedCount} visible tabs`);
+  assert.ok(report.tabListScrollWidth <= report.tabListClientWidth + 1, `${description} tab list must not overflow horizontally: ${JSON.stringify(report)}`);
+  assert.equal(report.tabListOverflowX, 'hidden', `${description} tab list must not own a horizontal scrollbar`);
+  const heights = report.tabs.map(tab => tab.height);
+  assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, `${description} tab heights must remain uniform: ${JSON.stringify(report)}`);
+  for (const tab of report.tabs) {
+    assert.ok(tab.rect.left >= report.tabList.left - 1 && tab.rect.right <= report.tabList.right + 1, `${description} ${tab.label} tab must fit inside the tab list: ${JSON.stringify(report)}`);
+    assert.ok(tab.labelRect.left >= tab.rect.left - 1 && tab.labelRect.right <= tab.rect.right + 1, `${description} ${tab.label} label must not be clipped: ${JSON.stringify(report)}`);
+    assert.ok(tab.scrollWidth <= tab.clientWidth + 1, `${description} ${tab.label} button content must not overflow: ${JSON.stringify(report)}`);
+  }
+}
+
+async function assertTextFieldFocus(rootSelector, description) {
+  windowRef.show();
+  windowRef.focus();
+  const report = await evaluate(`() => {
+    const root = document.querySelector(${JSON.stringify(rootSelector)});
+    const fields = root ? [...root.querySelectorAll('input.utm-native-field')] : [];
+    return fields.map(element => {
+      element.focus();
+      const style = getComputedStyle(element);
+      return { label: element.getAttribute('aria-label') || element.id || element.value, outlineStyle: style.outlineStyle, outlineOffset: style.outlineOffset, borderColor: style.borderColor, boxShadow: style.boxShadow, active: document.activeElement === element };
+    });
+  }`);
+  windowRef.hide();
+  assert.ok(report.length > 0, `${description} should expose shared text fields`);
+  for (const field of report) {
+    assert.equal(field.active, true, `${description} ${field.label} should receive focus`);
+    assert.equal(field.outlineStyle, 'none', `${description} ${field.label} should not render a native outline`);
+    assert.equal(field.outlineOffset, '0px', `${description} ${field.label} should not render an outline offset`);
+    assert.doesNotMatch(field.borderColor, /245,\s*158,\s*11|234,\s*88,\s*12|255,\s*165,\s*0/i, `${description} ${field.label} should not use a yellow/orange focus border`);
+    assert.notEqual(field.borderColor, 'rgb(71, 85, 105)', `${description} ${field.label} should use the canonical cyan focus border`);
+    assert.equal(field.boxShadow, 'none', `${description} ${field.label} should not render a focus shadow`);
+  }
+}
+
+async function setTextareaValue(selector, value) {
+  const changed = await evaluate(`() => {
+    const textarea = document.querySelector(${JSON.stringify(selector)});
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    if (!textarea || !setter) return false;
+    setter.call(textarea, ${JSON.stringify(value)});
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }`);
+  assert.equal(changed, true, `the ${selector} textarea should accept fixture content`);
+  await wait(80);
+}
+
+async function assertTextareaPresentation(rootSelector = '[role="dialog"][aria-labelledby="entitlement-dialog-title"]', description = 'Offer Editor textareas', requireOverflow = true) {
+  windowRef.show();
+  windowRef.focus();
+  const report = await evaluate(`() => {
+    const root = document.querySelector(${JSON.stringify(rootSelector)});
+    return root ? [...root.querySelectorAll('textarea')].map(textarea => {
+      const shell = textarea.closest('.utm-native-textarea-shell');
+      textarea.focus();
+      const textareaStyle = getComputedStyle(textarea);
+      const shellStyle = shell ? getComputedStyle(shell) : null;
+      textarea.scrollTop = textarea.scrollHeight;
+      return {
+        label: textarea.getAttribute('aria-label') || textarea.id || 'textarea',
+        scrollHeight: textarea.scrollHeight,
+        clientHeight: textarea.clientHeight,
+        scrollTop: textarea.scrollTop,
+        scrollWidth: textarea.scrollWidth,
+        clientWidth: textarea.clientWidth,
+        resize: textareaStyle.resize,
+        overflowX: textareaStyle.overflowX,
+        overflowY: textareaStyle.overflowY,
+        outlineStyle: textareaStyle.outlineStyle,
+        boxShadow: textareaStyle.boxShadow,
+        textareaBorderWidth: textareaStyle.borderTopWidth,
+        shellOverflow: shellStyle?.overflow ?? '',
+        shellRadius: shellStyle?.borderTopLeftRadius ?? '',
+        shellBorderStyle: shellStyle?.borderTopStyle ?? '',
+        shellBorderColor: shellStyle?.borderTopColor ?? '',
+      };
+    }) : [];
+  }`);
+  windowRef.hide();
+  assert.ok(report.length > 0, `${description} should render at least one textarea inside a shell`);
+  if (requireOverflow) assert.ok(report.some(item => item.scrollHeight > item.clientHeight && item.scrollTop > 0), `${description} should retain internal vertical scrolling for multiline content: ${JSON.stringify(report)}`);
+  for (const item of report) {
+    assert.ok(item.scrollWidth <= item.clientWidth + 1, `${description} ${item.label} should not overflow horizontally: ${JSON.stringify(item)}`);
+    assert.equal(item.resize, 'none', `${description} ${item.label} should not expose a native resize grip: ${JSON.stringify(item)}`);
+    assert.equal(item.overflowX, 'hidden', `${description} ${item.label} should clip horizontal overflow: ${JSON.stringify(item)}`);
+    assert.equal(item.overflowY, 'auto', `${description} ${item.label} should retain vertical scrolling: ${JSON.stringify(item)}`);
+    assert.equal(item.outlineStyle, 'none', `${description} ${item.label} should not render a native outline: ${JSON.stringify(item)}`);
+    assert.equal(item.boxShadow, 'none', `${description} ${item.label} should not render a focus shadow: ${JSON.stringify(item)}`);
+    assert.equal(item.textareaBorderWidth, '0px', `${description} ${item.label} textarea should not own the visible outer border: ${JSON.stringify(item)}`);
+    assert.equal(item.shellOverflow, 'hidden', `${description} ${item.label} shell should clip its rounded boundary: ${JSON.stringify(item)}`);
+    assert.notEqual(item.shellRadius, '0px', `${description} ${item.label} shell should retain rounded corners: ${JSON.stringify(item)}`);
+    assert.equal(item.shellBorderStyle, 'solid', `${description} ${item.label} shell should own the visible border: ${JSON.stringify(item)}`);
+    assert.notEqual(item.shellBorderColor, 'rgb(71, 85, 105)', `${description} ${item.label} shell should use the canonical cyan focus border: ${JSON.stringify(item)}`);
+  }
+}
+
+async function assertSubtitleTypographyStable() {
+  const readTypography = () => evaluate(`() => {
+    const subtitle = [...document.querySelectorAll('[role="dialog"] p')].find(element => element.textContent?.trim() === 'Add the storefront details players will see.');
+    if (!subtitle) return null;
+    const style = getComputedStyle(subtitle);
+    const rect = subtitle.getBoundingClientRect();
+    return { fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing, lineHeight: style.lineHeight, color: style.color, rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height } };
+  }`);
+  const before = await readTypography();
+  assert.ok(before, 'Offer Editor subtitle should render before Advanced is enabled');
+  await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Advanced\')', 'the entitlement advanced controls');
+  await waitForExpression('() => document.querySelector(\'[role="tablist"]\')?.querySelectorAll(\'[role="tab"]\').length === 4', 'the Advanced offer tabs');
+  const after = await readTypography();
+  assert.ok(after, 'Offer Editor subtitle should render after Advanced is enabled');
+  for (const field of ['fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'lineHeight', 'color']) assert.equal(after[field], before[field], `Offer Editor subtitle ${field} must not change when Advanced is toggled`);
+  for (const field of ['left', 'top', 'width', 'height']) assertRectClose(after.rect, before.rect, field, `Offer Editor subtitle geometry ${field}`, 1);
+}
+
+async function assertStableOfferTabs() {
+  const tabIds = ['offer-tab-general', 'offer-tab-icon', 'offer-tab-behavior', 'offer-tab-hooks'];
+  const measurements = [];
+  for (const tabId of tabIds) {
+    await click(`() => document.getElementById(${JSON.stringify(tabId)})`, `${tabId} tab`);
+    await waitForExpression(`() => document.getElementById(${JSON.stringify(tabId)})?.getAttribute('aria-selected') === 'true'`, `${tabId} selection`);
+    measurements.push(await offerEditorGeometry());
+  }
+  assertOfferGeometryParity(measurements, 'Offer Editor tab switching');
+}
+
 async function assertSelectFocus() {
   // Chromium does not activate the :focus pseudo-class for a fully hidden
   // native window. Briefly showing the already-rendered window lets this
@@ -401,7 +596,13 @@ async function runRendererAssertions() {
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the entitlement editor');
   assert.match(await evaluate('() => document.body.innerText'), /increments of 50/i);
   assert.doesNotMatch(await evaluate('() => document.body.innerText'), /step 50/i);
-  await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Advanced\')', 'the entitlement advanced controls');
+  await assertOfferTabLayout('Offer Editor Advanced off', 3);
+  await assertOfferFooterLayout('Offer Editor footer');
+  await assertTextFieldFocus('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', 'Offer Editor text focus');
+  await setTextareaValue('#offer-full-description', Array.from({ length: 18 }, (_, index) => `Demo description line ${index + 1}: player-facing entitlement details remain readable inside the fixed editor.`).join('\n'));
+   await assertTextareaPresentation();
+  await assertSubtitleTypographyStable();
+  await assertOfferTabLayout('Offer Editor Advanced on', 4);
   await waitForExpression('() => [...document.querySelectorAll(\'button\')].filter(element => (element.innerText ?? \'\').includes(\'Choose countries\')).length === 1', 'the normal restriction editor');
   await selectCountry(0, 'CA');
   await selectCountry(0, 'US');
@@ -415,8 +616,12 @@ async function runRendererAssertions() {
   assert.equal(offerFlags.length, 6, 'normal and alternate restrictions should retain CA, US, and JP');
   assertFlagReports(offerFlags, 'normal and alternate restrictions');
   await assertSelectFocus();
+   await assertTextFieldFocus('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', 'Offer Editor and alternate-offer text focus');
+   await assertTextareaPresentation('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', 'Offer Editor and alternate-offer textareas');
   await assertDialogLayout('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', '#offer-editor-panel', 'the entitlement editor');
   await assertViewportMatrix('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', '#offer-editor-panel', 'the entitlement editor');
+  await assertOfferFooterLayout('Offer Editor footer after body scrolling');
+  await assertStableOfferTabs();
   await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the entitlement editor close action');
   await discardDialogChanges();
 
@@ -429,6 +634,8 @@ async function runRendererAssertions() {
   assert.equal(bundleFlags.length, 3, 'bundle restrictions should retain CA, US, and JP');
   assertFlagReports(bundleFlags, 'bundle restrictions');
   await assertSelectFocus();
+   await assertTextFieldFocus('[role="dialog"][aria-labelledby="bundle-dialog-title"]', 'Bundle Editor text focus');
+   await assertTextareaPresentation('[role="dialog"][aria-labelledby="bundle-dialog-title"]', 'Bundle Editor textarea', false);
   await assertDialogLayout('[role="dialog"][aria-labelledby="bundle-dialog-title"]', 'form > div.min-h-0', 'the bundle editor');
   await click('() => document.querySelector(\'[aria-label="Close bundle editor"]\')', 'the bundle editor close action');
   await discardDialogChanges();
@@ -454,8 +661,30 @@ async function runRendererAssertions() {
   windowRef.webContents.setZoomFactor(1);
   windowRef.setSize(1440, 900);
   await wait(80);
-  await click('() => document.querySelector(\'[aria-label="Close creation chooser"]\')', 'the creation chooser close action');
-  await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="creation-chooser-title"]\')', 'the creation chooser to close');
+  await click('() => [...document.querySelectorAll(\'button[aria-expanded]\')].find(element => element.innerText?.trim() === \'Durable entitlement\')', 'the durable offer template');
+  await click(buttonByText('Use this template', true), 'the creation template');
+  await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the created offer editor');
+  await assertOfferTabLayout('Create Offer initial step', 3);
+  await assertOfferFooterLayout('Create Offer footer');
+  await wait(300);
+  const creationMeasurements = [await offerEditorGeometry()];
+  const creationNextState = await evaluate(`() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="entitlement-dialog-title"]');
+    const next = [...(dialog?.querySelectorAll('button') ?? [])].find(element => (element.innerText ?? '').trim().startsWith('Next'));
+    return { disabled: next?.disabled ?? null, issues: [...(dialog?.querySelectorAll('[role="alert"], [role="status"]') ?? [])].map(element => element.innerText?.trim()).filter(Boolean) };
+  }`);
+  assert.equal(creationNextState.disabled, false, `Create Offer first Next action should be enabled for the configured template: ${JSON.stringify(creationNextState)}`);
+  await click(buttonByText('Next'), 'the Create Offer next step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-icon\')?.getAttribute(\'aria-selected\') === \'true\'', 'the Create Offer icon step');
+  creationMeasurements.push(await offerEditorGeometry());
+  await click(buttonByText('Next'), 'the Create Offer final step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-behavior\')?.getAttribute(\'aria-selected\') === \'true\'', 'the Create Offer behavior step');
+  creationMeasurements.push(await offerEditorGeometry());
+  assertOfferGeometryParity(creationMeasurements, 'Create Offer step switching');
+  await click(buttonByText('Back', true), 'the Create Offer back action');
+  await waitForExpression('() => document.getElementById(\'offer-tab-icon\')?.getAttribute(\'aria-selected\') === \'true\'', 'the Create Offer back navigation');
+  await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created offer editor close action');
+  await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the created offer editor to close');
 
   await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Need Help?\')', 'the setup dialog');
   await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Need Help?\'', 'the setup dialog');

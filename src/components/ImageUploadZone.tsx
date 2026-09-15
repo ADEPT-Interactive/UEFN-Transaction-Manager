@@ -323,7 +323,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
       <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
         <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">Adopt an existing UEFN Texture2D</label>
         <div className="mt-2 flex gap-2">
-          <input aria-label="Existing UEFN Texture2D object path" value={sourceAssetPath} onChange={event => setSourceAssetPath(event.target.value)} placeholder="/ProjectMount/OldShopIcons/Vip.Vip" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-mono text-cyan-200" />
+          <input aria-label="Existing UEFN Texture2D object path" value={sourceAssetPath} onChange={event => setSourceAssetPath(event.target.value)} placeholder="/ProjectMount/OldShopIcons/Vip.Vip" className="utm-native-field min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-mono text-cyan-200" />
           <button type="button" onClick={() => void adoptExistingTexture()} disabled={!nativeTextureImportAvailable || !sourceAssetPath.trim() || isUploading} className="shrink-0 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40">Adopt</button>
         </div>
         <p className="mt-1 text-[11px] leading-4 text-slate-500">UTM asks the verified editor bridge to export the asset, then saves a managed copy and preview under this folder.</p>
@@ -335,7 +335,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
           <button type="button" onClick={() => onTextureRefChange(defaultVerseRef)} className="text-[10px] text-cyan-400 hover:underline">Reset to default ({defaultVerseRef})</button>
         </label>
         <div className="relative">
-          <input type="text" value={currentTextureRef} onChange={(event) => onTextureRefChange(event.target.value)} placeholder={defaultVerseRef} className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 transition-colors" />
+          <input type="text" value={currentTextureRef} onChange={(event) => onTextureRefChange(event.target.value)} placeholder={defaultVerseRef} className="utm-native-field w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-cyan-300 transition-colors" />
           <Layers className="w-4 h-4 text-slate-500 absolute right-3 top-2.5 pointer-events-none" />
         </div>
       </div>
