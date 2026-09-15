@@ -31,6 +31,17 @@ $extractRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-test-
 $bridgeProcess = $null
 $oldEnvironment = @{}
 
+function Restore-ProcessEnvironment {
+    param([Parameter(Mandatory = $true)] [string]$Name)
+    $value = $oldEnvironment[$Name]
+    if ($null -eq $value) {
+        Remove-Item -Path "Env:$Name" -ErrorAction SilentlyContinue
+    }
+    else {
+        [Environment]::SetEnvironmentVariable($Name, $value, "Process")
+    }
+}
+
 function Get-PeMachine {
     param([Parameter(Mandatory = $true)] [string]$Path)
     $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
@@ -215,7 +226,17 @@ try {
 
     $editorHeaders = @{ "X-UEM-Editor-Token" = $env:UEM_EDITOR_TOKEN }
     $editorSessionBody = @{ contentRoot = $bridgeRoot; assetMount = "/ReleaseTest"; projectReady = $true; processId = $PID } | ConvertTo-Json
-    $editorSession = Invoke-RestMethod -Uri "$baseUri/api/editor/session" -Method Post -Headers $editorHeaders -ContentType "application/json" -Body $editorSessionBody -TimeoutSec 3
+    $editorSession = $null
+    for ($attempt = 0; $attempt -lt 8 -and -not $editorSession; $attempt++) {
+        try {
+            $editorSession = Invoke-RestMethod -Uri "$baseUri/api/editor/session" -Method Post -Headers $editorHeaders -ContentType "application/json" -Body $editorSessionBody -TimeoutSec 3
+        }
+        catch {
+            $errorText = "$($_.ErrorDetails.Message) $($_.Exception.Message)"
+            if ($errorText -notmatch 'reporting UEFN editor process is not running' -or $attempt -eq 7) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
     if (-not $editorSession.success) { throw "The packaged release could not establish its verified editor test session." }
 
     $generatePngScript = @'
@@ -315,7 +336,7 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     Invoke-RestMethod -Uri "$baseUri/api/session/shutdown" -Method Post -Headers $headers -ContentType "application/json" -Body "{}" -TimeoutSec 3 | Out-Null
     if (-not $bridgeProcess.WaitForExit(5000)) { throw "The Electron-owned bridge did not exit after authenticated shutdown." }
     $bridgeProcess = $null
-    [Environment]::SetEnvironmentVariable("ELECTRON_RUN_AS_NODE", $oldEnvironment["ELECTRON_RUN_AS_NODE"], "Process")
+    Restore-ProcessEnvironment -Name "ELECTRON_RUN_AS_NODE"
 
     # Exercise the same renderer assertions against the extracted packaged app.
     # The test still creates its own deterministic showcase fixture and never
@@ -347,7 +368,7 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
 }
 finally {
     if ($bridgeProcess -and -not $bridgeProcess.HasExited) { Stop-Process -Id $bridgeProcess.Id -Force }
-    foreach ($name in $oldEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name], "Process") }
+    foreach ($name in $oldEnvironment.Keys) { Restore-ProcessEnvironment -Name $name }
     if (-not $KeepTestFiles -and (Test-Path -LiteralPath $extractRoot)) {
         Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
