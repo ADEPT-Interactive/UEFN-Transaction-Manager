@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { describeIntegrationContract } from '../src/services/integrationContract';
 import { defaultProjectConfig } from '../src/services/catalogSession';
@@ -6,6 +8,7 @@ import { generateVerseCode } from '../src/services/verseGenerator';
 import { normalizeEntitlement, normalizeBundle } from '../src/services/projectSchema';
 
 const customOffersModule = 'CustomOffers';
+const canonicalVersion = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'version.json'), 'utf8')).version as string;
 
 function escaped(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -66,10 +69,10 @@ test('integration contract is derived from generator naming and exposes a qualif
     allOffers: [{ entitlementId: staticEntitlement.id }, { bundleId: staticBundle.id }],
     focused: [{ id: 'store-1', verseKey: 'featured', name: 'Featured', entries: [{ entitlementId: staticEntitlement.id, offerVerseKey: 'runtime_alt' }], generateTriggerBinding: true }],
   };
-  const contract = describeIntegrationContract(config, entitlements, bundles, storefrontMembership, '4.3.4');
+  const contract = describeIntegrationContract(config, entitlements, bundles, storefrontMembership, canonicalVersion);
   const verse = generateVerseCode(entitlements, bundles, config, storefrontMembership, []);
 
-  assert.equal(contract.generatorVersion, '4.3.4');
+  assert.equal(contract.generatorVersion, canonicalVersion);
   assert.equal(contract.managedVerseFile, 'managed_transactions.verse');
   assert.ok(contract.entitlements.some(item => (item.primaryPurchaseHelper as { name?: string })?.name === 'OpenStaticAccessPurchase'));
 

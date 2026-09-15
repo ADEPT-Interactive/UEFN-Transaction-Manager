@@ -7,6 +7,8 @@ const canonical = JSON.parse(fs.readFileSync(path.join(toolRoot, 'version.json')
 const packageVersion = JSON.parse(fs.readFileSync(path.join(toolRoot, 'package.json'), 'utf8')).version;
 const readme = fs.readFileSync(path.join(toolRoot, 'README.md'), 'utf8');
 const userReadme = fs.readFileSync(path.join(toolRoot, 'README-USER.txt'), 'utf8');
+const distribution = fs.readFileSync(path.join(toolRoot, 'docs', 'DISTRIBUTION.md'), 'utf8');
+const publicContract = fs.readFileSync(path.join(toolRoot, 'docs', 'GENERATED_PUBLIC_API_CONTRACT.md'), 'utf8');
 const builderConfig = JSON.parse(fs.readFileSync(path.join(toolRoot, 'electron-builder.json'), 'utf8'));
 
 const values = { canonical, packageVersion };
@@ -25,5 +27,9 @@ for (const [label, content] of Object.entries({ readme, userReadme })) {
 if (!readme.includes(`Version ${canonical}`) || !readme.includes(`version-${canonical}`)) throw new Error('README current version badge is not canonical.');
 if (!readme.includes('https://discord.gg/playadept') || !readme.includes('790712680482603038')) throw new Error('README Discord identity is not canonical.');
 if (/stable GitHub Releases updates|GitHub is the automatic updater backend/i.test(readme)) throw new Error('README still describes GitHub as the automatic updater backend.');
+const currentDistributionLine = distribution.split('\n').find(line => /current supported public release/i.test(line)) ?? '';
+if (!currentDistributionLine.includes(`v${canonical}`)) throw new Error('Distribution documentation current-release prose is not canonical.');
+if (!publicContract.includes(`Status: Current v${canonical} public release contract`)) throw new Error('Generated public contract current-release prose is not canonical.');
+if (/pending \d+\.\d+\.\d+ stabilization branch/i.test(publicContract)) throw new Error('Generated public contract still describes a pending stabilization branch.');
 
 console.log(`Version consistency verified: ${canonical}`);

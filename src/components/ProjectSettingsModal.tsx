@@ -86,7 +86,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               type="text"
               readOnly
               value={formData.contentFolderPath}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-400 font-medium"
+              className="utm-native-field w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-400 font-medium"
             />
             <p className="text-[11px] text-slate-500 mt-1">
               Locked to the project selected in Transaction Manager's boot menu. Restart Transaction Manager to switch projects safely.
@@ -110,7 +110,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               value={formData.assetFolderName}
               onChange={(e) => setFormData(prev => ({ ...prev, assetFolderName: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') }))}
               placeholder="EntitlementIcons"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-400 font-bold"
+              className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white font-bold"
             />
             <p className="text-[11px] text-slate-400">
               Folder created inside <code className="text-cyan-300">Content/</code> to house all entitlement icons (e.g. <code className="text-cyan-300">Content/{formData.assetFolderName || 'EntitlementIcons'}/</code>). Verse references resolve as <code className="text-cyan-300">{formData.assetFolderName || 'EntitlementIcons'}.ItemName</code>.
@@ -130,7 +130,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               value={formData.targetVerseFileName}
               onChange={(e) => setFormData(prev => ({ ...prev, targetVerseFileName: e.target.value }))}
               placeholder="managed_transactions.verse"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-400"
+              className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white"
             />
           </div>
 
@@ -144,7 +144,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
                 type="text"
                 value={formData.deviceClassName}
                 onChange={(e) => setFormData(prev => ({ ...prev, deviceClassName: e.target.value }))}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white"
+                className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white"
               />
             </div>
             <div>
@@ -155,12 +155,12 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
                 type="text"
                 value={formData.entitlementsModuleName}
                 onChange={(e) => setFormData(prev => ({ ...prev, entitlementsModuleName: e.target.value }))}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white"
+                className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white"
               />
             </div>
-            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Info Module</label><input type="text" value={formData.infoModuleName} onChange={e => setFormData(previous => ({ ...previous, infoModuleName: e.target.value }))} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
-            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Prices Module</label><input type="text" value={formData.pricesModuleName} onChange={e => setFormData(previous => ({ ...previous, pricesModuleName: e.target.value }))} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
-            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Offers Module</label><input type="text" value={formData.offersModuleName} onChange={e => setFormData(previous => ({ ...previous, offersModuleName: e.target.value }))} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
+            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Info Module</label><input type="text" value={formData.infoModuleName} onChange={e => setFormData(previous => ({ ...previous, infoModuleName: e.target.value }))} className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
+            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Prices Module</label><input type="text" value={formData.pricesModuleName} onChange={e => setFormData(previous => ({ ...previous, pricesModuleName: e.target.value }))} className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
+            <div><label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Offers Module</label><input type="text" value={formData.offersModuleName} onChange={e => setFormData(previous => ({ ...previous, offersModuleName: e.target.value }))} className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-white" /></div>
           </div>
           </div>}
 

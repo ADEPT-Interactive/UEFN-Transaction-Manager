@@ -6,7 +6,7 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '..');
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8');
 
-test('4.3.4 candidate preserves the ADEPT distribution contract and renamed human aliases', () => {
+test('canonical release metadata preserves the ADEPT distribution contract and renamed human aliases', () => {
   const version = JSON.parse(read('version.json')).version as string;
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
@@ -14,7 +14,9 @@ test('4.3.4 candidate preserves the ADEPT distribution contract and renamed huma
   const installerScript = read('electron/installer.nsh');
   const readme = read('README.md');
   const userReadme = read('README-USER.txt');
-  assert.equal(version, '4.3.4');
+  const distribution = read('docs/DISTRIBUTION.md');
+  const publicContract = read('docs/GENERATED_PUBLIC_API_CONTRACT.md');
+  assert.match(version, /^\d+\.\d+\.\d+$/);
   assert.equal(pkg.version, version);
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);
@@ -47,6 +49,10 @@ test('4.3.4 candidate preserves the ADEPT distribution contract and renamed huma
   assert.match(upgradeGate, /Invoke-Uninstall/);
   assert.match(upgradeGate, /PendingConsumeIntents/);
   assert.match(read('scripts/verify-release.ps1'), /projectReady/);
+  const currentDistributionLine = distribution.split('\n').find(line => /current supported public release/i.test(line)) ?? '';
+  assert.ok(currentDistributionLine.includes(`v${version}`), 'distribution current-release prose must track version.json');
+  assert.ok(publicContract.includes(`Status: Current v${version} public release contract`), 'generated public contract current-release prose must track version.json');
+  assert.doesNotMatch(publicContract, /pending \d+\.\d+\.\d+ stabilization branch/i);
 });
 
 test('creator-facing MCP terminology separates human product prose from technical server identifiers', () => {

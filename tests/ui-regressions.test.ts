@@ -242,6 +242,32 @@ test('native select focus uses the shared border without a detached platform hal
   assert.doesNotMatch(focusRule, /outline:\s*2px/);
 });
 
+test('4.3.5 Offer Editor polish has stable geometry, shared text focus, and clipped textareas', () => {
+  const stylesheet = read('src/index.css');
+  const modalSource = read('src/components/EntitlementModal.tsx');
+  const bundleSource = read('src/components/BundleManager.tsx');
+  const rendererSource = read('scripts/verify-electron-ui.cjs');
+  assert.match(stylesheet, /\.utm-native-field:focus,[\s\S]*outline:\s*none\s*!important/);
+  assert.match(stylesheet, /\.utm-native-field:focus,[\s\S]*border-color:\s*var\(--border-focus\)\s*!important/);
+  assert.match(stylesheet, /\.utm-native-field:focus,[\s\S]*box-shadow:\s*none\s*!important/);
+  assert.match(stylesheet, /\.utm-native-textarea-shell:focus-within[\s\S]*border-color:\s*var\(--border-focus\)\s*!important/);
+  assert.match(modalSource, /h-\[90vh\][\s\S]*max-h-\[860px\]/);
+  assert.doesNotMatch(modalSource, /showAdvanced\s*\?\s*'font-mono'/);
+  assert.match(modalSource, /role="tablist"[^>]*overflow-hidden/);
+  assert.doesNotMatch(modalSource, /role="tablist"[^>]*overflow-x-auto/);
+  assert.match(modalSource, /min-w-0 flex-1 justify-center whitespace-nowrap/);
+  assert.match(modalSource, /id="offer-editor-footer"[^>]*px-6 py-4/);
+  assert.match(modalSource, /utm-native-textarea-shell/);
+  assert.match(modalSource, /resize-none overflow-x-hidden overflow-y-auto/);
+  assert.match(bundleSource, /utm-native-field/);
+  assert.match(bundleSource, /utm-native-textarea-shell/);
+  assert.match(bundleSource, /resize-none overflow-x-hidden overflow-y-auto/);
+  for (const helper of ['offerEditorGeometry', 'assertOfferFooterLayout', 'assertOfferTabLayout', 'assertTextareaPresentation', 'assertStableOfferTabs']) assert.match(rendererSource, new RegExp(`async function ${helper}`));
+  assert.match(rendererSource, /tabListScrollWidth <= report\.tabListClientWidth/);
+  assert.match(rendererSource, /fontFamily/);
+  assert.match(rendererSource, /footerPaddingBottom/);
+});
+
 test('Electron renderer acceptance owns a deterministic showcase fixture and supports packaged app roots', () => {
   const rendererSource = read('scripts/verify-electron-ui.cjs');
   assert.match(rendererSource, /npm run showcase:fixture/);

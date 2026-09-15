@@ -209,7 +209,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) requestClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="entitlement-dialog-title" tabIndex={-1} className="relative flex min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-700/80 bg-[#0d1326] shadow-2xl animate-modal max-h-[90vh] outline-none">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="entitlement-dialog-title" tabIndex={-1} className="relative flex h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-700/80 bg-[#0d1326] shadow-2xl animate-modal max-h-[860px] outline-none">
         
         {/* Modal Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900/50 px-6 py-4">
@@ -221,7 +221,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               <h2 id="entitlement-dialog-title" className="font-extrabold text-base text-white">
                 {item.id.includes('new') ? 'Create Offer' : `Edit offer: ${formData.name || formData.verseKey}`}
               </h2>
-              <p className={`text-xs text-slate-400 ${showAdvanced ? 'font-mono' : ''}`}>
+              <p className="text-xs text-slate-400">
                 {isCreating ? `Step ${creationStep + 1} of 3 · Review the details before saving.` : 'Add the storefront details players will see.'}
               </p>
             </div>
@@ -237,7 +237,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div role="tablist" aria-label="Offer editor sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 bg-[#090e1a] px-6">
+        <div role="tablist" aria-label="Offer editor sections" className="flex min-w-0 shrink-0 gap-1 overflow-hidden border-b border-slate-800 bg-[#090e1a] px-6">
           <button
             type="button"
             id="offer-tab-general"
@@ -245,7 +245,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             aria-selected={activeTab === 'general'}
             aria-controls="offer-editor-panel"
             onClick={() => selectTab('general')}
-            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`min-w-0 flex-1 justify-center whitespace-nowrap px-2 py-3 text-center text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === 'general'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -262,7 +262,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             aria-selected={activeTab === 'icon'}
             aria-controls="offer-editor-panel"
             onClick={() => selectTab('icon')}
-            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`min-w-0 flex-1 justify-center whitespace-nowrap px-2 py-3 text-center text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === 'icon'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -279,7 +279,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             aria-selected={activeTab === 'behavior'}
             aria-controls="offer-editor-panel"
             onClick={() => selectTab('behavior')}
-            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`min-w-0 flex-1 justify-center whitespace-nowrap px-2 py-3 text-center text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === 'behavior'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -296,7 +296,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             aria-selected={activeTab === 'hooks'}
             aria-controls="offer-editor-panel"
             onClick={() => selectTab('hooks')}
-            className={`shrink-0 whitespace-nowrap py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`min-w-0 flex-1 justify-center whitespace-nowrap px-2 py-3 text-center text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === 'hooks'
                 ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -334,7 +334,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. ⭐ VIP Pass or +10 Strength Boost"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-400 font-medium"
+                  className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium"
                 />
               </div>
 
@@ -351,7 +351,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     value={formData.shortDescription}
                     onChange={(e) => setFormData(prev => ({ ...prev, shortDescription: e.target.value }))}
                     placeholder="e.g. Unlock exclusive VIP conveyors & badge!"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
                   />
                 </div>
 
@@ -359,19 +359,21 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <label htmlFor="offer-full-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                      Full Description (up to {MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters} characters before generated disclosures)
                   </label>
-                  <textarea
-                    id="offer-full-description"
-                    rows={2}
-                    required
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Detailed explanation of the entitlement and its in-game effects..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
-                  />
+                  <div className="utm-native-textarea-shell rounded-xl border border-slate-700 bg-slate-900">
+                    <textarea
+                      id="offer-full-description"
+                      rows={2}
+                      required
+                      value={formData.description}
+                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Detailed explanation of the entitlement and its in-game effects..."
+                      className="utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3.5 py-2 text-xs text-white"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="offer-duration" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Duration disclosure (if time-limited)</label>
-                  <input id="offer-duration" type="text" value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400" />
+                  <input id="offer-duration" type="text" value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white" />
                 </div>
               </div>
 
@@ -443,13 +445,15 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <div key={offer.id} className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
                     <div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">Variant {index + 1}</span><button type="button" onClick={() => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).filter(candidate => candidate.id !== offer.id) }))} className="text-xs text-rose-300">Remove</button></div>
                     <div className="grid grid-cols-2 gap-2">
-                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                       <NumericInput value={offer.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel={`Variant ${index + 1} price in V-Bucks`} onChange={value => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: value } : candidate) }))} className="w-16 text-xs" />
-                      <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
+                      <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
                     </div>
-                    <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                    <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                    <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <div className="utm-native-textarea-shell rounded-lg border border-slate-700 bg-slate-900">
+                      <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2 py-1.5 text-xs" />
+                    </div>
+                    <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price source</span><span className="text-slate-500">Choose the catalog price or project-supplied runtime price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="utm-native-select rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed price</option><option value="runtime">Set by Verse at runtime</option></select></label>
                     <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
                   </div>
@@ -618,7 +622,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                           flags: { ...prev.flags, paidRandomItemOdds: e.target.value },
                         }))}
                         placeholder="e.g. Common: 60%, Rare: 30%, Legendary: 10%"
-                        className="w-full bg-slate-950 border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-white"
+                        className="utm-native-field w-full bg-slate-950 border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-white"
                       />
                     </div>
                   )}
@@ -767,7 +771,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
           </div>
 
           {/* Modal Footer Controls */}
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+          <div id="offer-editor-footer" className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-800 bg-slate-900/50 px-6 py-4">
             <button
               type="button"
               onClick={requestClose}
@@ -776,7 +780,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               Cancel
             </button>
             {isCreating && creationStep > 0 && <button type="button" onClick={() => { const previousStep = creationStep - 1; setCreationStep(previousStep); setActiveTab(creationTabs[previousStep]); }} className="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Back</button>}
-            {isCreating && creationStep < creationTabs.length - 1 ? <button type="submit" disabled={currentStepErrors.length > 0} className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><span>Next</span><span aria-hidden="true">→</span></button> : <button type="submit" disabled={errors.length > 0} className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><Save className="h-4 w-4" /><span>Save Offer</span></button>}
+            {isCreating && creationStep < creationTabs.length - 1 ? <button type="submit" disabled={currentStepErrors.length > 0} className="flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><span>Next</span><span aria-hidden="true">→</span></button> : <button type="submit" disabled={errors.length > 0} className="flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><Save className="h-4 w-4" /><span>Save Offer</span></button>}
           </div>
         </form>
         {pendingAction && (
