@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { defaultProjectConfig } from '../src/services/catalogSession';
 import { validateMigrationParityTable, type MigrationParityEntry } from '../src/services/migrationParity';
+import { derivePublicIdentity } from '../src/services/publicIdentity';
 
 function parityEntry(overrides: Partial<MigrationParityEntry> = {}): MigrationParityEntry {
   return {
@@ -194,4 +196,46 @@ test('migration parity rejects a consumable immediate-use consequence wired to G
   assert.equal(report.valid, false);
   assert.ok(report.issues.some(issue => issue.field === 'runtimePropagation.proposed.liveChange'));
   assert.ok(report.issues.some(issue => /Consumed.*not.*Granted/i.test(issue.message)));
+});
+
+test('migration parity requires exact structured public identity for adoption and supports storefront rows', () => {
+  const config = defaultProjectConfig('C:/Demo/Content', { deviceClassName: 'PublishedDevice', entitlementsModuleName: 'PublishedEntitlements' });
+  const identity = derivePublicIdentity({
+    id: 'utm-item',
+    verseKey: 'published_item',
+    publicIdentity: {
+      apiStem: 'PublishedItem',
+      metadataStem: 'PublishedItemMetadata',
+      entitlementStem: 'published_item',
+      priceStem: 'published_item',
+      offerStem: 'published_item',
+    },
+  }, config, 'entitlement');
+  const complete = validateMigrationParityTable([parityEntry({ publicIdentity: { legacy: identity, proposed: identity } })], [{
+    type: 'adopt_existing_identity',
+    kind: 'entitlement',
+    targetId: 'utm-item',
+  }], true);
+  assert.equal(complete.valid, true, JSON.stringify(complete, null, 2));
+
+  const missing = validateMigrationParityTable([parityEntry()], [{ type: 'adopt_existing_identity', kind: 'entitlement', targetId: 'utm-item' }], true);
+  assert.equal(missing.valid, false);
+  assert.ok(missing.issues.some(issue => issue.field === 'publicIdentity'));
+
+  const mismatched = validateMigrationParityTable([parityEntry({ publicIdentity: { legacy: identity, proposed: { ...identity, apiStem: 'DifferentItem' } } })], [{
+    type: 'adopt_existing_identity',
+    kind: 'entitlement',
+    targetId: 'utm-item',
+  }], true);
+  assert.equal(mismatched.valid, false);
+  assert.ok(mismatched.issues.some(issue => issue.field === 'publicIdentity'));
+
+  const storefront = derivePublicIdentity({ id: 'utm-store', verseKey: 'published_store', publicIdentity: { apiStem: 'PublishedStore' } }, config, 'storefront');
+  const storefrontEntry = parityEntry({
+    proposedId: 'utm-store',
+    kind: 'storefront',
+    publicIdentity: { legacy: storefront, proposed: storefront },
+  });
+  const storefrontReport = validateMigrationParityTable([storefrontEntry], [{ type: 'adopt_existing_identity', kind: 'storefront', targetId: 'utm-store' }], true);
+  assert.equal(storefrontReport.valid, true, JSON.stringify(storefrontReport, null, 2));
 });

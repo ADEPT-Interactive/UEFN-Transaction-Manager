@@ -88,10 +88,23 @@ type McpResponse = {
 const expectedRevision = z.string().min(1).describe('Opaque catalog revision returned by get_catalog_snapshot.');
 const data = z.record(z.unknown()).optional().describe('Fields to create or patch. Internal IDs are allocated by UTM unless explicitly supplied.');
 const targetId = z.string().min(1);
+const publicIdentitySchema = z.object({
+  kind: z.enum(['entitlement', 'alternate_offer', 'bundle', 'storefront']),
+  stableId: z.string().min(1),
+  verseKey: z.string().min(1),
+  apiStem: z.string().min(1),
+  metadataStem: z.string().min(1).optional(),
+  entitlementStem: z.string().min(1).optional(),
+  priceStem: z.string().min(1).optional(),
+  offerStem: z.string().min(1).optional(),
+  modules: z.object({ info: z.string().min(1), entitlements: z.string().min(1), prices: z.string().min(1), offers: z.string().min(1), device: z.string().min(1), targetFile: z.string().min(1) }),
+  paths: z.object({ api: z.string().min(1), metadata: z.string().min(1).optional(), entitlement: z.string().min(1).optional(), price: z.string().min(1).optional(), offer: z.string().min(1).optional(), title: z.string().min(1).optional(), show: z.string().min(1).optional(), open: z.string().min(1).optional() }),
+}).passthrough();
+const publicIdentityPairSchema = z.object({ legacy: publicIdentitySchema, proposed: publicIdentitySchema });
 const migrationParityEntrySchema = z.object({
   legacySourceIdentity: z.string().min(1),
   proposedId: z.string().min(1),
-  kind: z.enum(['entitlement', 'alternate_offer', 'bundle']),
+  kind: z.enum(['entitlement', 'alternate_offer', 'bundle', 'storefront']),
   status: z.enum(['confirmed', 'inferred', 'ambiguous', 'absent']),
   name: z.object({ legacy: z.string(), proposed: z.string() }),
   description: z.object({ legacy: z.string(), proposed: z.string() }),
@@ -107,6 +120,7 @@ const migrationParityEntrySchema = z.object({
   consequenceBoundary: z.object({ legacy: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']), proposed: z.enum(['grant', 'successful-consumption', 'removal', 'reconciliation', 'other']) }),
   repeatedPurchaseBehavior: z.object({ legacy: z.string(), proposed: z.string() }),
   relationships: z.object({ legacy: z.string(), proposed: z.string() }),
+  publicIdentity: publicIdentityPairSchema.optional(),
   runtimePropagation: z.object({
     legacy: z.object({
       initialState: z.object({ source: z.string(), mode: z.enum(['reconciliation', 'authoritative-query', 'none']) }),
@@ -125,6 +139,13 @@ const migrationPolicy = z.object({
   authorizedDeletionIds: z.array(z.string().min(1)).default([]).describe('IDs explicitly authorized for deletion during this migration.'),
   mode: z.enum(['new-catalog', 'existing-project']).default('new-catalog').describe('Use existing-project for a legacy transaction migration; that mode requires an explicit parity table.'),
   parity: z.array(migrationParityEntrySchema).optional().describe('Required in existing-project mode. One explicit legacy-to-UTM comparison row per migrated transaction or offer, including initial and live runtime propagation.'),
+  moduleConfiguration: z.object({
+    deviceClassName: z.string().min(1).optional(),
+    infoModuleName: z.string().min(1).optional(),
+    entitlementsModuleName: z.string().min(1).optional(),
+    pricesModuleName: z.string().min(1).optional(),
+    offersModuleName: z.string().min(1).optional(),
+  }).optional().describe('Existing generated module and device names captured from the legacy managed Verse file.'),
 }).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [], mode: 'new-catalog' });
 const agentOperationSchema = z.enum([
   'inspect-only',
@@ -184,8 +205,13 @@ const patchOperationSchema = z.object({
     'create_alternate_offer', 'update_alternate_offer', 'delete_alternate_offer',
     'create_bundle', 'update_bundle', 'delete_bundle',
     'create_storefront', 'update_storefront', 'delete_storefront', 'set_storefront_membership',
+    'adopt_existing_identity',
   ]),
   data: z.record(z.unknown()).optional(),
+  targetId: z.string().optional(),
+  kind: z.enum(['entitlement', 'alternate_offer', 'bundle', 'storefront']).optional(),
+  verseKey: z.string().optional(),
+  publicIdentity: z.record(z.unknown()).optional(),
   entitlementId: z.string().optional(),
   alternateOfferId: z.string().optional(),
   bundleId: z.string().optional(),
@@ -216,7 +242,7 @@ function targetKind(value: unknown): 'entitlement' | 'alternate_offer' | 'bundle
 
 function migrationTargetId(operation: CatalogPatchOperation): string | undefined {
   const operationData = operation.data && typeof operation.data === 'object' && !Array.isArray(operation.data) ? operation.data as Record<string, unknown> : {};
-  const value = operation.entitlementId ?? operation.alternateOfferId ?? operation.bundleId ?? operation.storefrontId ?? operationData.id;
+  const value = operation.targetId ?? operation.entitlementId ?? operation.alternateOfferId ?? operation.bundleId ?? operation.storefrontId ?? operation.id ?? operationData.targetId ?? operationData.id;
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
@@ -503,16 +529,23 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
     try {
       assertProjectReady();
       assertMigrationDeletionPolicy(args.operations as CatalogPatchOperation[], args.migration);
+      if ((args.operations as CatalogPatchOperation[]).some(operation => operation.type === 'adopt_existing_identity') && args.migration.mode !== 'existing-project') {
+        throw new CatalogDomainError('CATALOG_IDENTITY_IMPORT_REQUIRED', 'adopt_existing_identity requires migration.mode existing-project and a confirmed parity table.', { guidance: 'Use generic create/update operations for UTM-owned identity, or run an explicit existing-project migration.' }, 400);
+      }
       if (args.migration.mode === 'existing-project') {
         if (!args.migration.parity?.length) throw new CatalogDomainError('MIGRATION_PARITY_REQUIRED', 'Existing-project migration requires a pre-apply semantic parity table with runtime propagation. Call validate_migration_parity with one row for every migrated transaction or offer, then include the same table here.', {}, 422);
         const parity = validateMigrationParityTable(args.migration.parity as MigrationParityEntry[], args.operations as CatalogPatchOperation[], true);
         if (!parity.valid) throw new CatalogDomainError('MIGRATION_PARITY_FAILED', 'The migration parity table is incomplete, omits runtime propagation, or changes legacy commercial/gameplay semantics. Resolve every issue before applying the patch.', { parity }, 422);
       }
-      if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true));
+      const patchOptions = {
+        existingProject: args.migration.mode === 'existing-project',
+        moduleConfiguration: args.migration.moduleConfiguration,
+      };
+      if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true, patchOptions));
       assertMutationContext('catalog', { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' });
-      const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true).snapshot;
+      const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true, patchOptions).snapshot;
       await assertCatalogReady(proposed);
-      const result = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false);
+      const result = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false, patchOptions);
       advanceMutationContext({ preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' }, result.snapshot.revision);
       return jsonResult(result);
     }

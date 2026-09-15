@@ -1,7 +1,8 @@
-import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, OfferDisplayGroup, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import { cleanManagedData } from './projectSchema';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 import { toVerseApiStem } from './verseIdentity';
+import { derivePublicIdentity } from './publicIdentity';
 import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
 
 export interface IntegrationContract {
@@ -9,7 +10,7 @@ export interface IntegrationContract {
   managedVerseFile: string;
   generatedDeviceClass: string;
   modules: { info: string; entitlements: string; prices: string; offers: string };
-  editableFields: { debugLogging: string; entitlementBindings: Array<Record<string, string>>; storefrontBindings: Array<Record<string, string>> };
+  editableFields: { debugLogging: string; entitlementBindings: Array<Record<string, unknown>>; storefrontBindings: Array<Record<string, unknown>> };
   requiredImports: string[];
   runtimeConstraints: string[];
   entitlements: Array<Record<string, unknown>>;
@@ -19,8 +20,8 @@ export interface IntegrationContract {
   examples: string[];
 }
 
-function directPurchaseExample(config: ProjectConfig, key: string, runtimeFields: string[] = []): string {
-  const stem = toVerseApiStem(key);
+function directPurchaseExample(config: ProjectConfig, key: string, runtimeFields: string[] = [], publicStem = toVerseApiStem(key)): string {
+  const stem = publicStem;
   const runtimeValues = runtimeFields.map(field => field === 'PriceVBucks'
     ? '    RuntimePrice := CalculatePriceForPlayer(Player)'
     : `    Runtime${field} := Calculate${field}ForPlayer(Player)`);
@@ -44,12 +45,14 @@ function runtimeFactoryContract(stem: string, config: ProjectConfig): Record<str
 }
 
 function entitlementContract(item: EntitlementItem, config: ProjectConfig): Record<string, unknown> {
-  const stem = toVerseApiStem(item.verseKey);
+  const identity = derivePublicIdentity(item, config, 'entitlement');
+  const stem = identity.apiStem;
   const dynamic = dynamicPriceEnabled(item.dynamicOffer);
   const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: item.id,
     verseKey: item.verseKey,
+    publicIdentity: identity,
     objectType: item.itemType,
     primaryPurchaseHelper: {
       name: `Open${stem}Purchase`,
@@ -75,9 +78,9 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       ...(item.itemType === 'consumable' ? { consumed: `Await${stem}ConsumedEvent` } : {}),
     },
     editableFields: {
-      purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey).purchaseTriggers : undefined,
-      purchaseButtons: item.triggers.generateButtonBinding ? entitlementEditableNames(item.verseKey).purchaseButtons : undefined,
-      successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey).successTriggers : undefined,
+      purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).purchaseTriggers : undefined,
+      purchaseButtons: item.triggers.generateButtonBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).purchaseButtons : undefined,
+      successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).successTriggers : undefined,
     },
     runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
     runtimeOptionsFields: dynamic ? ['PriceVBucks'] : undefined,
@@ -89,13 +92,15 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
 function alternateContract(parent: EntitlementItem, key: string, config: ProjectConfig): Record<string, unknown> {
   const offer = (parent.alternateOffers ?? []).find(candidate => candidate.verseKey === key);
   if (!offer) return { stableId: key, verseKey: key };
-  const stem = toVerseApiStem(offer.verseKey);
+  const identity = derivePublicIdentity(offer, config, 'alternate_offer', parent);
+  const stem = identity.apiStem;
   const dynamic = dynamicPriceEnabled(offer.dynamicOffer);
   const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: offer.id,
     parentStableId: parent.id,
     verseKey: offer.verseKey,
+    publicIdentity: identity,
     objectType: 'alternate_offer',
     purchaseHelper: `Open${stem}Purchase`,
     signature: dynamic ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
@@ -105,7 +110,7 @@ function alternateContract(parent: EntitlementItem, key: string, config: Project
   };
 }
 
-function bundleRuntimeFields(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[]): string[] {
+function bundleRuntimeFields(bundle: BundleOffer, entitlements: EntitlementItem[], bundles: BundleOffer[], config: ProjectConfig): string[] {
   const fields: string[] = [];
   if (dynamicPriceEnabled(bundle.dynamicOffer)) fields.push('PriceVBucks');
   for (const entry of bundle.items) {
@@ -115,19 +120,28 @@ function bundleRuntimeFields(bundle: BundleOffer, entitlements: EntitlementItem[
       : entry.bundleId
         ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
         : 'entry';
-    fields.push(`${toVerseApiStem(key)}Quantity`);
+    const referencedItem = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId) : undefined;
+    const referencedBundle = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
+    const referencedIdentity = referencedItem
+      ? derivePublicIdentity(referencedItem, config, 'entitlement')
+      : referencedBundle
+        ? derivePublicIdentity(referencedBundle, config, 'bundle')
+        : undefined;
+    fields.push(`${referencedIdentity?.apiStem ?? toVerseApiStem(key)}Quantity`);
   }
   return fields;
 }
 
 function bundleContract(bundle: BundleOffer, config: ProjectConfig, entitlements: EntitlementItem[], bundles: BundleOffer[]): Record<string, unknown> {
-  const stem = toVerseApiStem(bundle.verseKey);
-  const runtimeFields = bundleRuntimeFields(bundle, entitlements, bundles);
+  const identity = derivePublicIdentity(bundle, config, 'bundle');
+  const stem = identity.apiStem;
+  const runtimeFields = bundleRuntimeFields(bundle, entitlements, bundles, config);
   const runtime = isDynamicBundle(bundle) && runtimeFields.length > 0;
   const runtimeOptionsType = `${config.offersModuleName}.${stem}RuntimeOptions`;
   return {
     stableId: bundle.id,
     verseKey: bundle.verseKey,
+    publicIdentity: identity,
     objectType: 'bundle',
     purchaseHelper: `Open${stem}Purchase`,
     signature: runtime ? `(Player:player, Options:${runtimeOptionsType}):void` : '(Player:player):void',
@@ -138,16 +152,18 @@ function bundleContract(bundle: BundleOffer, config: ProjectConfig, entitlements
   };
 }
 
-function storefrontContract(group: { id: string; verseKey: string; name: string; entries: unknown[]; generateTriggerBinding: boolean }): Record<string, unknown> {
-  const stem = toVerseApiStem(group.verseKey);
+function storefrontContract(group: OfferDisplayGroup, config: ProjectConfig): Record<string, unknown> {
+  const identity = derivePublicIdentity(group, config, 'storefront');
+  const stem = identity.apiStem;
   return {
     stableId: group.id,
     verseKey: group.verseKey,
+    publicIdentity: identity,
     objectType: 'storefront',
     openHelper: `Open${stem}`,
     showHelper: `Show${stem}Offers`,
     titleSymbol: `${stem}Title`,
-    editableFields: group.generateTriggerBinding ? { openTriggers: storefrontEditableName(group.verseKey) } : {},
+    editableFields: group.generateTriggerBinding ? { openTriggers: storefrontEditableName(group.verseKey, 'openTriggers', identity.apiStem) } : {},
     entries: group.entries,
   };
 }
@@ -175,15 +191,10 @@ export function describeIntegrationContract(
     },
     editableFields: {
       debugLogging: 'EnableDebugLogging',
-      entitlementBindings: currentEntitlements.map(item => ({
-        stableId: item.id,
-        ...(item.triggers.generateTriggerBinding ? { purchaseTriggers: entitlementEditableNames(item.verseKey).purchaseTriggers } : {}),
-        ...(item.triggers.generateButtonBinding ? { purchaseButtons: entitlementEditableNames(item.verseKey).purchaseButtons } : {}),
-        ...(item.triggers.generateSuccessTriggerBinding ? { successTriggers: entitlementEditableNames(item.verseKey).successTriggers } : {}),
-      })),
+      entitlementBindings: currentEntitlements.map(item => entitlementBindingContract(item, config)),
       storefrontBindings: [
         ...(config.generateStorefrontBinding ? [{ stableId: 'all-offers', openButtons: storefrontEditableName('AllOffersStore', 'openButtons') }] : []),
-        ...currentStorefronts.filter(group => group.generateTriggerBinding).map(group => ({ stableId: group.id, openTriggers: storefrontEditableName(group.verseKey) })),
+        ...currentStorefronts.filter(group => group.generateTriggerBinding).map(group => storefrontBindingContract(group, config)),
       ],
     },
     requiredImports: [
@@ -211,16 +222,36 @@ export function describeIntegrationContract(
     entitlements: currentEntitlements.map(item => entitlementContract(item, config)),
     alternateOffers: currentEntitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => alternateContract(item, offer.verseKey, config))),
     bundles: currentBundles.map(bundle => bundleContract(bundle, config, currentEntitlements, currentBundles)),
-    storefronts: currentStorefronts.map(group => storefrontContract(group)),
+    storefronts: currentStorefronts.map(group => storefrontContract(group, config)),
     examples: [
-      ...(currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey)] : []),
+      ...(currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey, [], derivePublicIdentity(currentEntitlements[0], config, 'entitlement').apiStem)] : []),
       ...currentEntitlements.filter(item => dynamicPriceEnabled(item.dynamicOffer)).slice(0, 1)
-        .map(item => directPurchaseExample(config, item.verseKey, ['PriceVBucks'])),
+        .map(item => directPurchaseExample(config, item.verseKey, ['PriceVBucks'], derivePublicIdentity(item, config, 'entitlement').apiStem)),
       ...currentEntitlements.flatMap(item => (item.alternateOffers ?? [])
         .filter(offer => dynamicPriceEnabled(offer.dynamicOffer)).slice(0, 1)
-        .map(offer => directPurchaseExample(config, offer.verseKey, ['PriceVBucks']))),
-      ...currentBundles.filter(bundle => bundleRuntimeFields(bundle, currentEntitlements, currentBundles).length > 0)
-        .map(bundle => directPurchaseExample(config, bundle.verseKey, bundleRuntimeFields(bundle, currentEntitlements, currentBundles))),
+        .map(offer => directPurchaseExample(config, offer.verseKey, ['PriceVBucks'], derivePublicIdentity(offer, config, 'alternate_offer', item).apiStem))),
+      ...currentBundles.filter(bundle => bundleRuntimeFields(bundle, currentEntitlements, currentBundles, config).length > 0)
+        .map(bundle => directPurchaseExample(config, bundle.verseKey, bundleRuntimeFields(bundle, currentEntitlements, currentBundles, config), derivePublicIdentity(bundle, config, 'bundle').apiStem)),
     ],
+  };
+}
+
+function entitlementBindingContract(item: EntitlementItem, config: ProjectConfig): Record<string, unknown> {
+  const identity = derivePublicIdentity(item, config, 'entitlement');
+  const names = entitlementEditableNames(item.verseKey, identity.apiStem);
+  return {
+    stableId: item.id,
+    publicIdentity: identity,
+    ...(item.triggers.generateTriggerBinding ? { purchaseTriggers: names.purchaseTriggers } : {}),
+    ...(item.triggers.generateButtonBinding ? { purchaseButtons: names.purchaseButtons } : {}),
+    ...(item.triggers.generateSuccessTriggerBinding ? { successTriggers: names.successTriggers } : {}),
+  };
+}
+
+function storefrontBindingContract(group: OfferDisplayGroup, config: ProjectConfig): Record<string, unknown> {
+  const identity = derivePublicIdentity(group, config, 'storefront');
+  return {
+    stableId: group.id,
+    openTriggers: storefrontEditableName(group.verseKey, 'openTriggers', identity.apiStem),
   };
 }

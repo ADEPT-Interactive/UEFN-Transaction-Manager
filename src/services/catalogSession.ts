@@ -4,6 +4,7 @@ import {
   OfferDisplayEntry,
   OfferDisplayGroup,
   ProjectConfig,
+  PublicIdentityOverrides,
   StorefrontMembership,
   ValidationIssue,
 } from '../types/entitlement';
@@ -15,8 +16,17 @@ import {
   normalizeProjectConfig,
   normalizeStorefrontMembership,
 } from './projectSchema';
-import { createVerseKeyAllocator, normalizeRetiredVerseKeys } from './verseIdentity';
+import { createVerseKeyAllocator, isValidVerseIdentifier, normalizeRetiredVerseKeys } from './verseIdentity';
 import { validateEntireProject } from './validator';
+import {
+  derivePublicIdentity,
+  normalizePublicIdentityOverrides,
+  publicIdentitiesEqual,
+  type IdentityRecord,
+  type DerivedPublicIdentity,
+  type PublicIdentityKind,
+  validatePublicIdentityOverrides,
+} from './publicIdentity';
 
 export const CATALOG_ERROR_CODES = {
   revisionConflict: 'CATALOG_REVISION_CONFLICT',
@@ -28,6 +38,10 @@ export const CATALOG_ERROR_CODES = {
   editorConnectionRequired: 'EDITOR_CONNECTION_REQUIRED',
   migrationParityRequired: 'MIGRATION_PARITY_REQUIRED',
   migrationParityFailed: 'MIGRATION_PARITY_FAILED',
+  identityImportRequired: 'CATALOG_IDENTITY_IMPORT_REQUIRED',
+  publicIdentityInvalid: 'CATALOG_PUBLIC_IDENTITY_INVALID',
+  publicIdentityConflict: 'CATALOG_PUBLIC_IDENTITY_CONFLICT',
+  publicIdentityMismatch: 'CATALOG_PUBLIC_IDENTITY_MISMATCH',
   operationPreflightRequired: 'OPERATION_PREFLIGHT_REQUIRED',
   operationPreflightStale: 'OPERATION_PREFLIGHT_STALE',
   operationPreflightScope: 'OPERATION_PREFLIGHT_SCOPE',
@@ -66,6 +80,26 @@ export interface CatalogMutationResult {
 export interface CatalogPatchOperation {
   type: string;
   [key: string]: unknown;
+}
+
+export interface CatalogPatchOptions {
+  existingProject?: boolean;
+  moduleConfiguration?: Partial<Pick<ProjectConfig, 'deviceClassName' | 'infoModuleName' | 'entitlementsModuleName' | 'pricesModuleName' | 'offersModuleName'>>;
+}
+
+interface OperationResult {
+  affected?: unknown;
+  cascades: string[];
+  identityEvidence?: {
+    targetId: string;
+    kind: PublicIdentityKind;
+    current: DerivedPublicIdentity;
+    requested: DerivedPublicIdentity;
+    effective: DerivedPublicIdentity;
+    identityChanged: boolean;
+    currentCatalogIdentityChanged: boolean;
+    reason: string;
+  };
 }
 
 export class CatalogDomainError extends Error {
@@ -272,10 +306,179 @@ function withManagedAlternateKeys(
   };
 }
 
-function applyOperation(document: CatalogDocument, operation: CatalogPatchOperation, identity?: { id?: string; verseKey?: string }): { affected?: unknown; cascades: string[] } {
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function rejectImplicitIdentityImport(operation: CatalogPatchOperation): void {
+  const data = record(operation.data);
+  const payload = { ...operation, ...data };
+  const genericIdentityOperation = /^(create|update)_(entitlement|alternate_offer|bundle|storefront)$/.test(operation.type);
+  if (!genericIdentityOperation) return;
+  const nestedIdentity = Array.isArray(payload.alternateOffers)
+    && payload.alternateOffers.some(value => {
+      const candidate = record(value);
+      return hasOwn(candidate, 'verseKey') || hasOwn(candidate, 'publicIdentity');
+    });
+  if (!hasOwn(operation, 'verseKey') && !hasOwn(data, 'verseKey') && !hasOwn(operation, 'publicIdentity') && !hasOwn(data, 'publicIdentity') && !nestedIdentity) return;
+  throw new CatalogDomainError(
+    CATALOG_ERROR_CODES.identityImportRequired,
+    `Operation ${operation.type} cannot supply a Verse key or public identity. Use adopt_existing_identity in an existing-project migration so identity adoption is explicit and parity-checked.`,
+    { operationType: operation.type, guidance: 'Generic create/update operations allocate or preserve UTM-managed identity. Existing published identities require adopt_existing_identity.' },
+    400,
+  );
+}
+
+function locateIdentityTarget(document: CatalogDocument, operation: CatalogPatchOperation, payload: Record<string, unknown>): {
+  kind: PublicIdentityKind;
+  target: IdentityRecord & Record<string, unknown>;
+  parent?: EntitlementItem;
+} {
+  const kind = text(operation.kind ?? payload.kind) as PublicIdentityKind | undefined;
+  const targetId = text(operation.targetId ?? payload.targetId ?? operation.id ?? payload.id);
+  if (!kind || !['entitlement', 'alternate_offer', 'bundle', 'storefront'].includes(kind)) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityInvalid, 'adopt_existing_identity requires a supported identity kind.', { kind }, 400);
+  }
+  if (!targetId) throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityInvalid, 'adopt_existing_identity requires targetId.', {}, 400);
+  if (kind === 'entitlement') {
+    const target = document.entitlements.find(item => item.id === targetId);
+    if (!target) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Entitlement ${targetId} does not exist.`, {}, 400);
+    return { kind, target: target as unknown as IdentityRecord & Record<string, unknown> };
+  }
+  if (kind === 'bundle') {
+    const target = document.bundles.find(bundle => bundle.id === targetId);
+    if (!target) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Bundle ${targetId} does not exist.`, {}, 400);
+    return { kind, target: target as unknown as IdentityRecord & Record<string, unknown> };
+  }
+  if (kind === 'storefront') {
+    const target = document.storefrontMembership.focused.find(group => group.id === targetId);
+    if (!target) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Storefront ${targetId} does not exist.`, {}, 400);
+    return { kind, target: target as unknown as IdentityRecord & Record<string, unknown> };
+  }
+  const parentId = text(operation.parentId ?? payload.parentId ?? operation.entitlementId ?? payload.entitlementId);
+  const parent = document.entitlements.find(item => item.id === parentId);
+  const target = parent?.alternateOffers?.find(offer => offer.id === targetId);
+  if (!parent || !target) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Alternate offer ${targetId} does not exist.`, {}, 400);
+  return { kind, target: target as unknown as IdentityRecord & Record<string, unknown>, parent };
+}
+
+function identityRecords(document: CatalogDocument): Array<{ kind: PublicIdentityKind; record: IdentityRecord; parent?: EntitlementItem }> {
+  const result: Array<{ kind: PublicIdentityKind; record: IdentityRecord; parent?: EntitlementItem }> = [];
+  for (const item of document.entitlements) {
+    result.push({ kind: 'entitlement', record: item });
+    for (const offer of item.alternateOffers ?? []) result.push({ kind: 'alternate_offer', record: offer, parent: item });
+  }
+  for (const bundle of document.bundles) result.push({ kind: 'bundle', record: bundle });
+  for (const group of document.storefrontMembership.focused) result.push({ kind: 'storefront', record: group });
+  return result;
+}
+
+function assertPublicIdentitySet(document: CatalogDocument): void {
+  const paths = new Map<string, string>();
+  for (const entry of identityRecords(document)) {
+    const identity = derivePublicIdentity(entry.record, document.config, entry.kind, entry.parent);
+    for (const [pathKind, path] of Object.entries(identity.paths)) {
+      if (!path || (entry.kind === 'alternate_offer' && pathKind === 'entitlement')) continue;
+      const previous = paths.get(path);
+      if (previous && previous !== identity.stableId) {
+        throw new CatalogDomainError(
+          CATALOG_ERROR_CODES.publicIdentityConflict,
+          `Public Verse identity path ${path} is claimed by both ${previous} and ${identity.stableId}.`,
+          { path, firstStableId: previous, secondStableId: identity.stableId, pathKind },
+          422,
+        );
+      }
+      paths.set(path, identity.stableId);
+    }
+  }
+}
+
+function replaceOfferVerseKeyReferences(document: CatalogDocument, entitlementId: string, previousKey: string, nextKey: string): void {
+  const replace = (entry: OfferDisplayEntry): OfferDisplayEntry => entry.entitlementId === entitlementId && entry.offerVerseKey?.toLowerCase() === previousKey.toLowerCase()
+    ? { ...entry, offerVerseKey: nextKey }
+    : entry;
+  for (const bundle of document.bundles) bundle.items = bundle.items.map(entry => {
+    const next = replace(entry);
+    return { ...entry, ...(next.offerVerseKey !== entry.offerVerseKey ? { offerVerseKey: next.offerVerseKey } : {}) };
+  });
+  document.storefrontMembership.allOffers = document.storefrontMembership.allOffers.map(replace);
+  document.storefrontMembership.focused = document.storefrontMembership.focused.map(group => ({ ...group, entries: group.entries.map(replace) }));
+}
+
+function applyExistingIdentityAdoption(
+  document: CatalogDocument,
+  operation: CatalogPatchOperation,
+  options: CatalogPatchOptions | undefined,
+): OperationResult {
+  if (!options?.existingProject) {
+    throw new CatalogDomainError(
+      CATALOG_ERROR_CODES.identityImportRequired,
+      'adopt_existing_identity is only available in an existing-project migration.',
+      { operationType: operation.type, guidance: 'Set migration.mode to existing-project and provide confirmed migration parity.' },
+      400,
+    );
+  }
+  const operationData = record(operation.data);
+  const payload = Object.keys(operationData).length ? { ...operation, ...operationData } : operation;
+  const located = locateIdentityTarget(document, operation, payload);
+  const requestedVerseKey = text(operation.verseKey ?? payload.verseKey);
+  if (!requestedVerseKey || !isValidVerseIdentifier(requestedVerseKey)) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityInvalid, 'adopt_existing_identity requires a valid Verse key.', { targetId: located.target.id, verseKey: requestedVerseKey }, 400);
+  }
+  const identityProblems = validatePublicIdentityOverrides(operation.publicIdentity ?? payload.publicIdentity, located.kind, located.target.id);
+  if (identityProblems.length) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityInvalid, 'The requested public identity is incomplete or invalid.', { targetId: located.target.id, problems: identityProblems }, 400);
+  }
+  const overrides = normalizePublicIdentityOverrides(operation.publicIdentity ?? payload.publicIdentity)!;
+  const currentIdentity = derivePublicIdentity(located.target, document.config, located.kind, located.parent);
+  const occupiedKeys = activeKeys(document)
+    .filter(key => key.toLowerCase() !== located.target.verseKey.toLowerCase())
+    .map(key => key.toLowerCase());
+  if (occupiedKeys.includes(requestedVerseKey.toLowerCase())) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityConflict, `Verse key ${requestedVerseKey} is already assigned to another managed record.`, { targetId: located.target.id, verseKey: requestedVerseKey }, 422);
+  }
+  if (document.retiredVerseKeys.some(key => key.toLowerCase() === requestedVerseKey.toLowerCase() && key.toLowerCase() !== located.target.verseKey.toLowerCase())) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityConflict, `Verse key ${requestedVerseKey} is retired and cannot be reissued during identity adoption.`, { targetId: located.target.id, verseKey: requestedVerseKey }, 422);
+  }
+
+  const requestedRecord = { ...located.target, verseKey: requestedVerseKey, publicIdentity: overrides } as IdentityRecord;
+  const requestedIdentity = derivePublicIdentity(requestedRecord, document.config, located.kind, located.parent);
+  const previousKey = located.target.verseKey;
+  if (previousKey.toLowerCase() !== requestedVerseKey.toLowerCase()) {
+    document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, previousKey]);
+    if (located.kind === 'entitlement' || located.kind === 'alternate_offer') replaceOfferVerseKeyReferences(document, located.parent?.id ?? located.target.id, previousKey, requestedVerseKey);
+  }
+  located.target.verseKey = requestedVerseKey;
+  located.target.publicIdentity = overrides;
+  const effectiveIdentity = derivePublicIdentity(located.target, document.config, located.kind, located.parent);
+  const identityChanged = !publicIdentitiesEqual(requestedIdentity, effectiveIdentity);
+  if (identityChanged) {
+    throw new CatalogDomainError(CATALOG_ERROR_CODES.publicIdentityMismatch, `The effective generated identity for ${located.target.id} does not exactly match the requested identity.`, { targetId: located.target.id, requested: requestedIdentity, effective: effectiveIdentity }, 422);
+  }
+  return {
+    affected: located.target,
+    cascades: previousKey.toLowerCase() === requestedVerseKey.toLowerCase() ? [] : [`Adopted ${located.kind} identity for ${located.target.id}; retired former Verse key ${previousKey}.`],
+    identityEvidence: {
+      targetId: located.target.id,
+      kind: located.kind,
+      current: currentIdentity,
+      requested: requestedIdentity,
+      effective: effectiveIdentity,
+      identityChanged,
+      currentCatalogIdentityChanged: !publicIdentitiesEqual(currentIdentity, effectiveIdentity),
+      reason: previousKey.toLowerCase() === requestedVerseKey.toLowerCase()
+        ? 'Explicit existing-project identity adoption confirmed without changing the catalog key.'
+        : `Explicit existing-project identity adoption preserved the requested public paths while correcting the catalog key from ${previousKey} to ${requestedVerseKey}.`,
+    },
+  };
+}
+
+function applyOperation(document: CatalogDocument, operation: CatalogPatchOperation, identity?: { id?: string; verseKey?: string }, options?: CatalogPatchOptions): OperationResult {
   const operationData = record(operation.data);
   const payload = Object.keys(operationData).length ? { ...operation, ...operationData } : operation;
   const cascades: string[] = [];
+  if (operation.type === 'adopt_existing_identity') return applyExistingIdentityAdoption(document, operation, options);
+  rejectImplicitIdentityImport(operation);
   switch (operation.type) {
     case 'create_entitlement': return { affected: applyEntitlementCreate(document, payload, identity), cascades };
     case 'update_entitlement': {
@@ -510,22 +713,29 @@ export class CatalogSession {
     return { snapshot: this.snapshot(), affected: result.affected, cascades: result.cascades };
   }
 
-  applyPatch(operations: CatalogPatchOperation[], expectedRevision: string, dryRun: boolean): CatalogMutationResult & { proposedRevision: string; operationResults: unknown[] } {
+  applyPatch(operations: CatalogPatchOperation[], expectedRevision: string, dryRun: boolean, options: CatalogPatchOptions = {}): CatalogMutationResult & { proposedRevision: string; operationResults: unknown[] } {
     this.assertRevision(expectedRevision);
     const next = clone(this.document);
+    if (options.moduleConfiguration) {
+      if (!options.existingProject) {
+        throw new CatalogDomainError(CATALOG_ERROR_CODES.identityImportRequired, 'Module identity adoption is only available in an existing-project migration.', { guidance: 'Set migration.mode to existing-project before changing generated module identities.' }, 400);
+      }
+      next.config = normalizeProjectConfig({ ...next.config, ...options.moduleConfiguration }, next.config);
+    }
     const operationResults: unknown[] = [];
     const allCascades: string[] = [];
     operations.forEach((operation, index) => {
       const operationData = record(operation.data);
       const requestedId = text(operation.id ?? operationData.id);
       const identity = { id: requestedId ?? `bulk-${expectedRevision}-${index + 1}` };
-      const result = applyOperation(next, operation, identity);
-      operationResults.push({ index, affected: result.affected, cascades: result.cascades });
+      const result = applyOperation(next, operation, identity, options);
+      operationResults.push({ index, affected: result.affected, cascades: result.cascades, ...(result.identityEvidence ? { identityEvidence: result.identityEvidence } : {}) });
       allCascades.push(...result.cascades);
     });
-    const normalized = normalizeDocument(next, this.document.config);
+    const normalized = normalizeDocument(next, next.config);
     const problems = integrity(normalized);
     if (problems.length) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, 'The catalog patch contains structural integrity errors.', { problems }, 400);
+    assertPublicIdentitySet(normalized);
     const issues = validation(normalized);
     if (!dryRun && issues.some(issue => issue.severity === 'error')) {
       throw new CatalogDomainError(CATALOG_ERROR_CODES.validationFailed, 'The catalog patch was rejected because validation contains errors.', { issues }, 422);

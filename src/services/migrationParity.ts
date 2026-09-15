@@ -1,6 +1,7 @@
 import type { CatalogPatchOperation } from './catalogSession';
+import type { DerivedPublicIdentity } from './publicIdentity';
 
-export type MigrationParityKind = 'entitlement' | 'alternate_offer' | 'bundle';
+export type MigrationParityKind = 'entitlement' | 'alternate_offer' | 'bundle' | 'storefront';
 export type MigrationParityStatus = 'confirmed' | 'inferred' | 'ambiguous' | 'absent';
 export type MigrationConsequenceBoundary = 'grant' | 'successful-consumption' | 'removal' | 'reconciliation' | 'other';
 export type MigrationInitialStateMode = 'reconciliation' | 'authoritative-query' | 'none';
@@ -27,6 +28,9 @@ export interface MigrationParityPair<T = unknown> {
   proposed: T;
 }
 
+/** Complete generated public identity captured from the legacy Verse source. */
+export type MigrationPublicIdentity = DerivedPublicIdentity;
+
 /**
  * The required pre-apply comparison for an existing-project migration.
  * Values are deliberately explicit pairs: a migration must show what the
@@ -52,6 +56,8 @@ export interface MigrationParityEntry {
   consequenceBoundary: MigrationParityPair<MigrationConsequenceBoundary>;
   repeatedPurchaseBehavior: MigrationParityPair<string>;
   relationships: MigrationParityPair<string>;
+  /** Stable generated paths and symbols must match the legacy source exactly. */
+  publicIdentity?: MigrationParityPair<MigrationPublicIdentity>;
   /**
    * Runtime propagation is deliberately part of the parity row. A durable
    * migration can preserve every catalog field and still be incomplete if a
@@ -79,6 +85,7 @@ const operationKinds = new Set([
   'create_entitlement', 'update_entitlement',
   'create_alternate_offer', 'update_alternate_offer',
   'create_bundle', 'update_bundle',
+  'create_storefront', 'update_storefront', 'adopt_existing_identity',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -118,7 +125,7 @@ function addMissingPairIssue(entry: MigrationParityEntry, field: string, issues:
 
 function operationTarget(operation: CatalogPatchOperation): string | undefined {
   const data = isRecord(operation.data) ? operation.data : {};
-  const value = operation.entitlementId ?? operation.alternateOfferId ?? operation.bundleId ?? operation.id ?? data.id;
+  const value = operation.targetId ?? operation.entitlementId ?? operation.alternateOfferId ?? operation.bundleId ?? operation.storefrontId ?? operation.id ?? data.targetId ?? data.id;
   return text(value) || undefined;
 }
 
@@ -220,6 +227,7 @@ export function validateMigrationParityTable(entries: MigrationParityEntry[], op
     'iconSource', 'gameplayConsequence', 'consequenceBoundary',
     'repeatedPurchaseBehavior', 'relationships', 'runtimePropagation',
   ];
+  const adoptionTargets = new Set(operations.filter(operation => operation.type === 'adopt_existing_identity').map(operationTarget).filter((value): value is string => Boolean(value)).map(value => value.toLowerCase()));
 
   if (!entries.length) issues.push({ field: 'entries', message: 'Existing-project migration requires one parity row for every migrated transaction or offer.' });
   for (const entry of entries) {
@@ -230,13 +238,42 @@ export function validateMigrationParityTable(entries: MigrationParityEntry[], op
     const idKey = proposedId.toLowerCase();
     if (idKey && seenIds.has(idKey)) issues.push({ legacySourceIdentity: source || undefined, proposedId, field: 'proposedId', message: `Proposed UTM record ID ${proposedId} appears more than once in the parity table.` });
     if (idKey) seenIds.add(idKey);
-    if (!['entitlement', 'alternate_offer', 'bundle'].includes(entry.kind)) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'kind', message: 'Parity kind must identify an entitlement, alternate offer, or bundle.' });
+    if (!['entitlement', 'alternate_offer', 'bundle', 'storefront'].includes(entry.kind)) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'kind', message: 'Parity kind must identify an entitlement, alternate offer, bundle, or storefront.' });
     if (entry.status === 'ambiguous' || entry.status === 'absent') issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'status', message: `A ${entry.status} migration row cannot be applied; resolve the source evidence or omit the transaction.` });
     if (entry.status === 'inferred') {
       const finding = { legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'status', message: 'Inferred source evidence requires owner review before release acceptance.' };
       (requireConfirmed ? issues : warnings).push(finding);
     }
     for (const field of fields) addMissingPairIssue(entry, field, issues);
+
+    const identityPair = pair(entry, 'publicIdentity');
+    if (adoptionTargets.has(proposedId.toLowerCase()) && !identityPair) {
+      issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'publicIdentity', message: 'An identity-adoption operation requires a structured legacy/proposed publicIdentity pair.' });
+    }
+    if (identityPair) {
+      for (const side of ['legacy', 'proposed'] as const) {
+        const identity = identityPair[side];
+        if (!isRecord(identity)) {
+          issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}`, message: `The ${side} public identity must include stableId, verseKey, generated stems, modules, and paths.` });
+          continue;
+        }
+        for (const key of ['kind', 'stableId', 'verseKey', 'apiStem'] as const) {
+          if (typeof identity[key] !== 'string' || !text(identity[key])) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.${key}`, message: `${side} public identity ${key} must be non-blank.` });
+        }
+        const requiredStems = entry.kind === 'storefront'
+          ? []
+          : entry.kind === 'alternate_offer'
+            ? ['metadataStem', 'priceStem', 'offerStem']
+            : ['metadataStem', 'entitlementStem', 'priceStem', 'offerStem'];
+        for (const key of requiredStems) if (typeof identity[key] !== 'string' || !text(identity[key])) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.${key}`, message: `${side} public identity ${key} must be non-blank for ${entry.kind}.` });
+        if (identity.kind !== entry.kind) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.kind`, message: `${side} public identity kind must match the parity row kind.` });
+        if (identity.stableId !== proposedId) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.stableId`, message: `${side} public identity stableId must match proposedId.` });
+        if (!isRecord(identity.modules) || Object.values(identity.modules).some(value => typeof value !== 'string' || !text(value))) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.modules`, message: `${side} public identity modules must contain only non-blank generated values.` });
+        if (!isRecord(identity.paths) || typeof identity.paths.api !== 'string' || !text(identity.paths.api)) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.paths`, message: `${side} public identity paths must include a non-blank API path.` });
+        if (isRecord(identity.paths) && Object.entries(identity.paths).some(([key, value]) => value !== undefined && (typeof value !== 'string' || !text(value)))) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: `publicIdentity.${side}.paths`, message: `${side} public identity paths must contain only non-blank generated values.` });
+      }
+      if (!sameValue(identityPair.legacy, identityPair.proposed)) issues.push({ legacySourceIdentity: source || undefined, proposedId: proposedId || undefined, field: 'publicIdentity', message: 'Legacy and proposed public identities differ; do not replace a published Verse path without explicit replacement authorization.' });
+    }
 
     const immediate = pair(entry, 'immediateConsume');
     const proposedAutoConsume = pair(entry, 'autoConsume');

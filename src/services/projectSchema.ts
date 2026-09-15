@@ -1,4 +1,4 @@
-import { AlternateOffer, BundleOffer, BundleQuantityBehavior, DynamicOfferConfig, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
+import { AlternateOffer, BundleOffer, BundleQuantityBehavior, DynamicOfferConfig, EntitlementItem, GeneratedModuleConfiguration, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import {
   createVerseKeyAllocator,
   isValidVerseIdentifier,
@@ -11,6 +11,7 @@ import {
 } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
 import { isDynamicBundle } from './dynamicOffers';
+import { normalizePublicIdentityOverrides } from './publicIdentity';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -23,6 +24,39 @@ const booleanValue = (value: unknown, fallback = false): boolean =>
 
 const numberValue = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const generatedModuleConfigurationKeys: Array<keyof GeneratedModuleConfiguration> = [
+  'assetFolderName',
+  'deviceClassName',
+  'infoModuleName',
+  'entitlementsModuleName',
+  'pricesModuleName',
+  'offersModuleName',
+];
+
+export function generatedModuleConfigurationFromProjectConfig(
+  config: Pick<ProjectConfig, keyof GeneratedModuleConfiguration>,
+): GeneratedModuleConfiguration {
+  return Object.fromEntries(generatedModuleConfigurationKeys.map(key => [key, config[key]])) as GeneratedModuleConfiguration;
+}
+
+export function normalizeGeneratedModuleConfiguration(value: unknown): GeneratedModuleConfiguration | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('Preset generatedModuleConfiguration must be an object.');
+  for (const key of generatedModuleConfigurationKeys) {
+    const candidate = value[key];
+    if (typeof candidate !== 'string' || !isValidVerseIdentifier(candidate.trim())) {
+      throw new Error(`Preset generatedModuleConfiguration.${key} must be a valid Verse identifier.`);
+    }
+  }
+  for (const key of Object.keys(value)) {
+    if (!generatedModuleConfigurationKeys.includes(key as keyof GeneratedModuleConfiguration)) {
+      throw new Error(`Preset generatedModuleConfiguration.${key} is not supported.`);
+    }
+  }
+  const normalized = Object.fromEntries(generatedModuleConfigurationKeys.map(key => [key, (value[key] as string).trim()])) as GeneratedModuleConfiguration;
+  return generatedModuleConfigurationFromProjectConfig(normalized);
+}
 
 const stringArray = (value: unknown): string[] =>
   Array.isArray(value) && value.every(entry => typeof entry === 'string') ? value : [];
@@ -55,6 +89,7 @@ function normalizeAlternateOffer(value: unknown, parentKey: string, index: numbe
   return {
     id: stringValue(value.id, `offer-${parentKey}-${index}`),
     verseKey,
+    ...(normalizePublicIdentityOverrides(value.publicIdentity) ? { publicIdentity: normalizePublicIdentityOverrides(value.publicIdentity) } : {}),
     name: stringValue(value.name, verseKey),
     shortDescription: stringValue(value.shortDescription),
     description: stringValue(value.description),
@@ -95,6 +130,7 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
   return {
     id: stringValue(value.id, `ent-${verseKey}-${index}`),
     verseKey,
+    ...(normalizePublicIdentityOverrides(value.publicIdentity) ? { publicIdentity: normalizePublicIdentityOverrides(value.publicIdentity) } : {}),
     name: stringValue(value.name, verseKey),
     shortDescription: stringValue(value.shortDescription),
     description: stringValue(value.description),
@@ -155,6 +191,7 @@ export function normalizeBundle(value: unknown, index: number): BundleOffer {
   return {
     id: stringValue(value.id, `bundle-${verseKey}-${index}`),
     verseKey,
+    ...(normalizePublicIdentityOverrides(value.publicIdentity) ? { publicIdentity: normalizePublicIdentityOverrides(value.publicIdentity) } : {}),
     name: stringValue(value.name, verseKey),
     shortDescription: stringValue(value.shortDescription),
     description: stringValue(value.description),
@@ -189,6 +226,7 @@ export function normalizeOfferDisplayGroup(value: unknown, index: number): Offer
   return {
     id: stringValue(value.id, `store-${verseKey}-${index}`),
     verseKey,
+    ...(normalizePublicIdentityOverrides(value.publicIdentity) ? { publicIdentity: normalizePublicIdentityOverrides(value.publicIdentity) } : {}),
     name: stringValue(value.name, verseKey),
     entries,
     generateTriggerBinding: booleanValue(value.generateTriggerBinding, true),
@@ -413,6 +451,7 @@ export function parseManagedData(value: unknown): {
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
   projectDataDiagnostics: string[];
+  generatedModuleConfiguration?: GeneratedModuleConfiguration;
 } {
   if (!isRecord(value)) throw new Error('Preset must contain a JSON object.');
   if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) {
@@ -422,6 +461,7 @@ export function parseManagedData(value: unknown): {
   if (value.bundles !== undefined && !Array.isArray(value.bundles)) throw new Error('Preset bundles must be an array.');
   if (value.offerDisplayGroups !== undefined && !Array.isArray(value.offerDisplayGroups)) throw new Error('Preset offerDisplayGroups must be an array.');
   if (value.storefrontMembership !== undefined && !isRecord(value.storefrontMembership)) throw new Error('Preset storefrontMembership must be an object.');
+  const generatedModuleConfiguration = normalizeGeneratedModuleConfiguration(value.generatedModuleConfiguration);
 
   const entitlements = (value.entitlements as unknown[]).map(normalizeEntitlement);
   const bundles = (value.bundles ?? []).map(normalizeBundle);
@@ -451,6 +491,7 @@ export function parseManagedData(value: unknown): {
     offerDisplayGroups: storefront.membership.focused,
     retiredVerseKeys: normalizeRetiredVerseKeys(value.retiredVerseKeys),
     projectDataDiagnostics: [...new Set([...legacyEditableNameDiagnostics(value), ...repaired.projectDataDiagnostics, ...storefront.projectDataDiagnostics])],
+    ...(generatedModuleConfiguration ? { generatedModuleConfiguration } : {}),
   };
 }
 
@@ -501,6 +542,7 @@ export function cleanManagedData(
   bundles: BundleOffer[],
   storefrontInput: StorefrontMembership | OfferDisplayGroup[] = [],
   retiredVerseKeys: string[] = [],
+  moduleConfiguration?: Pick<ProjectConfig, keyof GeneratedModuleConfiguration>,
 ) {
   const storefront = Array.isArray(storefrontInput)
     ? normalizeStorefrontMembership(undefined, entitlements, bundles, storefrontInput).membership
@@ -526,6 +568,7 @@ export function cleanManagedData(
     bundles: BundleOffer[];
     storefrontMembership: StorefrontMembership;
     retiredVerseKeys?: string[];
+    generatedModuleConfiguration?: GeneratedModuleConfiguration;
   } = {
     schemaVersion: 4 as const,
     // Normalize before embedding the manifest so a parse -> regenerate cycle
@@ -536,6 +579,7 @@ export function cleanManagedData(
       allOffers: storefront.allOffers.map(entry => ({ ...entry })),
       focused: storefront.focused.map(group => normalizeOfferDisplayGroup(group, 0)),
     },
+    ...(moduleConfiguration ? { generatedModuleConfiguration: generatedModuleConfigurationFromProjectConfig(moduleConfiguration) } : {}),
   };
   const normalizedRetiredVerseKeys = normalizeRetiredVerseKeys(retiredVerseKeys);
   if (normalizedRetiredVerseKeys.length) clean.retiredVerseKeys = normalizedRetiredVerseKeys;

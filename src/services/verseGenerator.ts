@@ -2,6 +2,7 @@ import { AlternateOffer, BundleOffer, BundleOfferItem, EntitlementItem, OfferDis
 import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOfferDisplayGroup, normalizeStorefrontMembership } from './projectSchema';
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
+import { derivePublicIdentity } from './publicIdentity';
 import { generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
 import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
@@ -47,8 +48,9 @@ function manifestLines(
   bundles: BundleOffer[],
   storefrontMembership: StorefrontMembership,
   retiredVerseKeys: string[],
+  config: ProjectConfig,
 ): string {
-  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys))));
+  const encoded = encodeBase64Utf8(JSON.stringify(canonicalizeManifestValue(cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys, config))));
   const chunks = encoded.match(/.{1,100}/g) ?? [];
   return `${MANIFEST_BEGIN}\n${chunks.map(chunk => `# UEM_DATA ${chunk}`).join('\n')}\n${MANIFEST_END}\n\n`;
 }
@@ -78,9 +80,11 @@ function editableDescriptors(
 ): EditableDescriptor[] {
   const descriptors: EditableDescriptor[] = [];
   for (const item of entitlements) {
-    const names = entitlementEditableNames(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const descriptorKey = identity.apiStem;
+    const names = entitlementEditableNames(item.verseKey, identity.apiStem);
     if (item.triggers.generateTriggerBinding) descriptors.push({
-      key: item.verseKey,
+      key: descriptorKey,
       displayName: item.name || item.verseKey,
       propertyName: names.purchaseTriggers,
       type: '[]trigger_device',
@@ -89,7 +93,7 @@ function editableDescriptors(
       rootCategory: 'entitlements',
     });
     if (item.triggers.generateButtonBinding) descriptors.push({
-      key: item.verseKey,
+      key: descriptorKey,
       displayName: item.name || item.verseKey,
       propertyName: names.purchaseButtons,
       type: '[]button_device',
@@ -98,7 +102,7 @@ function editableDescriptors(
       rootCategory: 'entitlements',
     });
     if (item.triggers.generateSuccessTriggerBinding) descriptors.push({
-      key: item.verseKey,
+      key: descriptorKey,
       displayName: item.name || item.verseKey,
       propertyName: names.successTriggers,
       type: '[]trigger_device',
@@ -117,10 +121,11 @@ function editableDescriptors(
     rootCategory: 'storefronts',
   });
   for (const group of offerDisplayGroups) {
+    const identity = derivePublicIdentity(group, config, 'storefront');
     if (group.generateTriggerBinding) descriptors.push({
-      key: group.verseKey,
+      key: identity.apiStem,
       displayName: group.name || group.verseKey,
-      propertyName: storefrontEditableName(group.verseKey),
+      propertyName: storefrontEditableName(group.verseKey, 'openTriggers', identity.apiStem),
       type: '[]trigger_device',
       role: 'openTriggers',
       tooltip: `Activating an assigned Trigger device opens the ${group.name || group.verseKey} storefront. Use it with a deliberate player interaction.`,
@@ -186,10 +191,9 @@ function editableAttributeLines(descriptor: EditableDescriptor): string[] {
   ];
 }
 
-function metadataModule(key: string, name: string, description: string, shortDescription: string, durationDescription = '', odds = ''): string {
-  const moduleName = toVerseApiStem(key);
+function metadataModule(metadataStem: string, name: string, description: string, shortDescription: string, durationDescription = '', odds = ''): string {
   return [
-    `    ${moduleName}<public> := module:`,
+    `    ${metadataStem}<public> := module:`,
     `        Name<public><localizes>:message = "${escapeVerseString(name)}"`,
     `        Description<public><localizes>:message = "${escapeVerseString(displayedDescription(description, durationDescription, odds))}"`,
     `        ShortDescription<public><localizes>:message = "${escapeVerseString(shortDescription)}"`,
@@ -235,48 +239,48 @@ function oddsForItem(item: EntitlementItem): string {
 }
 
 function offerClass(
-  key: string,
+  offerStem: string,
   metadataKey: string,
-  entitlementKey: string,
+  entitlementStem: string,
   priceModule: string,
-  priceKey: string,
+  priceStem: string,
   iconTexture: string,
   restrictions: OfferRestrictions | undefined,
 ): string {
   const restriction = restrictionLines(restrictions);
   return [
-    `    ${key}_offer<public> := class(entitlement_offer):`,
+    `    ${offerStem}_offer<public> := class(entitlement_offer):`,
     `        var Name<override>:message = ${metadataKey}.Name`,
     `        var Description<override>:message = ${metadataKey}.Description`,
     `        var ShortDescription<override>:message = ${metadataKey}.ShortDescription`,
     `        var Icon<override>:texture = ${iconTexture}`,
-    `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementKey}_entitlement`,
-    `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${priceKey})`,
+    `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementStem}_entitlement`,
+    `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${priceStem}_price)`,
     restriction,
     '',
   ].filter(Boolean).join('\n');
 }
 
 function dynamicOfferClass(
-  key: string,
+  offerStem: string,
   metadataKey: string,
-  entitlementKey: string,
+  entitlementStem: string,
   priceModule: string,
-  priceKey: string,
+  priceStem: string,
   iconTexture: string,
   restrictions: OfferRestrictions | undefined,
 ): string {
   return [
-    `    ${key}_dynamic_offer<public> := class(entitlement_offer):`,
+    `    ${offerStem}_dynamic_offer<public> := class(entitlement_offer):`,
     `        var Name<override>:message = ${metadataKey}.Name`,
     `        var Description<override>:message = ${metadataKey}.Description`,
     `        var ShortDescription<override>:message = ${metadataKey}.ShortDescription`,
     `        var Icon<override>:texture = ${iconTexture}`,
-    `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementKey}_entitlement`,
+    `        EntitlementType<override>:concrete_subtype(entitlement) = ${entitlementStem}_entitlement`,
     // Verse does not allow an instance member to be read from another member
     // initializer. The runtime factory supplies the overridden Price field
     // when it constructs this offer class.
-    `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${priceKey})`,
+    `        Price<override>:price_dimension = MakePriceVBucks(${priceModule}.${priceStem}_price)`,
     restrictionLines(restrictions),
     '',
   ].filter(Boolean).join('\n');
@@ -313,8 +317,10 @@ function runtimePriceValidationLines(functionName: string): string[] {
 function directRuntimeOfferLines(
   itemKey: string,
   offersModule: string,
+  apiStem = toVerseApiStem(itemKey),
+  offerStem = itemKey,
 ): string[] {
-  const pascal = toVerseApiStem(itemKey);
+  const pascal = apiStem;
   const optionType = `${pascal}RuntimeOptions`;
   return [
     `    ${optionType}<public> := struct:`,
@@ -324,7 +330,7 @@ function directRuntimeOfferLines(
     `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
     `        if (IsValid${pascal}RuntimePrice(Options.PriceVBucks) = false):`,
     '            return false',
-    `        option{${offersModule}.${itemKey}_dynamic_offer{Price := MakePriceVBucks(Options.PriceVBucks)}}`,
+    `        option{${offersModule}.${offerStem}_dynamic_offer{Price := MakePriceVBucks(Options.PriceVBucks)}}`,
     '',
   ];
 }
@@ -339,14 +345,14 @@ type GeneratedBundleOffer = {
 
 function generatedBundleOffer(
   bundle: BundleOffer,
-  infoModule: string,
-  priceModule: string,
+  config: ProjectConfig,
 ): GeneratedBundleOffer {
+  const identity = derivePublicIdentity(bundle, config, 'bundle');
   return {
-    key: bundle.verseKey,
-    metadataKey: `${infoModule}.${toVerseApiStem(bundle.verseKey)}`,
+    key: identity.offerStem ?? bundle.verseKey,
+    metadataKey: identity.paths.metadata!,
     iconTexture: bundle.iconTexture,
-    priceReference: `${priceModule}.${bundle.verseKey}_price`,
+    priceReference: identity.paths.price!,
     restrictions: bundle.restrictions,
   };
 }
@@ -460,25 +466,35 @@ function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles:
   bundles.forEach(visit);
 }
 
-function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementItem[], bundles: BundleOffer[]): string {
+function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementItem[], bundles: BundleOffer[], config: ProjectConfig): string {
   if (entry.bundleId) {
     const nested = bundles.find(bundle => bundle.id === entry.bundleId);
-    return `${nested?.verseKey ?? 'invalid'}_offer{}`;
+    const identity = nested ? derivePublicIdentity(nested, config, 'bundle') : undefined;
+    return `${identity?.offerStem ?? 'invalid'}_offer{}`;
   }
   const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
   const reference = entry.offerVerseKey?.toLowerCase();
   const alternate = reference ? item?.alternateOffers?.find(offer => offer.verseKey.toLowerCase() === reference || offer.id.toLowerCase() === reference) : undefined;
-  const primary = reference && item?.verseKey.toLowerCase() === reference ? item.verseKey : undefined;
-  const offerKey = alternate?.verseKey || primary || (entry.offerVerseKey ? entry.offerVerseKey : item?.verseKey) || 'invalid';
-  return `${offerKey}_offer{}`;
+  const primary = reference && item?.verseKey.toLowerCase() === reference ? item : undefined;
+  const offerIdentity = alternate
+    ? derivePublicIdentity(alternate, config, 'alternate_offer', item)
+    : primary
+      ? derivePublicIdentity(primary, config, 'entitlement')
+      : undefined;
+  return `${offerIdentity?.offerStem ?? (entry.offerVerseKey || item?.verseKey || 'invalid')}_offer{}`;
 }
 
-function storefrontReferences(entries: OfferDisplayEntry[], entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string): string[] {
+function storefrontReferences(entries: OfferDisplayEntry[], entitlements: EntitlementItem[], bundles: BundleOffer[], offersModule: string, config: ProjectConfig): string[] {
   const references: string[] = [];
   for (const entry of entries) {
     const resolved = resolveStorefrontEntry(entry, entitlements, bundles);
     if (!resolved || (resolved.kind === 'bundle' && isDynamicBundle(resolved.bundle))) continue;
-    references.push(`${offersModule}.${resolved.offerVerseKey}_offer{}`);
+    const identity = resolved.kind === 'bundle'
+      ? derivePublicIdentity(resolved.bundle, config, 'bundle')
+      : resolved.kind === 'alternate'
+        ? derivePublicIdentity(resolved.offer, config, 'alternate_offer', resolved.item)
+        : derivePublicIdentity(resolved.item, config, 'entitlement');
+    references.push(`${offersModule}.${identity.offerStem}_offer{}`);
   }
   return references;
 }
@@ -532,7 +548,7 @@ export function generateVerseCode(
     '# Generated and managed by ADEPT Interactive UEFN Transaction Manager. Do not edit manually.',
     '# Configure through Transaction Manager and integrate from your own Verse using the generated public API; regeneration may replace this file.',
     '',
-    manifestLines(entitlements, bundles, storefrontMembership, retiredVerseKeys),
+    manifestLines(entitlements, bundles, storefrontMembership, retiredVerseKeys, config),
     'using { /Fortnite.com/Devices }',
     'using { /Fortnite.com/Marketplace }',
     'using { /Fortnite.com/Playspaces }',
@@ -549,21 +565,25 @@ export function generateVerseCode(
   );
 
   for (const item of entitlements) {
-    push(metadataModule(item.verseKey, item.name, item.description, item.shortDescription, item.durationDescription ?? '', oddsForItem(item)));
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    push(metadataModule(identity.metadataStem!, item.name, item.description, item.shortDescription, item.durationDescription ?? '', oddsForItem(item)));
     for (const alternate of item.alternateOffers ?? []) {
-      push(metadataModule(alternate.verseKey, alternate.name, alternate.description, alternate.shortDescription, alternate.durationDescription ?? '', oddsForItem(item)));
+      const alternateIdentity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      push(metadataModule(alternateIdentity.metadataStem!, alternate.name, alternate.description, alternate.shortDescription, alternate.durationDescription ?? '', oddsForItem(item)));
     }
   }
   for (const bundle of bundles) {
     const bundleOdds = paidRandomDisclosuresForBundle(bundle, entitlements, bundles).join('; ');
-    push(metadataModule(bundle.verseKey, bundle.name, bundle.description, bundle.shortDescription, bundle.durationDescription ?? '', bundleOdds));
+    const identity = derivePublicIdentity(bundle, config, 'bundle');
+    push(metadataModule(identity.metadataStem!, bundle.name, bundle.description, bundle.shortDescription, bundle.durationDescription ?? '', bundleOdds));
   }
 
   push(`${entModule}<public> := module:`, `    using { ${infoModule} }`, '', '    basic_entitlement<public> := class<abstract><castable>(entitlement){}', '');
   for (const item of entitlements) {
-    const metadataKey = toVerseApiStem(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const metadataKey = identity.metadataStem!;
     push(
-      `    ${item.verseKey}_entitlement<public> := class<concrete>(basic_entitlement):`,
+      `    ${identity.entitlementStem}_entitlement<public> := class<concrete>(basic_entitlement):`,
       `        var Name<override>:message = ${metadataKey}.Name`,
       `        var Description<override>:message = ${metadataKey}.Description`,
       `        var ShortDescription<override>:message = ${metadataKey}.ShortDescription`,
@@ -579,36 +599,47 @@ export function generateVerseCode(
 
   push(`${priceModule}<public> := module:`);
   for (const item of entitlements) {
-    push(`    ${item.verseKey}_price<public>:float = ${item.priceVBucks.toFixed(1)}`);
-    for (const alternate of item.alternateOffers ?? []) push(`    ${alternate.verseKey}_price<public>:float = ${alternate.priceVBucks.toFixed(1)}`);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    push(`    ${identity.priceStem}_price<public>:float = ${item.priceVBucks.toFixed(1)}`);
+    for (const alternate of item.alternateOffers ?? []) {
+      const alternateIdentity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      push(`    ${alternateIdentity.priceStem}_price<public>:float = ${alternate.priceVBucks.toFixed(1)}`);
+    }
   }
-  for (const bundle of bundles) push(`    ${bundle.verseKey}_price<public>:float = ${bundle.priceVBucks.toFixed(1)}`);
+  for (const bundle of bundles) {
+    const identity = derivePublicIdentity(bundle, config, 'bundle');
+    push(`    ${identity.priceStem}_price<public>:float = ${bundle.priceVBucks.toFixed(1)}`);
+  }
   push('');
 
   push(`${offersModule}<public> := module:`, `    using { ${infoModule} }`, `    using { ${entModule} }`, `    using { ${priceModule} }`, '');
   for (const item of entitlements) {
-    push(offerClass(item.verseKey, `${infoModule}.${toVerseApiStem(item.verseKey)}`, item.verseKey, priceModule, `${item.verseKey}_price`, item.iconTexture, item.offerRestrictions));
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    push(offerClass(identity.offerStem!, identity.paths.metadata!, identity.entitlementStem!, priceModule, identity.priceStem!, item.iconTexture, item.offerRestrictions));
     if (dynamicPriceEnabled(item.dynamicOffer)) {
-      push(dynamicOfferClass(item.verseKey, `${infoModule}.${toVerseApiStem(item.verseKey)}`, item.verseKey, priceModule, `${item.verseKey}_price`, item.iconTexture, item.offerRestrictions));
+      push(dynamicOfferClass(identity.offerStem!, identity.paths.metadata!, identity.entitlementStem!, priceModule, identity.priceStem!, item.iconTexture, item.offerRestrictions));
     }
     for (const alternate of item.alternateOffers ?? []) {
-      push(offerClass(alternate.verseKey, `${infoModule}.${toVerseApiStem(alternate.verseKey)}`, item.verseKey, priceModule, `${alternate.verseKey}_price`, alternate.iconTexture, alternate.restrictions));
+      const alternateIdentity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      push(offerClass(alternateIdentity.offerStem!, alternateIdentity.paths.metadata!, identity.entitlementStem!, priceModule, alternateIdentity.priceStem!, alternate.iconTexture, alternate.restrictions));
       if (dynamicPriceEnabled(alternate.dynamicOffer)) {
-        push(dynamicOfferClass(alternate.verseKey, `${infoModule}.${toVerseApiStem(alternate.verseKey)}`, item.verseKey, priceModule, `${alternate.verseKey}_price`, alternate.iconTexture, alternate.restrictions));
+        push(dynamicOfferClass(alternateIdentity.offerStem!, alternateIdentity.paths.metadata!, identity.entitlementStem!, priceModule, alternateIdentity.priceStem!, alternate.iconTexture, alternate.restrictions));
       }
     }
   }
 
   for (const item of entitlements) {
-    if (dynamicPriceEnabled(item.dynamicOffer)) push(...directRuntimeOfferLines(item.verseKey, offersModule));
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    if (dynamicPriceEnabled(item.dynamicOffer)) push(...directRuntimeOfferLines(item.verseKey, offersModule, identity.apiStem, identity.offerStem));
     for (const alternate of item.alternateOffers ?? []) {
-      if (dynamicPriceEnabled(alternate.dynamicOffer)) push(...directRuntimeOfferLines(alternate.verseKey, offersModule));
+      const alternateIdentity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      if (dynamicPriceEnabled(alternate.dynamicOffer)) push(...directRuntimeOfferLines(alternate.verseKey, offersModule, alternateIdentity.apiStem, alternateIdentity.offerStem));
     }
   }
   for (const bundle of bundles) {
     if (isDynamicBundle(bundle) && !dynamicRemainingEntry(bundle) && !hasRuntimeBundleValues(bundle)) continue;
-    const bundleSource = generatedBundleOffer(bundle, infoModule, priceModule);
-    const entries = bundle.items.map(entry => `(${resolveBundleEntry(entry, entitlements, bundles)}, ${entry.quantity})`).join(', ');
+    const bundleSource = generatedBundleOffer(bundle, config);
+    const entries = bundle.items.map(entry => `(${resolveBundleEntry(entry, entitlements, bundles, config)}, ${entry.quantity})`).join(', ');
     if (!isDynamicBundle(bundle)) push(bundleOfferClass(bundleSource, `array{${entries}}`));
     else if (dynamicRemainingEntry(bundle)) push(bundleOfferClass(bundleSource, `array{${entries}}`));
     if (dynamicRemainingEntry(bundle) && !hasRuntimeBundleValues(bundle)) {
@@ -624,7 +655,8 @@ export function generateVerseCode(
   // entitlement shape. Project Verse supplies values; UTM owns construction
   // and preflight validation of the Marketplace offer.
   for (const bundle of bundles.filter(hasRuntimeBundleValues)) {
-    const pascal = toVerseApiStem(bundle.verseKey);
+    const identity = derivePublicIdentity(bundle, config, 'bundle');
+    const pascal = identity.apiStem;
     const optionType = `${pascal}RuntimeOptions`;
     const dynamicEntries = bundle.items.filter(entry => bundleQuantityBehavior(bundle, entry) === 'runtime');
     push(`    ${optionType}<public> := struct:`);
@@ -635,7 +667,14 @@ export function generateVerseCode(
         : entry.bundleId
           ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
           : 'entry';
-      push(`        ${toVerseApiStem(key)}Quantity:int`);
+      const referencedItem = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId) : undefined;
+      const referencedBundle = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
+      const referencedIdentity = referencedItem
+        ? derivePublicIdentity(referencedItem, config, 'entitlement')
+        : referencedBundle
+          ? derivePublicIdentity(referencedBundle, config, 'bundle')
+          : undefined;
+      push(`        ${referencedIdentity?.apiStem ?? toVerseApiStem(key)}Quantity:int`);
     }
     const runtimePriceLines = dynamicPriceEnabled(bundle.dynamicOffer)
       ? [
@@ -654,10 +693,17 @@ export function generateVerseCode(
       const key = entry.entitlementId
         ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
         : entry.bundleId
-          ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
-          : 'entry';
+            ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
+            : 'entry';
       const maximum = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId)?.maxCount ?? 0 : MARKETPLACE_CONSTRAINTS.maxCount;
-      const field = `${toVerseApiStem(key)}Quantity`;
+      const referencedItem = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId) : undefined;
+      const referencedBundle = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
+      const referencedIdentity = referencedItem
+        ? derivePublicIdentity(referencedItem, config, 'entitlement')
+        : referencedBundle
+          ? derivePublicIdentity(referencedBundle, config, 'bundle')
+          : undefined;
+      const field = `${referencedIdentity?.apiStem ?? toVerseApiStem(key)}Quantity`;
       push(
         `        if (Options.${field} < 0 or Options.${field} > ${maximum}):`,
         '            return false',
@@ -666,14 +712,21 @@ export function generateVerseCode(
     push('        var RuntimeOffers:[]tuple(offer, int) = array{}');
     for (const entry of bundle.items) {
       const behavior = bundleQuantityBehavior(bundle, entry);
-      const reference = resolveBundleEntry(entry, entitlements, bundles);
+      const reference = resolveBundleEntry(entry, entitlements, bundles, config);
       if (behavior === 'runtime') {
         const key = entry.entitlementId
           ? entitlements.find(item => item.id === entry.entitlementId)?.verseKey ?? entry.entitlementId
           : entry.bundleId
             ? bundles.find(candidate => candidate.id === entry.bundleId)?.verseKey ?? entry.bundleId
             : 'entry';
-        const field = `${toVerseApiStem(key)}Quantity`;
+        const referencedItem = entry.entitlementId ? entitlements.find(item => item.id === entry.entitlementId) : undefined;
+        const referencedBundle = entry.bundleId ? bundles.find(candidate => candidate.id === entry.bundleId) : undefined;
+        const referencedIdentity = referencedItem
+          ? derivePublicIdentity(referencedItem, config, 'entitlement')
+          : referencedBundle
+            ? derivePublicIdentity(referencedBundle, config, 'bundle')
+            : undefined;
+        const field = `${referencedIdentity?.apiStem ?? toVerseApiStem(key)}Quantity`;
         push(`        if (Options.${field} > 0):`, `            set RuntimeOffers += array{(${reference}, Options.${field})}`);
       } else {
         push(`        set RuntimeOffers += array{(${reference}, ${entry.quantity})}`);
@@ -682,7 +735,7 @@ export function generateVerseCode(
     push(
       '        if (RuntimeOffers.Length = 0):',
       '            return false',
-      `        option{${offersModule}.${bundle.verseKey}_dynamic_offer{${dynamicPriceEnabled(bundle.dynamicOffer) ? 'Price := MakePriceVBucks(Options.PriceVBucks), ' : ''}Offers := RuntimeOffers}}`,
+      `        option{${offersModule}.${identity.offerStem}_dynamic_offer{${dynamicPriceEnabled(bundle.dynamicOffer) ? 'Price := MakePriceVBucks(Options.PriceVBucks), ' : ''}Offers := RuntimeOffers}}`,
       '',
     );
   }
@@ -719,7 +772,7 @@ export function generateVerseCode(
     '',
   );
   for (const item of entitlements) {
-    const pascal = toVerseApiStem(item.verseKey);
+    const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
     push(
       `    ${pascal}_GrantedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
       `    ${pascal}_RemovedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
@@ -751,14 +804,16 @@ export function generateVerseCode(
     '            OnPlayerAdded(Player)',
   );
   for (const item of entitlements) {
-    const pascal = toVerseApiStem(item.verseKey);
-    const names = entitlementEditableNames(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const pascal = identity.apiStem;
+    const names = entitlementEditableNames(item.verseKey, identity.apiStem);
     if (item.triggers.generateTriggerBinding) push(`        for (Trigger : ${names.purchaseTriggers}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${pascal}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
     if (item.triggers.generateButtonBinding) push(`        for (Button : ${names.purchaseButtons}):`, `            Subscription := Button.InteractedWithEvent.Subscribe(On${pascal}ButtonInteracted)`, '            set DeviceSubscriptions += array{Subscription}');
   }
   if (config.generateStorefrontBinding) push(`        for (Button : ${allOffersStoreButtons}):`, '            Subscription := Button.InteractedWithEvent.Subscribe(OnStorefrontButtonInteracted)', '            set DeviceSubscriptions += array{Subscription}');
   for (const group of offerDisplayGroups) {
-    if (group.generateTriggerBinding) push(`        for (Trigger : ${storefrontEditableName(group.verseKey)}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${toVerseApiStem(group.verseKey)}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
+    const identity = derivePublicIdentity(group, config, 'storefront');
+    if (group.generateTriggerBinding) push(`        for (Trigger : ${storefrontEditableName(group.verseKey, 'openTriggers', identity.apiStem)}):`, `            Subscription := Trigger.TriggeredEvent.Subscribe(On${identity.apiStem}TriggerActivated)`, '            set DeviceSubscriptions += array{Subscription}');
   }
   push('');
 
@@ -787,7 +842,7 @@ export function generateVerseCode(
     '        LogDebug("Player removed; releasing runtime state.")',
     '        RemovePlayerSubscription(Player)',
     '        ReleaseMarketplaceUI(Player)',
-    ...entitlements.filter(item => item.itemType === 'consumable').map(item => `        Clear${toVerseApiStem(item.verseKey)}ConsumeIntents(Player)`),
+    ...entitlements.filter(item => item.itemType === 'consumable').map(item => `        Clear${derivePublicIdentity(item, config, 'entitlement').apiStem}ConsumeIntents(Player)`),
     '',
     '    RemovePlayerSubscription(Player:player):void =',
     '        if (Subscription := EntitlementChangeSubscriptions[Player]?):',
@@ -817,16 +872,19 @@ export function generateVerseCode(
     '            if (EntitlementChange.Change > 0):',
   );
   for (const item of entitlements) {
-    push(`                if (${entModule}.${item.verseKey}_entitlement[ChangedEntitlement]):`, `                    Process${toVerseApiStem(item.verseKey)}Grant(Player, EntitlementChange.Change)`);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    push(`                if (${entModule}.${identity.entitlementStem}_entitlement[ChangedEntitlement]):`, `                    Process${identity.apiStem}Grant(Player, EntitlementChange.Change)`);
   }
   push('            else if (EntitlementChange.Change < 0):');
   for (const item of entitlements) {
-    push(`                if (${entModule}.${item.verseKey}_entitlement[ChangedEntitlement]):`, `                    Process${toVerseApiStem(item.verseKey)}Removal(Player, 0 - EntitlementChange.Change)`);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    push(`                if (${entModule}.${identity.entitlementStem}_entitlement[ChangedEntitlement]):`, `                    Process${identity.apiStem}Removal(Player, 0 - EntitlementChange.Change)`);
   }
   for (const item of entitlements.filter(candidate => candidate.itemType === 'consumable')) {
-    const pascal = toVerseApiStem(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const pascal = identity.apiStem;
     push(
-      `                if (${entModule}.${item.verseKey}_entitlement[ChangedEntitlement]):`,
+      `                if (${entModule}.${identity.entitlementStem}_entitlement[ChangedEntitlement]):`,
       `                    Record${pascal}ConsumeDelta(Player, 0 - EntitlementChange.Change)`,
     );
   }
@@ -848,9 +906,10 @@ export function generateVerseCode(
   );
 
   for (const item of entitlements) {
-    const pascal = toVerseApiStem(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const pascal = identity.apiStem;
     const printableName = escapeVerseString(item.name);
-    const editableNames = entitlementEditableNames(item.verseKey);
+    const editableNames = entitlementEditableNames(item.verseKey, identity.apiStem);
     const successfulGrantTriggerLines = item.triggers.generateSuccessTriggerBinding && !(item.itemType === 'consumable' && item.autoConsume)
       ? [
         `        for (Trigger : ${editableNames.successTriggers}):`,
@@ -960,7 +1019,7 @@ export function generateVerseCode(
         ...(item.autoConsume
           ? [`            LogDebug("[AUTO-CONSUME] consume requested key=${item.verseKey} quantity={Quantity} request={RequestId}.")`]
           : []),
-        `            Result := ConsumeEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+        `            Result := ConsumeEntitlement(Player, ${entModule}.${identity.entitlementStem}_entitlement, ?Count := Quantity)`,
         '            if (not Result?):',
         ...(item.autoConsume
           ? [`                LogDebug("[AUTO-CONSUME] native consume result=false key=${item.verseKey} request={RequestId}.")`]
@@ -999,7 +1058,7 @@ export function generateVerseCode(
     push(
       `    Grant${pascal}<public>(Player:player, Quantity:int)<suspends>:logic =`,
       '        if (Quantity > 0):',
-      `            Result := GrantEntitlement(Player, ${entModule}.${item.verseKey}_entitlement, ?Count := Quantity)`,
+      `            Result := GrantEntitlement(Player, ${entModule}.${identity.entitlementStem}_entitlement, ?Count := Quantity)`,
       '            if (not Result?):',
       `                LogError("Grant${pascal} returned false for ${printableName}.")`,
       '            return Result',
@@ -1010,10 +1069,11 @@ export function generateVerseCode(
   }
 
   for (const item of entitlements) {
-      const pascal = toVerseApiStem(item.verseKey);
+      const identity = derivePublicIdentity(item, config, 'entitlement');
+      const pascal = identity.apiStem;
       push(
         `    Get${pascal}Count<public>(Player:player)<suspends>:int =`,
-        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${item.verseKey}_entitlement)`,
+        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${identity.entitlementStem}_entitlement)`,
         '        if (Purchase := Purchases[0]):',
         '            return Purchase(1)',
         '        0',
@@ -1049,12 +1109,13 @@ export function generateVerseCode(
   );
 
   for (const item of entitlements) {
-    const pascal = toVerseApiStem(item.verseKey);
+    const identity = derivePublicIdentity(item, config, 'entitlement');
+    const pascal = identity.apiStem;
     const printableName = escapeVerseString(item.name);
     const purchaseEntryName = `Open${pascal}Purchase`;
     const runtimePrice = dynamicPriceEnabled(item.dynamicOffer);
     const defaultRuntimeOptions = runtimePrice
-      ? `${offersModule}.${pascal}RuntimeOptions{PriceVBucks := ${priceModule}.${item.verseKey}_price}`
+      ? `${offersModule}.${pascal}RuntimeOptions{PriceVBucks := ${priceModule}.${identity.priceStem}_price}`
       : '';
     const purchaseCall = `${purchaseEntryName}(Player${runtimePrice ? `, ${defaultRuntimeOptions}` : ''})`;
     if (item.triggers.generateTriggerBinding) {
@@ -1106,12 +1167,13 @@ export function generateVerseCode(
         `        LogDebug("[UTM-PROMPT-TRACE] P5 key/product resolved key=${escapeVerseString(item.verseKey)} product=${printableName}.")`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
-        `            spawn{ExecutePurchase(Player, ${offersModule}.${item.verseKey}_offer{}, "${printableName}")}`,
+        `            spawn{ExecutePurchase(Player, ${offersModule}.${identity.offerStem}_offer{}, "${printableName}")}`,
         '',
       );
     }
     for (const alternate of item.alternateOffers ?? []) {
-      const altPascal = toVerseApiStem(alternate.verseKey);
+      const alternateIdentity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      const altPascal = alternateIdentity.apiStem;
       if (dynamicPriceEnabled(alternate.dynamicOffer)) {
         push(
           `    Open${altPascal}Purchase<public>(Player:player, Options:${offersModule}.${altPascal}RuntimeOptions):void =`,
@@ -1132,7 +1194,7 @@ export function generateVerseCode(
           `    Open${altPascal}Purchase<public>(Player:player):void =`,
           '        Acquired := TryAcquireMarketplaceUI(Player)',
           '        if (Acquired?):',
-          `            spawn{ExecutePurchase(Player, ${offersModule}.${alternate.verseKey}_offer{}, "${escapeVerseString(alternate.name)}")}`,
+          `            spawn{ExecutePurchase(Player, ${offersModule}.${alternateIdentity.offerStem}_offer{}, "${escapeVerseString(alternate.name)}")}`,
           '',
         );
       }
@@ -1140,7 +1202,8 @@ export function generateVerseCode(
   }
 
   for (const bundle of bundles) {
-    const pascal = toVerseApiStem(bundle.verseKey);
+    const identity = derivePublicIdentity(bundle, config, 'bundle');
+    const pascal = identity.apiStem;
     const printableName = escapeVerseString(bundle.name);
     const dynamicEntry = dynamicRemainingEntry(bundle);
     const purchaseEntryName = `Open${pascal}Purchase`;
@@ -1163,7 +1226,7 @@ export function generateVerseCode(
       );
     } else if (dynamicEntry && dynamicItem) {
       const entry = dynamicEntry;
-      const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles)}`;
+      const offerReference = `${offersModule}.${resolveBundleEntry(entry, entitlements, bundles, config)}`;
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
@@ -1171,16 +1234,16 @@ export function generateVerseCode(
         `            spawn{ExecuteDynamicPurchase${pascal}(Player)}`,
         '',
         `    ExecuteDynamicPurchase${pascal}(Player:player)<suspends>:void =`,
-        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${dynamicItem.verseKey}_entitlement)`,
+        `        Purchases := GetPurchasedEntitlements(Player, ${entModule}.${derivePublicIdentity(dynamicItem, config, 'entitlement').entitlementStem}_entitlement)`,
         '        var OwnedCount:int = 0',
         '        if (Purchase := Purchases[0]):',
         '            set OwnedCount = Purchase(1)',
-        `        MaxCount := ${entModule}.${dynamicItem.verseKey}_entitlement{}.MaxCount`,
+        `        MaxCount := ${entModule}.${derivePublicIdentity(dynamicItem, config, 'entitlement').entitlementStem}_entitlement{}.MaxCount`,
         '        var RemainingCount:int = MaxCount - OwnedCount',
         '        if (RemainingCount < 0):',
         '            set RemainingCount = 0',
         '        if (RemainingCount > 0):',
-        `            DynamicOffer := ${offersModule}.${bundle.verseKey}_dynamic_offer{Offers := array{(${offerReference}, RemainingCount)}}`,
+        `            DynamicOffer := ${offersModule}.${identity.offerStem}_dynamic_offer{Offers := array{(${offerReference}, RemainingCount)}}`,
         `            ExecutePurchase(Player, DynamicOffer, "${printableName}")`,
         '        else:',
         `            LogDebug("${printableName} has no remaining quantity.")`,
@@ -1201,13 +1264,13 @@ export function generateVerseCode(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
-        `            spawn{ExecutePurchase(Player, ${offersModule}.${bundle.verseKey}_offer{}, "${printableName}")}`,
+        `            spawn{ExecutePurchase(Player, ${offersModule}.${identity.offerStem}_offer{}, "${printableName}")}`,
         '',
       );
     }
   }
 
-  const allOffers = storefrontReferences(storefrontMembership.allOffers, entitlements, bundles, offersModule);
+  const allOffers = storefrontReferences(storefrontMembership.allOffers, entitlements, bundles, offersModule, config);
   push('    AllOffersStoreTitle<localizes>:message = "All Offers"', '');
   push('    ShowAllOffers(Player:player)<suspends>:void =');
   if (allOffers.length) push(`        ExecuteStorefront(Player, array{${allOffers.join(', ')}}, AllOffersStoreTitle)`);
@@ -1231,8 +1294,9 @@ export function generateVerseCode(
   );
 
   for (const group of offerDisplayGroups) {
-    const pascal = toVerseApiStem(group.verseKey);
-    const references = storefrontReferences(group.entries, entitlements, bundles, offersModule);
+    const identity = derivePublicIdentity(group, config, 'storefront');
+    const pascal = identity.apiStem;
+    const references = storefrontReferences(group.entries, entitlements, bundles, offersModule, config);
     push(
       `    ${pascal}Title<localizes>:message = "${escapeVerseString(group.name)}"`,
       '',
@@ -1269,7 +1333,7 @@ export function generateVerseCode(
   );
   if (entitlements.length > 0) {
     for (const item of entitlements) {
-      const pascal = toVerseApiStem(item.verseKey);
+      const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
       push(`        var ${pascal}OwnedCount:int = 0`);
     }
     push(
@@ -1277,14 +1341,15 @@ export function generateVerseCode(
       '        for (Purchase : Purchases):',
     );
     for (const item of entitlements) {
-      const pascal = toVerseApiStem(item.verseKey);
+      const identity = derivePublicIdentity(item, config, 'entitlement');
+      const pascal = identity.apiStem;
       push(
-        `            if (${entModule}.${item.verseKey}_entitlement[Purchase(0)]):`,
+        `            if (${entModule}.${identity.entitlementStem}_entitlement[Purchase(0)]):`,
         `                set ${pascal}OwnedCount = ${pascal}OwnedCount + Purchase(1)`,
       );
     }
     for (const item of entitlements) {
-      const pascal = toVerseApiStem(item.verseKey);
+      const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
       push(`        ${pascal}_ReconciledSignal.Signal((Player, ${pascal}OwnedCount))`);
     }
   }
