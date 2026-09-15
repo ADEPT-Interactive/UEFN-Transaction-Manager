@@ -35,6 +35,7 @@ uem/stable/latest.yml
 uem/stable/UEFN-Transaction-Manager-Setup-4.3.6.exe
 uem/stable/UEFN-Transaction-Manager-Setup-4.3.6.exe.blockmap
 uem/stable/manifests/4.3.6.yml
+uem/stable/manifests/portable-4.3.6.json
 uem/stable/portable-latest.json
 uem/stable/UEFN-Transaction-Manager-4.3.6-Portable.zip
 ```
