@@ -6,6 +6,7 @@ import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVer
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
 import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
+import { derivePublicIdentity, validateStoredPublicIdentity } from './publicIdentity';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
 
@@ -514,6 +515,48 @@ export function validateProjectConfig(config: ProjectConfig): ValidationIssue[] 
   return issues;
 }
 
+function validatePublicIdentityRecords(
+  entitlements: EntitlementItem[],
+  bundles: BundleOffer[],
+  storefrontMembership: StorefrontMembership,
+  config: ProjectConfig | undefined,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const pathOwners = new Map<string, string>();
+  const registerPath = (path: string, owner: string, stableId: string) => {
+    const normalized = path.toLowerCase();
+    const previous = pathOwners.get(normalized);
+    if (previous && previous !== stableId) issues.push(issue(`public-identity-${normalized}`, 'error', `Generated public Verse identity path "${path}" conflicts between ${previous} and ${stableId}.`, 'public_identity_unique'));
+    else pathOwners.set(normalized, stableId);
+  };
+  const check = (record: EntitlementItem | BundleOffer | OfferDisplayGroup, kind: 'entitlement' | 'bundle' | 'storefront', parent?: EntitlementItem) => {
+    const label = `${kind} ${record.id || record.verseKey}`;
+    issues.push(...validateStoredPublicIdentity(record.publicIdentity, kind, label).map((message, index) => issue(`public-identity-${record.id}-${index}`, 'error', message, 'public_identity_shape', 'publicIdentity')));
+    if (!config) return;
+    const identity = derivePublicIdentity(record, config, kind, parent);
+    for (const [pathKind, path] of Object.entries(identity.paths)) {
+      if (!path || pathKind === 'entitlement') continue;
+      registerPath(path, label, record.id);
+    }
+  };
+  entitlements.forEach(item => {
+    check(item, 'entitlement');
+    (item.alternateOffers ?? []).forEach(offer => {
+      const label = `alternate offer ${offer.id || offer.verseKey}`;
+      issues.push(...validateStoredPublicIdentity(offer.publicIdentity, 'alternate_offer', label).map((message, index) => issue(`public-identity-${offer.id}-${index}`, 'error', message, 'public_identity_shape', 'publicIdentity', item.id)));
+      if (!config) return;
+      const identity = derivePublicIdentity(offer, config, 'alternate_offer', item);
+      for (const [pathKind, path] of Object.entries(identity.paths)) {
+        if (!path || pathKind === 'entitlement') continue;
+        registerPath(path, label, offer.id);
+      }
+    });
+  });
+  bundles.forEach(bundle => check(bundle, 'bundle'));
+  storefrontMembership.focused.forEach(group => check(group, 'storefront'));
+  return issues;
+}
+
 export function validateEntireProject(
   entitlements: EntitlementItem[],
   bundles: BundleOffer[] = [],
@@ -538,6 +581,7 @@ export function validateEntireProject(
     focusedIds.add(group.id);
   });
   if (config) issues.push(...validateProjectConfig(config));
+  issues.push(...validatePublicIdentityRecords(entitlements, bundles, storefrontMembership, config));
 
   const memberOwners = new Map<string, string>();
   const registerMember = (name: string, owner: EntitlementItem, field: string) => {
@@ -561,8 +605,9 @@ export function validateEntireProject(
   ].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
   memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {
-    const pascal = toPascalCase(item.verseKey);
-    const editableNames = entitlementEditableNames(item.verseKey);
+    const identity = config ? derivePublicIdentity(item, config, 'entitlement') : undefined;
+    const pascal = identity?.apiStem ?? toPascalCase(item.verseKey);
+    const editableNames = entitlementEditableNames(item.verseKey, identity?.apiStem);
     registerMember(`${pascal}_GrantedSignal`, item, 'verseKey');
     registerMember(`${pascal}_RemovedSignal`, item, 'verseKey');
     registerMember(`${pascal}_ReconciledSignal`, item, 'verseKey');
@@ -581,7 +626,7 @@ export function validateEntireProject(
     registerMember(`Open${pascal}Purchase`, item, 'verseKey');
     if (item.itemType === 'consumable') registerMember(`Consume${pascal}`, item, 'verseKey');
     (item.alternateOffers ?? []).forEach(offer => {
-      const offerPascal = toPascalCase(offer.verseKey);
+      const offerPascal = config ? derivePublicIdentity(offer, config, 'alternate_offer', item).apiStem : toPascalCase(offer.verseKey);
       registerMember(`Open${offerPascal}Purchase`, item, 'alternateOffers');
     });
     if (item.triggers.generateTriggerBinding) registerMember(editableNames.purchaseTriggers, item, 'triggers');
@@ -592,12 +637,13 @@ export function validateEntireProject(
     registerGeneratedMember(storefrontEditableName('AllOffersStore', 'openButtons'), 'config');
   }
   storefrontMembership.focused.forEach(group => {
-    const pascal = toPascalCase(group.verseKey);
+    const identity = config ? derivePublicIdentity(group, config, 'storefront') : undefined;
+    const pascal = identity?.apiStem ?? toPascalCase(group.verseKey);
     registerGeneratedMember(`${pascal}Title`, 'generator');
     registerGeneratedMember(`Show${pascal}Offers`, 'generator');
     registerGeneratedMember(`Open${pascal}`, `storefront.${group.id}`);
     if (!group.generateTriggerBinding) return;
-    const generatedName = storefrontEditableName(group.verseKey);
+    const generatedName = storefrontEditableName(group.verseKey, 'openTriggers', identity?.apiStem);
     const normalized = generatedName.toLowerCase();
     if (memberOwners.has(normalized)) issues.push(issue(`${group.id}-member-duplicate-${normalized}`, 'error', `Generated offer-display member "${generatedName}" conflicts with another generated member.`, 'device_member_unique', 'verseKey'));
     else memberOwners.set(normalized, `offer-display.${group.id}`);
@@ -633,11 +679,11 @@ export function validateEntireProject(
     ['entitlementsModuleName', config?.entitlementsModuleName], ['pricesModuleName', config?.pricesModuleName], ['offersModuleName', config?.offersModuleName],
   ] as Array<[string, string | undefined]>) if (value) registerGeneratedSymbol(value, `config.${field}`);
   entitlements.forEach(item => {
-    registerGeneratedSymbol(toPascalCase(item.verseKey), `entitlement.${item.id}`);
-    (item.alternateOffers ?? []).forEach((offer, index) => registerGeneratedSymbol(toPascalCase(offer.verseKey), `alternate.${item.id}.${index}`));
+    registerGeneratedSymbol(config ? derivePublicIdentity(item, config, 'entitlement').apiStem : toPascalCase(item.verseKey), `entitlement.${item.id}`);
+    (item.alternateOffers ?? []).forEach((offer, index) => registerGeneratedSymbol(config ? derivePublicIdentity(offer, config, 'alternate_offer', item).apiStem : toPascalCase(offer.verseKey), `alternate.${item.id}.${index}`));
   });
-  bundles.forEach(bundle => registerGeneratedSymbol(toPascalCase(bundle.verseKey), `bundle.${bundle.id}`));
-  storefrontMembership.focused.forEach(group => registerGeneratedSymbol(toPascalCase(group.verseKey), `offer-display.${group.id}`));
+  bundles.forEach(bundle => registerGeneratedSymbol(config ? derivePublicIdentity(bundle, config, 'bundle').apiStem : toPascalCase(bundle.verseKey), `bundle.${bundle.id}`));
+  storefrontMembership.focused.forEach(group => registerGeneratedSymbol(config ? derivePublicIdentity(group, config, 'storefront').apiStem : toPascalCase(group.verseKey), `offer-display.${group.id}`));
   for (const [memberName, owner] of memberOwners) registerGeneratedSymbol(memberName, `device-member.${owner}`);
 
   const entitlementIds = new Set<string>();

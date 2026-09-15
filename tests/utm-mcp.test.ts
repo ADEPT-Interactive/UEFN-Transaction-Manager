@@ -6,6 +6,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CatalogSession, defaultProjectConfig } from '../src/services/catalogSession';
 import { UTMcpHost } from '../server/utmMcp';
+import {
+  FLASHLIGHT_TAG_IDENTITY_OPERATIONS,
+  FLASHLIGHT_TAG_MODULE_CONFIGURATION,
+  FLASHLIGHT_TAG_PARITY,
+  flashlightTagCatalog,
+} from './fixtures/flashlight-tag-identity-fixture';
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -297,6 +303,61 @@ test('existing-project migration patches require a pre-apply parity table', asyn
     assert.match(JSON.stringify(validation), /one parity row/i);
   } finally {
     await client.close().catch(() => undefined);
+    await host.stop();
+  }
+});
+
+test('official UTM MCP client exposes Flashlight Tag identity parity and atomic adoption evidence', async () => {
+  const port = await freePort();
+  const host = new UTMcpHost({
+    version: '4.3.6',
+    catalog: new CatalogSession(flashlightTagCatalog()),
+    getProjectContext: () => ({
+      productVersion: '4.3.6',
+      projectName: 'Flashlight Tag',
+      projectFile: 'C:/fixture-projects/FlashlightTag01/FlashlightTag01.uefnproject',
+      projectRoot: 'C:/fixture-projects/FlashlightTag01',
+      contentRoot: 'C:/fixture-projects/FlashlightTag01/Plugins/FlashlightTag01/Content',
+      assetMount: '/FlashlightTag01',
+      targetManagedVerseFile: 'managed_transactions.verse',
+      configuredIconFolder: 'EntitlementIcons',
+      editorConnection: { editorConnected: true },
+      nativeTextureAdoptionAvailable: true,
+      managedFileOwned: true,
+      catalogInitialization: 'initialized',
+    }),
+    adoptIcon: async () => ({ success: false, error: 'not used' }),
+    saveCatalog: async () => ({ success: true, contentHash: 'i'.repeat(64), fileName: 'managed_transactions.verse' }),
+  });
+  const client = new Client({ name: 'flashlight-identity-client', version: '1.0.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
+  try {
+    await host.start(port);
+    await client.connect(transport);
+    const context = await client.callTool({ name: 'get_project_context', arguments: {} });
+    assert.match(JSON.stringify(context), /Flashlight Tag/);
+    const parity = await client.callTool({ name: 'validate_migration_parity', arguments: { entries: FLASHLIGHT_TAG_PARITY, operations: FLASHLIGHT_TAG_IDENTITY_OPERATIONS } });
+    assert.equal(parity.isError, undefined, JSON.stringify(parity));
+    assert.match(JSON.stringify(parity), /"confirmed":true/);
+    const patch = await client.callTool({ name: 'apply_catalog_patch', arguments: {
+      expectedRevision: '1',
+      dryRun: true,
+      operations: FLASHLIGHT_TAG_IDENTITY_OPERATIONS,
+      migration: { mode: 'existing-project', preserveUnmatchedExisting: true, parity: FLASHLIGHT_TAG_PARITY, moduleConfiguration: FLASHLIGHT_TAG_MODULE_CONFIGURATION },
+    } });
+    assert.equal(patch.isError, undefined, JSON.stringify(patch));
+    const patchText = JSON.stringify(patch);
+    assert.match(patchText, /CATALOG|identityEvidence/);
+    assert.match(patchText, /"operationResults"/);
+    assert.match(patchText, /"requested"/);
+    assert.match(patchText, /"effective"/);
+    const snapshot = await client.callTool({ name: 'get_catalog_snapshot', arguments: {} });
+    assert.match(JSON.stringify(snapshot), /"revision":"1"/);
+    assert.match(JSON.stringify(snapshot), /premium_power_pass/);
+    assert.doesNotMatch(JSON.stringify(snapshot), /"revision":"2"/);
+  } finally {
+    await client.close().catch(() => undefined);
+    await transport.close().catch(() => undefined);
     await host.stop();
   }
 });

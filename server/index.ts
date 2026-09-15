@@ -13,6 +13,7 @@ import versionInfo from '../version.json';
 import { CATALOG_ERROR_CODES, CatalogDomainError, CatalogSession, catalogForMcp, defaultProjectConfig, type CatalogDocument } from '../src/services/catalogSession';
 import { parseVerseCode } from '../src/services/verseParser';
 import { generateVerseCode } from '../src/services/verseGenerator';
+import { generatedModuleConfigurationFromProjectConfig } from '../src/services/projectSchema';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/constants/placeholderIcon';
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
@@ -104,8 +105,11 @@ function readCatalogAtConfig(config: CatalogDocument['config']): { document: Cat
       managed: false,
     };
   }
+  const managedConfig = parsed.generatedModuleConfiguration
+    ? defaultProjectConfig(contentRoot, { ...config, ...parsed.generatedModuleConfiguration, contentFolderPath: contentRoot })
+    : config;
   return {
-    document: { config, entitlements: parsed.entitlements, bundles: parsed.bundles, storefrontMembership: parsed.storefrontMembership, retiredVerseKeys: parsed.retiredVerseKeys, projectDataDiagnostics: parsed.projectDataDiagnostics },
+    document: { config: managedConfig, entitlements: parsed.entitlements, bundles: parsed.bundles, storefrontMembership: parsed.storefrontMembership, retiredVerseKeys: parsed.retiredVerseKeys, projectDataDiagnostics: parsed.projectDataDiagnostics },
     contentHash: sha256(content),
     managed: true,
   };
@@ -624,7 +628,13 @@ app.post('/api/catalog/open', (req, res) => {
     const current = catalogSession.snapshot();
     const allowInitialRecovery = current.revision === '1' && !current.dirty;
     const requestedConfig = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
-    const config = defaultProjectConfig(contentRoot, { ...requestedConfig, contentFolderPath: contentRoot });
+    const requested = defaultProjectConfig(contentRoot, { ...requestedConfig, contentFolderPath: contentRoot });
+    // An existing managed file is the authority for generated module names.
+    // This prevents a stale UI/local-storage config from silently renaming a
+    // published Verse path when the bridge is reopened after MCP adoption.
+    const config = current.savedFileHash !== null && requested.targetVerseFileName.toLowerCase() === current.config.targetVerseFileName.toLowerCase()
+      ? defaultProjectConfig(contentRoot, { ...requested, ...generatedModuleConfigurationFromProjectConfig(current.config), contentFolderPath: contentRoot })
+      : requested;
     const recovery = req.body?.recovery && typeof req.body.recovery === 'object' ? req.body.recovery : undefined;
     const targetChanged = config.targetVerseFileName !== current.config.targetVerseFileName;
     if (allowInitialRecovery && targetChanged) {

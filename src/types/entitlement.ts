@@ -14,9 +14,25 @@ export interface OfferRestrictions {
   blockedPlatformFamilies: string[];
 }
 
+/**
+ * Explicit public Verse identities imported from an existing project.
+ *
+ * New records intentionally omit this object: UTM derives their public names
+ * from the persisted verseKey. Existing-project migrations may provide these
+ * overrides when the catalog key no longer describes the published Verse API.
+ */
+export interface PublicIdentityOverrides {
+  apiStem?: string;
+  metadataStem?: string;
+  entitlementStem?: string;
+  priceStem?: string;
+  offerStem?: string;
+}
+
 export interface AlternateOffer {
   id: string;
   verseKey: string;
+  publicIdentity?: PublicIdentityOverrides;
   name: string;
   shortDescription: string;
   description: string;
@@ -31,6 +47,7 @@ export interface AlternateOffer {
 export interface EntitlementItem {
   id: string;
   verseKey: string;
+  publicIdentity?: PublicIdentityOverrides;
   name: string;
   shortDescription: string;
   description: string;
@@ -70,6 +87,7 @@ export interface BundleOfferItem {
 export interface BundleOffer {
   id: string;
   verseKey: string;
+  publicIdentity?: PublicIdentityOverrides;
   name: string;
   shortDescription: string;
   description: string;
@@ -93,6 +111,7 @@ export interface OfferDisplayEntry {
 export interface OfferDisplayGroup {
   id: string;
   verseKey: string;
+  publicIdentity?: PublicIdentityOverrides;
   name: string;
   entries: OfferDisplayEntry[];
   generateTriggerBinding: boolean;
@@ -121,6 +140,21 @@ export interface ProjectConfig {
   generateStorefrontBinding?: boolean;
 }
 
+/**
+ * The generated module and device names embedded in a managed Verse file.
+ *
+ * The target filename is deliberately not duplicated here: the manifest is
+ * read from that file, so the active file path remains the source of truth.
+ */
+export type GeneratedModuleConfiguration = Pick<ProjectConfig,
+  'assetFolderName'
+  | 'deviceClassName'
+  | 'infoModuleName'
+  | 'entitlementsModuleName'
+  | 'pricesModuleName'
+  | 'offersModuleName'
+>;
+
 export interface ValidationIssue {
   id: string;
   entitlementId?: string;
@@ -140,4 +174,6 @@ export interface ManagedProjectData {
   offerDisplayGroups?: OfferDisplayGroup[];
   /** Stable keys that were issued and must not be silently reassigned. */
   retiredVerseKeys?: string[];
+  /** Generated names captured so an existing project's public paths survive a reopen. */
+  generatedModuleConfiguration?: GeneratedModuleConfiguration;
 }

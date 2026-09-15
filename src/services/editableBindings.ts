@@ -10,8 +10,8 @@ export interface EntitlementEditableNames {
 
 export const ALL_OFFERS_STORE_STEM = 'AllOffersStore';
 
-export function entitlementEditableNames(verseKey: string): EntitlementEditableNames {
-  const stem = toVerseApiStem(verseKey);
+export function entitlementEditableNames(verseKey: string, publicStem?: string): EntitlementEditableNames {
+  const stem = publicStem ?? toVerseApiStem(verseKey);
   return {
     purchaseTriggers: `${stem}_PurchaseTriggers`,
     purchaseButtons: `${stem}_PurchaseButtons`,
@@ -19,8 +19,8 @@ export function entitlementEditableNames(verseKey: string): EntitlementEditableN
   };
 }
 
-export function storefrontEditableName(verseKey: string, role: StorefrontEditableRole = 'openTriggers'): string {
-  const stem = verseKey === ALL_OFFERS_STORE_STEM ? ALL_OFFERS_STORE_STEM : toVerseApiStem(verseKey);
+export function storefrontEditableName(verseKey: string, role: StorefrontEditableRole = 'openTriggers', publicStem?: string): string {
+  const stem = verseKey === ALL_OFFERS_STORE_STEM ? ALL_OFFERS_STORE_STEM : publicStem ?? toVerseApiStem(verseKey);
   return `${stem}_${role === 'openButtons' ? 'OpenButtons' : 'OpenTriggers'}`;
 }
 

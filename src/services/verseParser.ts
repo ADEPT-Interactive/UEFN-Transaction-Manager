@@ -1,4 +1,4 @@
-import { BundleOffer, EntitlementItem, OfferDisplayGroup, StorefrontMembership } from '../types/entitlement';
+import { BundleOffer, EntitlementItem, GeneratedModuleConfiguration, OfferDisplayGroup, StorefrontMembership } from '../types/entitlement';
 import { parseManagedData } from './projectSchema';
 
 export const MANIFEST_BEGIN = '# UEFN_ENTITLEMENT_MANAGER_DATA_BEGIN';
@@ -13,6 +13,7 @@ export interface VerseParseResult {
   offerDisplayGroups: OfferDisplayGroup[];
   retiredVerseKeys: string[];
   projectDataDiagnostics: string[];
+  generatedModuleConfiguration?: GeneratedModuleConfiguration;
   managed: boolean;
   error?: string;
 }

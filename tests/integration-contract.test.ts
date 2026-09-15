@@ -137,3 +137,71 @@ test('integration contract is derived from generator naming and exposes a qualif
   assert.ok(contract.runtimeConstraints.some(rule => /gameplay-affecting durable.*persistent.*Granted.*same-session/i.test(rule)));
   assert.ok(contract.runtimeConstraints.some(rule => /durable Granted.*consumable Consumed/i.test(rule)));
 });
+
+test('integration contract and generated Verse preserve explicit existing-project public identities', () => {
+  const config = defaultProjectConfig('C:/Demo/Content', { deviceClassName: 'PublishedTransactionDevice', offersModuleName: 'PublishedOffers' });
+  const item = normalizeEntitlement({
+    id: 'published-power',
+    verseKey: 'power_pass',
+    publicIdentity: {
+      apiStem: 'PublishedPower',
+      metadataStem: 'PublishedPowerMetadata',
+      entitlementStem: 'legacy_power',
+      priceStem: 'published_power',
+      offerStem: 'published_power',
+    },
+    name: 'Published Power',
+    shortDescription: 'Power',
+    description: 'Power',
+    itemType: 'durable',
+    priceVBucks: 300,
+    triggers: { generateTriggerBinding: true, generateButtonBinding: false, generateSuccessTriggerBinding: true },
+    alternateOffers: [{
+      id: 'published-power-alt',
+      verseKey: 'power_pass_alternate_1',
+      publicIdentity: {
+        apiStem: 'PublishedPowerAlt',
+        metadataStem: 'PublishedPowerAltMetadata',
+        priceStem: 'published_power_alt',
+        offerStem: 'published_power_alt',
+      },
+      name: 'Published Power Alternate',
+      shortDescription: 'Alternate',
+      description: 'Alternate',
+      priceVBucks: 200,
+    }],
+  }, 0);
+  const membership = {
+    allOffers: [{ entitlementId: item.id }],
+    focused: [{
+      id: 'published-storefront',
+      verseKey: 'storefront_old_key',
+      publicIdentity: { apiStem: 'PublishedStorefront' },
+      name: 'Published Storefront',
+      entries: [{ entitlementId: item.id }],
+      generateTriggerBinding: true,
+    }],
+  };
+  const contract = describeIntegrationContract(config, [item], [], membership, canonicalVersion);
+  const verse = generateVerseCode([item], [], config, membership, []);
+
+  assert.match(verse, /PublishedPowerMetadata<public> := module:/);
+  assert.match(verse, /legacy_power_entitlement<public>/);
+  assert.match(verse, /published_power_price<public>/);
+  assert.match(verse, /published_power_offer<public>/);
+  assert.match(verse, /PublishedPowerAltMetadata<public> := module:/);
+  assert.match(verse, /published_power_alt_offer<public>/);
+  assert.match(verse, /OpenPublishedPowerPurchase<public>/);
+  assert.match(verse, /OpenPublishedPowerAltPurchase<public>/);
+  assert.match(verse, /PublishedStorefrontTitle<localizes>/);
+  assert.match(verse, /OpenPublishedStorefront<public>/);
+  assert.match(verse, /PublishedStorefront_OpenTriggers/);
+
+  const published = contract.entitlements.find(value => value.stableId === item.id)!;
+  assert.equal((published.publicIdentity as { apiStem: string }).apiStem, 'PublishedPower');
+  assert.equal((published.primaryPurchaseHelper as { name: string }).name, 'OpenPublishedPowerPurchase');
+  assert.equal(contract.alternateOffers.find(value => value.stableId === 'published-power-alt')?.purchaseHelper, 'OpenPublishedPowerAltPurchase');
+  assert.equal(contract.storefronts[0]?.openHelper, 'OpenPublishedStorefront');
+  assert.deepEqual(contract.editableFields.entitlementBindings[0]?.publicIdentity, published.publicIdentity);
+  assert.equal(contract.editableFields.storefrontBindings[0]?.openTriggers, 'PublishedStorefront_OpenTriggers');
+});
