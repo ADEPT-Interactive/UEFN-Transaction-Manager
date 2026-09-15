@@ -317,6 +317,26 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     $bridgeProcess = $null
     [Environment]::SetEnvironmentVariable("ELECTRON_RUN_AS_NODE", $oldEnvironment["ELECTRON_RUN_AS_NODE"], "Process")
 
+    # Exercise the same renderer assertions against the extracted packaged app.
+    # The test still creates its own deterministic showcase fixture and never
+    # reads a creator's Documents project or writes screenshots.
+    $uiScript = Join-Path $toolRoot "scripts\verify-electron-ui.cjs"
+    $oldUiAppRoot = [Environment]::GetEnvironmentVariable("UEM_UI_APP_ROOT", "Process")
+    $oldUiElectronPath = [Environment]::GetEnvironmentVariable("UEM_UI_ELECTRON_PATH", "Process")
+    try {
+        $env:UEM_UI_APP_ROOT = $appRoot
+        $env:UEM_UI_ELECTRON_PATH = $desktop
+        $uiElectronRunner = Join-Path $toolRoot "node_modules\\electron\\dist\\electron.exe"
+        if (-not (Test-Path -LiteralPath $uiElectronRunner -PathType Leaf)) { throw "The Electron runner is missing for packaged renderer verification: $uiElectronRunner" }
+        & $uiElectronRunner $uiScript
+        if ($LASTEXITCODE -ne 0) { throw "The packaged renderer regression check failed with exit code $LASTEXITCODE." }
+        Write-Host "Verified packaged renderer flags, dialogs, constrained scrolling, and native select focus without screenshots." -ForegroundColor Green
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable("UEM_UI_APP_ROOT", $oldUiAppRoot, "Process")
+        [Environment]::SetEnvironmentVariable("UEM_UI_ELECTRON_PATH", $oldUiElectronPath, "Process")
+    }
+
     # A first launch from an extracted portable package can spend more than the
     # source-tree check's 30 seconds in Chromium/AV cold start before the
     # dashboard is ready. Keep the same assertions, but give this packaged

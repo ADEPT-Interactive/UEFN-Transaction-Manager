@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
 const skillRoot = path.join(root, 'skills', 'uefn-transaction-manager');
+const canonicalVersion = JSON.parse(fs.readFileSync(path.join(root, 'version.json'), 'utf8')).version as string;
 const read = (relative: string) => fs.readFileSync(path.join(skillRoot, relative), 'utf8');
 
 test('Agent Skill is discoverable, reference-driven, and does not hardcode generated symbols', () => {
@@ -93,7 +94,7 @@ test('release packaging includes the skill without changing public README scope'
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.match(build, /resources\\agent-skills\\uefn-transaction-manager/);
   assert.match(verify, /resources\\agent-skills\\uefn-transaction-manager\\SKILL.md/);
-  assert.match(readme, /Version 4\.3\.3/);
+  assert.match(readme, new RegExp(`Version ${canonicalVersion.replace(/[.*+?^${}()|[\\]\\]/g, '\\\\$&')}`));
   assert.match(readme, /utm-mcp|Agent Integration/);
   assert.match(verify, /packagedSkillPath = Join-Path \$appRoot "resources\\agent-skills\\uefn-transaction-manager\\SKILL\.md"/);
   assert.match(verify, /persistent.*Granted|same-session.*durable|Durable.*lifecycle/i);

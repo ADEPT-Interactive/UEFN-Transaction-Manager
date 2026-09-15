@@ -47,7 +47,28 @@ Transactions.OpenAccessPassPurchase(Player, Options)
 
 `ManagedOffers` is the default Offers module name. If you changed the module name in Project Settings, use that name instead. The exact option type and helper stem are generated from the saved stable key. Only values accepted by the Marketplace constraints are opened. Invalid values return through the generated validation path and do not open the Marketplace interface.
 
+Runtime alternate offers use the alternate stable-key stem in both the options type and guarded helper:
+
+```verse
+AlternatePrice := CalculateAlternatePriceForPlayer(Player)
+AlternateOptions := ManagedOffers.MobileAccessRuntimeOptions{PriceVBucks := AlternatePrice}
+Transactions.OpenMobileAccessPurchase(Player, AlternateOptions)
+```
+
 Runtime-quantity bundles expose a generated options type with fields such as `<StableKeyStem>Quantity` for each runtime entry. Your Verse calculates the values, then passes the options value to the generated bundle purchase helper. Quantities must be positive whole numbers when included and cannot exceed the configured entitlement maximum. A runtime-configured bundle is a direct purchase and is not added to a storefront.
+
+For a quantity-only bundle and a bundle with both runtime price and quantities:
+
+```verse
+QuantityOptions := ManagedOffers.QuantityPackRuntimeOptions{EmberCoinsQuantity := CalculateEmberCoinsQuantity(Player)}
+Transactions.OpenQuantityPackPurchase(Player, QuantityOptions)
+
+RuntimePrice := CalculatePriceForPlayer(Player)
+RuntimeOptions := ManagedOffers.EventBundleRuntimeOptions{PriceVBucks := RuntimePrice, EmberCoinsQuantity := CalculateEmberCoinsQuantity(Player), SeasonTokenQuantity := CalculateSeasonTokenQuantity(Player)}
+Transactions.OpenEventBundlePurchase(Player, RuntimeOptions)
+```
+
+The generated contract can also report `Make<Stem>DynamicOffer` as a fully qualified lower-level construction API. It is for generated-device plumbing and diagnostics, not the normal external purchase surface; use `Open<Stem>Purchase`.
 
 Fill-to-max bundles use the no-options purchase helper. The generated integration checks current ownership and offers only the remaining quantity. If nothing remains, it does not open a purchase.
 

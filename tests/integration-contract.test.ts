@@ -5,54 +5,131 @@ import { defaultProjectConfig } from '../src/services/catalogSession';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { normalizeEntitlement, normalizeBundle } from '../src/services/projectSchema';
 
-test('integration contract is derived from generator naming for static, alternate, bundle, storefront, and runtime objects', () => {
-  const config = defaultProjectConfig('C:/Demo/Content');
-  const entitlement = normalizeEntitlement({ id: 'ent-1', verseKey: 'season_pass', name: 'Season Pass', shortDescription: 'Pass', description: 'Pass', itemType: 'durable', alternateOffers: [{ id: 'alt-1', verseKey: 'season_pass_discount', name: 'Discount', shortDescription: 'Discount', description: 'Discount', priceVBucks: 200, dynamicOffer: { priceBehavior: 'runtime' } }] }, 0);
-  const consumable = normalizeEntitlement({ id: 'ent-2', verseKey: 'coins', name: 'Coins', shortDescription: 'Coins', description: 'Coins', itemType: 'consumable', dynamicOffer: { priceBehavior: 'runtime' } }, 1);
-  const bundle = normalizeBundle({ id: 'bundle-1', verseKey: 'starter_pack', name: 'Starter Pack', shortDescription: 'Pack', description: 'Pack', items: [{ entitlementId: entitlement.id, quantity: 1 }] }, 0);
-  const runtimeBundle = normalizeBundle({ id: 'bundle-2', verseKey: 'runtime_pack', name: 'Runtime Pack', shortDescription: 'Pack', description: 'Pack', dynamicOffer: { priceBehavior: 'runtime' }, items: [{ entitlementId: consumable.id, quantity: 1, quantityBehavior: 'runtime' }] }, 1);
-  const storefrontMembership = { allOffers: [{ entitlementId: entitlement.id }, { bundleId: bundle.id }], focused: [{ id: 'store-1', verseKey: 'featured', name: 'Featured', entries: [{ entitlementId: entitlement.id, offerVerseKey: 'season_pass_discount' }], generateTriggerBinding: true }] };
-  const contract = describeIntegrationContract(config, [entitlement, consumable], [bundle, runtimeBundle], storefrontMembership, '4.3.0');
-  const verse = generateVerseCode([entitlement, consumable], [bundle, runtimeBundle], config, storefrontMembership, []);
-  assert.equal(contract.generatorVersion, '4.3.0');
+const customOffersModule = 'CustomOffers';
+
+function escaped(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertGeneratedPurchase(verse: string, helper: { name?: string; signature?: string } | undefined, label: string): void {
+  assert.ok(helper?.name && helper.signature, `${label} must expose a purchase helper name and signature`);
+  assert.ok(verse.includes(`${helper.name}<public>${helper.signature}`), `${label} signature must match generated Verse`);
+}
+
+function assertRuntimeContractParity(verse: string, value: Record<string, unknown>, label: string): void {
+  const runtimeOptionsType = value.runtimeOptionsType;
+  assert.equal(typeof runtimeOptionsType, 'string', `${label} must expose a runtime options type`);
+  assert.match(runtimeOptionsType as string, new RegExp(`^${escaped(customOffersModule)}\\.[A-Z][A-Za-z0-9]*RuntimeOptions$`), `${label} runtime options type must be qualified by the configured Offers module`);
+  const bareType = (runtimeOptionsType as string).slice(customOffersModule.length + 1);
+  assert.ok(verse.includes(`${bareType}<public> := struct:`), `${label} runtime options declaration must exist in generated Verse`);
+
+  const factory = value.dynamicOfferFactory;
+  assert.equal(typeof factory, 'string', `${label} must expose its lower-level factory when runtime options exist`);
+  assert.match(factory as string, new RegExp(`^${escaped(customOffersModule)}\\.Make${escaped(bareType.replace(/RuntimeOptions$/, ''))}DynamicOffer$`), `${label} factory must be module-qualified`);
+  assert.equal(value.dynamicOfferFactorySignature, `(Options:${runtimeOptionsType as string})<transacts>:?offer`, `${label} factory signature must use the qualified runtime options type`);
+  assert.match(String(value.dynamicOfferFactoryRole), /lower-level.*generated-offer construction.*guarded device purchase helper/i);
+  const factoryName = (factory as string).slice(customOffersModule.length + 1);
+  assert.ok(verse.includes(`${factoryName}<public>(Options:${bareType})<transacts>:?offer`), `${label} factory signature must match generated Verse`);
+  assert.ok(Array.isArray(value.runtimeOptionsFields) && (value.runtimeOptionsFields as unknown[]).length > 0, `${label} must report every runtime options field`);
+}
+
+test('integration contract is derived from generator naming and exposes a qualified runtime caller surface', () => {
+  const config = defaultProjectConfig('C:/Demo/Content', { deviceClassName: 'CustomTransactionDevice', offersModuleName: customOffersModule });
+  const staticEntitlement = normalizeEntitlement({
+    id: 'static-entitlement', verseKey: 'static_access', name: 'Static Access', shortDescription: 'Access', description: 'Access',
+    itemType: 'durable', priceVBucks: 500,
+    alternateOffers: [{ id: 'runtime-alt', verseKey: 'runtime_alt', name: 'Runtime Alternate', shortDescription: 'Alternate', description: 'Alternate', priceVBucks: 200, dynamicOffer: { priceBehavior: 'runtime' } }],
+  }, 0);
+  const runtimeEntitlement = normalizeEntitlement({
+    id: 'runtime-entitlement', verseKey: 'runtime_coins', name: 'Runtime Coins', shortDescription: 'Coins', description: 'Coins',
+    itemType: 'consumable', priceVBucks: 250, maxCount: 100, dynamicOffer: { priceBehavior: 'runtime' },
+  }, 1);
+  const staticBundle = normalizeBundle({
+    id: 'static-bundle', verseKey: 'static_pack', name: 'Static Pack', shortDescription: 'Pack', description: 'Pack', priceVBucks: 800,
+    items: [{ entitlementId: staticEntitlement.id, quantity: 1 }],
+  }, 0);
+  const priceBundle = normalizeBundle({
+    id: 'price-bundle', verseKey: 'price_pack', name: 'Price Pack', shortDescription: 'Pack', description: 'Price pack', priceVBucks: 600,
+    dynamicOffer: { priceBehavior: 'runtime' }, items: [{ entitlementId: staticEntitlement.id, quantity: 1 }],
+  }, 1);
+  const quantityBundle = normalizeBundle({
+    id: 'quantity-bundle', verseKey: 'quantity_pack', name: 'Quantity Pack', shortDescription: 'Pack', description: 'Quantity pack', priceVBucks: 600,
+    items: [{ entitlementId: runtimeEntitlement.id, quantity: 1, quantityBehavior: 'runtime' }],
+  }, 2);
+  const combinedBundle = normalizeBundle({
+    id: 'combined-bundle', verseKey: 'runtime_pack', name: 'Runtime Pack', shortDescription: 'Pack', description: 'Runtime pack', priceVBucks: 600,
+    dynamicOffer: { priceBehavior: 'runtime' }, items: [{ entitlementId: runtimeEntitlement.id, quantity: 1, quantityBehavior: 'runtime' }],
+  }, 3);
+  const entitlements = [staticEntitlement, runtimeEntitlement];
+  const bundles = [staticBundle, priceBundle, quantityBundle, combinedBundle];
+  const storefrontMembership = {
+    allOffers: [{ entitlementId: staticEntitlement.id }, { bundleId: staticBundle.id }],
+    focused: [{ id: 'store-1', verseKey: 'featured', name: 'Featured', entries: [{ entitlementId: staticEntitlement.id, offerVerseKey: 'runtime_alt' }], generateTriggerBinding: true }],
+  };
+  const contract = describeIntegrationContract(config, entitlements, bundles, storefrontMembership, '4.3.4');
+  const verse = generateVerseCode(entitlements, bundles, config, storefrontMembership, []);
+
+  assert.equal(contract.generatorVersion, '4.3.4');
   assert.equal(contract.managedVerseFile, 'managed_transactions.verse');
-  assert.ok(contract.entitlements.some(item => item.primaryPurchaseHelper?.name === 'OpenSeasonPassPurchase'));
-  const seasonContract = contract.entitlements.find(item => item.stableId === 'ent-1');
-  assert.equal(seasonContract?.reconciliationHelper, 'AwaitSeasonPassReconciledEvent');
-  assert.deepEqual(seasonContract?.ownershipLifecycle, {
-    initialState: 'AwaitSeasonPassReconciledEvent, then HasSeasonPass or GetSeasonPassCount for the project-owned mirror.',
-    liveState: 'Persistent AwaitSeasonPassGrantedEvent loop updates the mirror immediately in the same session.',
-    lossState: 'AwaitSeasonPassRemovedEvent updates the mirror when ownership loss is supported and semantically relevant.',
-    reconciliationIsNotSubscription: 'The reconciliation notification establishes initial truth; the persistent delta listener keeps it current.',
-  });
-  const coinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
-  assert.equal((coinsContract?.awaitEvents as { consumed?: string }).consumed, 'AwaitCoinsConsumedEvent');
-  assert.equal((coinsContract?.editableFields as { successTriggers?: string }).successTriggers, 'Coins_SuccessTriggers');
-  assert.equal((contract.entitlements.find(item => item.stableId === 'ent-1')?.awaitEvents as { consumed?: string }).consumed, undefined);
-  assert.ok(contract.alternateOffers.some(item => item.purchaseHelper === 'OpenSeasonPassDiscountPurchase'));
-  assert.ok(contract.bundles.some(item => item.purchaseHelper === 'OpenStarterPackPurchase'));
-  const runtimeCoinsContract = contract.entitlements.find(item => item.stableId === 'ent-2');
-  assert.equal(runtimeCoinsContract?.runtimeOptionsType, `${config.offersModuleName}.CoinsRuntimeOptions`);
-  assert.equal((runtimeCoinsContract?.primaryPurchaseHelper as { signature: string }).signature, `(Player:player, Options:${config.offersModuleName}.CoinsRuntimeOptions):void`);
-  const alternateContract = contract.alternateOffers.find(item => item.stableId === 'alt-1');
-  assert.equal(alternateContract?.runtimeOptionsType, `${config.offersModuleName}.SeasonPassDiscountRuntimeOptions`);
-  assert.equal(alternateContract?.signature, `(Player:player, Options:${config.offersModuleName}.SeasonPassDiscountRuntimeOptions):void`);
-  const runtimeBundleContract = contract.bundles.find(item => item.stableId === 'bundle-2');
-  assert.equal(runtimeBundleContract?.runtimeOptionsType, `${config.offersModuleName}.RuntimePackRuntimeOptions`);
-  assert.equal(runtimeBundleContract?.signature, `(Player:player, Options:${config.offersModuleName}.RuntimePackRuntimeOptions):void`);
-  assert.ok(contract.bundles.some(item => item.runtimeOptionsType === `${config.offersModuleName}.RuntimePackRuntimeOptions`));
+  assert.ok(contract.entitlements.some(item => (item.primaryPurchaseHelper as { name?: string })?.name === 'OpenStaticAccessPurchase'));
+
+  const staticContract = contract.entitlements.find(item => item.stableId === staticEntitlement.id)!;
+  assertGeneratedPurchase(verse, staticContract.primaryPurchaseHelper as { name?: string; signature?: string }, 'static primary entitlement');
+  assert.equal(staticContract.runtimeOptionsType, undefined);
+
+  const runtimeContract = contract.entitlements.find(item => item.stableId === runtimeEntitlement.id)!;
+  assertGeneratedPurchase(verse, runtimeContract.primaryPurchaseHelper as { name?: string; signature?: string }, 'runtime primary entitlement');
+  assertRuntimeContractParity(verse, runtimeContract, 'runtime primary entitlement');
+  assert.deepEqual(runtimeContract.runtimeOptionsFields, ['PriceVBucks']);
+
+  const alternateContract = contract.alternateOffers.find(item => item.stableId === 'runtime-alt')!;
+  assertGeneratedPurchase(verse, { name: String(alternateContract.purchaseHelper), signature: String(alternateContract.signature) }, 'runtime alternate entitlement');
+  assertRuntimeContractParity(verse, alternateContract, 'runtime alternate entitlement');
+
+  const staticBundleContract = contract.bundles.find(item => item.stableId === staticBundle.id)!;
+  assertGeneratedPurchase(verse, { name: String(staticBundleContract.purchaseHelper), signature: String(staticBundleContract.signature) }, 'static bundle');
+  assert.equal(staticBundleContract.runtimeOptionsType, undefined);
+
+  const priceBundleContract = contract.bundles.find(item => item.stableId === priceBundle.id)!;
+  assertGeneratedPurchase(verse, { name: String(priceBundleContract.purchaseHelper), signature: String(priceBundleContract.signature) }, 'runtime price bundle');
+  assertRuntimeContractParity(verse, priceBundleContract, 'runtime price bundle');
+  assert.deepEqual(priceBundleContract.runtimeOptionsFields, ['PriceVBucks']);
+
+  const quantityBundleContract = contract.bundles.find(item => item.stableId === quantityBundle.id)!;
+  assertGeneratedPurchase(verse, { name: String(quantityBundleContract.purchaseHelper), signature: String(quantityBundleContract.signature) }, 'runtime quantity-only bundle');
+  assertRuntimeContractParity(verse, quantityBundleContract, 'runtime quantity-only bundle');
+  assert.deepEqual(quantityBundleContract.runtimeOptionsFields, ['RuntimeCoinsQuantity']);
+
+  const combinedBundleContract = contract.bundles.find(item => item.stableId === combinedBundle.id)!;
+  assertGeneratedPurchase(verse, { name: String(combinedBundleContract.purchaseHelper), signature: String(combinedBundleContract.signature) }, 'runtime price and quantity bundle');
+  assertRuntimeContractParity(verse, combinedBundleContract, 'runtime price and quantity bundle');
+  assert.deepEqual(combinedBundleContract.runtimeOptionsFields, ['PriceVBucks', 'RuntimeCoinsQuantity']);
+
   assert.ok(contract.storefronts.some(item => item.openHelper === 'OpenFeatured'));
-  for (const item of contract.entitlements) {
-    const purchase = (item.primaryPurchaseHelper as { name: string }).name;
-    assert.match(verse, new RegExp(purchase));
-    assert.match(verse, new RegExp(String(item.ownershipHelper)));
-    assert.match(verse, new RegExp(String(item.countHelper)));
-    assert.match(verse, new RegExp(String(item.grantHelper)));
+  assert.ok(contract.examples.some(example => /OpenStaticAccessPurchase\(Player\)/.test(example)), 'contract should retain a static primary example');
+  assert.ok(contract.examples.some(example => /CustomOffers\.RuntimeCoinsRuntimeOptions\{PriceVBucks := RuntimePrice\}/.test(example) && /OpenRuntimeCoinsPurchase\(Player, Options\)/.test(example)), 'contract should include a runtime primary example');
+  assert.ok(contract.examples.some(example => /CustomOffers\.RuntimeAltRuntimeOptions\{PriceVBucks := RuntimePrice\}/.test(example) && /OpenRuntimeAltPurchase\(Player, Options\)/.test(example)), 'contract should include a runtime alternate example');
+  assert.ok(contract.examples.some(example => /OpenQuantityPackPurchase\(Player, Options\)/.test(example) && /RuntimeCoinsQuantity :=/.test(example)), 'contract should include a quantity-only bundle example');
+  assert.ok(contract.examples.some(example => /OpenRuntimePackPurchase\(Player, Options\)/.test(example) && /PriceVBucks := RuntimePrice/.test(example) && /RuntimeCoinsQuantity :=/.test(example)), 'contract should include a price-plus-quantity bundle example');
+
+  for (const example of contract.examples) {
+    const optionMatch = example.match(/Options := ([A-Za-z][A-Za-z0-9_]*)\.([A-Za-z][A-Za-z0-9_]*RuntimeOptions)\{([^}]*)\}/);
+    const purchaseMatch = example.match(/Transactions\.(Open[A-Za-z0-9]+Purchase)\(Player(?:, Options)?\)/);
+    assert.ok(purchaseMatch, 'every contract example must call a generated purchase helper');
+    assert.ok(verse.includes(`${purchaseMatch[1]}<public>`), `example helper ${purchaseMatch[1]} must exist in generated Verse`);
+    if (optionMatch) {
+      assert.equal(optionMatch[1], customOffersModule, 'example runtime types must use the configured Offers module');
+      assert.ok(verse.includes(`${optionMatch[2]}<public> := struct:`), `example runtime type ${optionMatch[2]} must exist in generated Verse`);
+      assert.ok(purchaseMatch[0].includes(', Options'), 'runtime examples must pass the options value to the helper');
+    } else {
+      assert.ok(!purchaseMatch[0].includes(', Options'), 'static examples must use the one-argument helper');
+    }
   }
-  assert.match(verse, /MakeCoinsDynamicOffer/);
+  assert.doesNotMatch(JSON.stringify(contract), /"dynamicOfferFactory":"Make/);
+  assert.match(verse, /MakeRuntimeCoinsDynamicOffer/);
   assert.match(verse, /RuntimePackRuntimeOptions/);
-  assert.match(verse, /CoinsQuantity:int/);
-  assert.doesNotMatch(verse, /Ent-2Quantity:int/);
+  assert.match(verse, /RuntimeCoinsQuantity:int/);
+  assert.doesNotMatch(verse, /RuntimeEntitlementQuantity:int/);
   assert.ok(contract.runtimeConstraints.some(rule => /Reconciliation establishes initial truth.*delta events keep current truth current/i.test(rule)));
   assert.ok(contract.runtimeConstraints.some(rule => /gameplay-affecting durable.*persistent.*Granted.*same-session/i.test(rule)));
   assert.ok(contract.runtimeConstraints.some(rule => /durable Granted.*consumable Consumed/i.test(rule)));

@@ -6,7 +6,7 @@ The cross-project Cloudflare inventory is maintained in the private [ADEPT-Inter
 
 ## Current supported release
 
-`v4.3.3` is the sole supported retained public release. The release tag and Git history remain intact; this describes the current public distribution state only.
+`v4.3.3` is the current supported public release. `v4.3.2` remains publicly retained as the prior portable-updater acceptance baseline until an intentional release-retirement decision is made; the tag, release, and Git history remain intact.
 
 ## Human downloads
 
@@ -39,7 +39,7 @@ uem/stable/portable-latest.json
 uem/stable/UEFN-Transaction-Manager-4.3.3-Portable.zip
 ```
 
-The stable R2 origin currently contains only the active 4.3.3 payload and feed objects listed above. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.3 artifacts are immutable for this release. Git history retains earlier source and release records, but older public artifacts are not supported by this document.
+The stable R2 origin currently contains only the active 4.3.3 payload and feed objects listed above. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.3 artifacts are immutable for this release. Git history and the public 4.3.2 release retain the prior updater baseline; older public artifacts are not otherwise part of the supported distribution.
 
 ### Build and installer contract
 
@@ -84,9 +84,9 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 ## Recovery and cutoff
 
-Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the supported 4.3.3 payload until a separately authorized release is ready.
+Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the supported 4.3.3 payload until a separately authorized release is ready. The retained 4.3.2 public release is not the stable pointer.
 
-The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; this does not retain older public release artifacts. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
+The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; the public 4.3.2 release remains only as the explicitly retained updater baseline. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
 ## Release checklist
 

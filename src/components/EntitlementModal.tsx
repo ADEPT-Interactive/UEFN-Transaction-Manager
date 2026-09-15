@@ -315,7 +315,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         </div>}
 
         {/* Modal Scrollable Body */}
-        <form id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} onSubmit={handleSave} className="min-h-0 flex-1 overflow-y-auto p-6 space-y-5">
+        <form id="offer-editor-form" onSubmit={handleSave} className="min-h-0 flex-1 flex flex-col">
+          <div id="offer-editor-panel" role="tabpanel" aria-labelledby={`offer-tab-${activeTab}`} className="min-h-0 flex-1 overflow-y-auto p-6 space-y-5">
           
           {/* TAB 1: General & Pricing */}
           {activeTab === 'general' && (
@@ -762,6 +763,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               ))}
             </div>
           )}
+
+          </div>
 
           {/* Modal Footer Controls */}
           <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">

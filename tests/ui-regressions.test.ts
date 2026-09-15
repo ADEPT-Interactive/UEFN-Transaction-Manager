@@ -233,6 +233,23 @@ test('country flags use a guttered, lossless atlas rather than sampling adjacent
   assert.match(restrictionEditor, /const gutter = 1/);
 });
 
+test('native select focus uses the shared border without a detached platform halo', () => {
+  const stylesheet = read('src/index.css');
+  const focusRule = stylesheet.match(/\.utm-native-select:focus,[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(focusRule, /outline:\s*none/);
+  assert.match(focusRule, /border-color:\s*var\(--border-focus\)/);
+  assert.match(focusRule, /box-shadow:\s*none/);
+  assert.doesNotMatch(focusRule, /outline:\s*2px/);
+});
+
+test('Electron renderer acceptance owns a deterministic showcase fixture and supports packaged app roots', () => {
+  const rendererSource = read('scripts/verify-electron-ui.cjs');
+  assert.match(rendererSource, /npm run showcase:fixture/);
+  assert.match(rendererSource, /UEM_SHOWCASE_OUTPUT/);
+  assert.match(rendererSource, /UEM_UI_APP_ROOT/);
+  assert.doesNotMatch(rendererSource, /UTM_Demo|Documents.*UEFN Projects|sourceProjectRoot/);
+});
+
 test('release shell uses stable application identity and versioned artifacts', () => {
   const version = JSON.parse(read('version.json')).version as string;
   const packageVersion = JSON.parse(read('package.json')).version as string;

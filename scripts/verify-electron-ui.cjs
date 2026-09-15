@@ -8,14 +8,19 @@ const { spawn } = require('node:child_process');
 const { app, BrowserWindow } = require('electron');
 
 const repositoryRoot = path.resolve(__dirname, '..');
-const sourceProjectRoot = path.join(os.homedir(), 'Documents', 'UEFN Projects', 'UTM_Demo');
-const runtimeProjectRoot = path.join(os.tmpdir(), `utm-ui-renderer-${process.pid}`);
+const applicationRoot = path.resolve(process.env.UEM_UI_APP_ROOT ?? repositoryRoot);
+const serverPath = path.join(applicationRoot, 'dist', 'server.cjs');
+const electronPath = path.resolve(process.env.UEM_UI_ELECTRON_PATH ?? path.join(repositoryRoot, 'node_modules', 'electron', 'dist', 'electron.exe'));
+const runtimeProjectRoot = path.join(os.tmpdir(), `utm-ui-renderer-${process.pid}-${Date.now()}`);
+const showcaseProjectFile = path.join(runtimeProjectRoot, 'Creator Commerce Demo.uefnproject');
 const sessionToken = crypto.randomBytes(48).toString('base64url');
 const editorToken = crypto.randomBytes(48).toString('base64url');
 
 let bridgeProcess;
 let bridgePort;
 let windowRef;
+let bridgeStdout = '';
+let bridgeStderr = '';
 
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -37,6 +42,27 @@ function reservePort() {
   });
 }
 
+function createShowcaseFixture() {
+  return new Promise((resolve, reject) => {
+    const fixtureCommand = process.platform === 'win32'
+      ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', 'npm run showcase:fixture']]
+      : ['npm', ['run', 'showcase:fixture']];
+    const fixture = spawn(fixtureCommand[0], fixtureCommand[1], {
+      cwd: repositoryRoot,
+      env: { ...process.env, UEM_SHOWCASE_OUTPUT: runtimeProjectRoot },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    fixture.stdout.on('data', data => process.stdout.write(data));
+    fixture.stderr.on('data', data => process.stderr.write(data));
+    fixture.once('error', reject);
+    fixture.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Deterministic showcase fixture generation failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`));
+    });
+  });
+}
+
 function request(pathname, method = 'GET', body) {
   return new Promise((resolve, reject) => {
     const requestRef = http.request({
@@ -54,13 +80,14 @@ function request(pathname, method = 'GET', body) {
       response.on('end', () => resolve({ status: response.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
     });
     requestRef.once('error', reject);
+    requestRef.setTimeout(3000, () => requestRef.destroy(new Error(`Renderer test bridge request timed out: ${pathname}`)));
     requestRef.end(body);
   });
 }
 
 async function waitForBridge() {
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (bridgeProcess.exitCode !== null) throw new Error('The renderer test bridge exited before becoming healthy.');
+    if (bridgeProcess.exitCode !== null) throw new Error(`The renderer test bridge exited before becoming healthy.\nSTDOUT:\n${bridgeStdout}\nSTDERR:\n${bridgeStderr}`);
     try {
       const response = await request('/api/health');
       if (response.status === 200 && response.text.includes('UEFN Entitlement Manager Bridge')) return;
@@ -69,7 +96,7 @@ async function waitForBridge() {
     }
     await wait(100);
   }
-  throw new Error('The renderer test bridge did not become healthy within 8 seconds.');
+  throw new Error(`The renderer test bridge did not become healthy within 8 seconds.\nSTDOUT:\n${bridgeStdout}\nSTDERR:\n${bridgeStderr}`);
 }
 
 function evaluate(source) {
@@ -121,48 +148,125 @@ async function selectCountry(editorIndex, code) {
     if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
     return trigger.getAttribute('aria-expanded') === 'true';
   }`, `${code} country picker ${editorIndex + 1}`);
+  await evaluate(`() => {
+    const option = [...document.querySelectorAll('div.max-h-56 button')].find(element => (element.innerText ?? '').trim().endsWith(${JSON.stringify(code)}));
+    option?.scrollIntoView({ block: 'nearest' });
+  }`);
+  const pickerFlag = await inspectFlag(`() => [...document.querySelectorAll('div.max-h-56 button')].find(element => (element.innerText ?? '').trim().endsWith(${JSON.stringify(code)}))?.querySelector('[style*="flag-sprite.webp"]')`);
+  assert.equal(pickerFlag.missing, false, `${code} should render in the country picker`);
+  assert.ok(pickerFlag.atlasBoundsValid, `${code} country picker flag should map inside the atlas`);
+  assert.ok(pickerFlag.paintedPixels > 0, `${code} country picker flag should contain painted pixels`);
+  assert.equal(pickerFlag.clipped, false, `${code} country picker flag should not be clipped: ${JSON.stringify(pickerFlag)}`);
   await click(`() => [...document.querySelectorAll('div.max-h-56 button')].find(element => (element.innerText ?? '').trim().endsWith(${JSON.stringify(code)}))`, `${code} country option`);
+}
+
+function inspectFlag(selectorSource) {
+  return evaluate(`async () => {
+    const response = await fetch('/flag-sprite.webp', { cache: 'no-store' });
+    const bitmap = await createImageBitmap(await response.blob());
+    const flag = (${selectorSource})();
+    if (!flag) return { missing: true };
+    const style = getComputedStyle(flag);
+    const rect = flag.getBoundingClientRect();
+    const position = style.backgroundPosition.split(' ').map(value => Number.parseFloat(value));
+    const size = style.backgroundSize.split(' ').map(value => Number.parseFloat(value));
+    const scaleX = size[0] / bitmap.width;
+    const scaleY = size[1] / bitmap.height;
+    const sourceLeft = -position[0] / scaleX;
+    const sourceTop = -position[1] / scaleY;
+    const sourceWidth = rect.width / scaleX;
+    const sourceHeight = rect.height / scaleY;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(rect.width));
+    canvas.height = Math.max(1, Math.ceil(rect.height));
+    const context = canvas.getContext('2d');
+    let paintedPixels = 0;
+    if (context && position.length === 2 && size.length === 2 && scaleX > 0 && scaleY > 0) {
+      context.drawImage(bitmap, sourceLeft, sourceTop, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 10) paintedPixels += 1;
+    }
+    let clipped = false;
+    const clipAncestors = [];
+    for (let ancestor = flag.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+      const ancestorStyle = getComputedStyle(ancestor);
+      if (!/(hidden|clip|scroll|auto)/.test(ancestorStyle.overflow + ' ' + ancestorStyle.overflowX + ' ' + ancestorStyle.overflowY)) continue;
+      const ancestorRect = ancestor.getBoundingClientRect();
+      const outside = rect.left < ancestorRect.left - 1 || rect.right > ancestorRect.right + 1 || rect.top < ancestorRect.top - 1 || rect.bottom > ancestorRect.bottom + 1;
+      if (outside) clipAncestors.push({ tag: ancestor.tagName, className: ancestor.className, rect: { left: ancestorRect.left, top: ancestorRect.top, right: ancestorRect.right, bottom: ancestorRect.bottom }, overflow: ancestorStyle.overflow });
+      clipped ||= outside;
+    }
+    return {
+      missing: false,
+      width: rect.width,
+      height: rect.height,
+      backgroundImage: style.backgroundImage,
+      backgroundPosition: style.backgroundPosition,
+      backgroundSize: style.backgroundSize,
+      atlasWidth: bitmap.width,
+      atlasHeight: bitmap.height,
+      sourceLeft,
+      sourceTop,
+      sourceWidth,
+      sourceHeight,
+      atlasBoundsValid: sourceLeft >= 0 && sourceTop >= 0 && sourceLeft + sourceWidth <= bitmap.width + 0.01 && sourceTop + sourceHeight <= bitmap.height + 0.01,
+      paintedPixels,
+      clipped,
+      clipAncestors,
+      display: style.display,
+      visibility: style.visibility,
+      opacity: style.opacity,
+    };
+  }`);
 }
 
 async function selectedFlagReport() {
   return evaluate(`async () => {
     const response = await fetch('/flag-sprite.webp', { cache: 'no-store' });
     const bitmap = await createImageBitmap(await response.blob());
-    return [...document.querySelectorAll('button[aria-label^="Remove "]')].map(button => {
-      const flag = button.parentElement?.querySelector('[style*="flag-sprite.webp"]');
-      if (!flag) return { code: button.parentElement?.innerText ?? '', missing: true };
+    const inspect = flag => {
+      if (!flag) return { missing: true };
       const style = getComputedStyle(flag);
       const rect = flag.getBoundingClientRect();
       const position = style.backgroundPosition.split(' ').map(value => Number.parseFloat(value));
       const size = style.backgroundSize.split(' ').map(value => Number.parseFloat(value));
+      const scaleX = size[0] / bitmap.width;
+      const scaleY = size[1] / bitmap.height;
+      const sourceLeft = -position[0] / scaleX;
+      const sourceTop = -position[1] / scaleY;
+      const sourceWidth = rect.width / scaleX;
+      const sourceHeight = rect.height / scaleY;
       const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(rect.width);
-      canvas.height = Math.ceil(rect.height);
+      canvas.width = Math.max(1, Math.ceil(rect.width));
+      canvas.height = Math.max(1, Math.ceil(rect.height));
       const context = canvas.getContext('2d');
       let paintedPixels = 0;
-      if (context && position.length === 2 && size.length === 2) {
-        context.drawImage(bitmap, position[0], position[1], size[0], size[1]);
+      if (context && position.length === 2 && size.length === 2 && scaleX > 0 && scaleY > 0) {
+        context.drawImage(bitmap, sourceLeft, sourceTop, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
         for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 10) paintedPixels += 1;
       }
-      return {
-        code: button.parentElement?.innerText ?? '',
-        missing: false,
-        width: rect.width,
-        height: rect.height,
-        backgroundImage: style.backgroundImage,
-        backgroundPosition: style.backgroundPosition,
-        backgroundSize: style.backgroundSize,
-        paintedPixels,
-        display: style.display,
-        visibility: style.visibility,
-        opacity: style.opacity,
-      };
+      let clipped = false;
+      const clipAncestors = [];
+      for (let ancestor = flag.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+        const ancestorStyle = getComputedStyle(ancestor);
+        if (!/(hidden|clip|scroll|auto)/.test(ancestorStyle.overflow + ' ' + ancestorStyle.overflowX + ' ' + ancestorStyle.overflowY)) continue;
+        const ancestorRect = ancestor.getBoundingClientRect();
+        const outside = rect.left < ancestorRect.left - 1 || rect.right > ancestorRect.right + 1 || rect.top < ancestorRect.top - 1 || rect.bottom > ancestorRect.bottom + 1;
+        if (outside) clipAncestors.push({ tag: ancestor.tagName, className: ancestor.className, rect: { left: ancestorRect.left, top: ancestorRect.top, right: ancestorRect.right, bottom: ancestorRect.bottom }, overflow: ancestorStyle.overflow });
+        clipped ||= outside;
+      }
+      return { missing: false, width: rect.width, height: rect.height, backgroundImage: style.backgroundImage, backgroundPosition: style.backgroundPosition, backgroundSize: style.backgroundSize, atlasWidth: bitmap.width, atlasHeight: bitmap.height, sourceLeft, sourceTop, sourceWidth, sourceHeight, atlasBoundsValid: sourceLeft >= 0 && sourceTop >= 0 && sourceLeft + sourceWidth <= bitmap.width + 0.01 && sourceTop + sourceHeight <= bitmap.height + 0.01, paintedPixels, clipped, clipAncestors, display: style.display, visibility: style.visibility, opacity: style.opacity };
+    };
+    return [...document.querySelectorAll('button[aria-label^="Remove "]')].map(button => {
+      const flag = button.parentElement?.querySelector('[style*="flag-sprite.webp"]');
+      flag?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      return { code: button.parentElement?.innerText ?? '', ...inspect(flag) };
     });
   }`);
 }
 
-async function assertDialogLayout(dialogSelector, bodySelector, description) {
+async function assertDialogLayout(dialogSelector, bodySelector, description, requireScroll = false) {
   const report = await evaluate(`() => {
     const dialog = document.querySelector(${JSON.stringify(dialogSelector)});
     const body = dialog?.querySelector(${JSON.stringify(bodySelector)});
@@ -171,6 +275,16 @@ async function assertDialogLayout(dialogSelector, bodySelector, description) {
     const bodyStyle = getComputedStyle(body);
     const shellRect = dialog.getBoundingClientRect();
     const bodyRect = body.getBoundingClientRect();
+    const scrollRoot = document.scrollingElement || document.documentElement;
+    const rootScrollTop = scrollRoot.scrollTop;
+    const shellScrollTop = dialog.scrollTop;
+    const maxScrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
+    const probeScrollTop = maxScrollTop > 0 ? Math.min(maxScrollTop, Math.max(1, Math.ceil(maxScrollTop / 2))) : 0;
+    body.scrollTop = probeScrollTop;
+    const probeChanged = body.scrollTop > 0;
+    body.scrollTop = maxScrollTop;
+    const action = dialog.querySelector('button[type="submit"]') || dialog.querySelector('button[aria-label^="Close"]');
+    const actionRect = action?.getBoundingClientRect();
     return {
       shellOverflow: shellStyle.overflow,
       shellMinHeight: shellStyle.minHeight,
@@ -182,9 +296,18 @@ async function assertDialogLayout(dialogSelector, bodySelector, description) {
       bodyTop: bodyRect.top,
       bodyBottom: bodyRect.bottom,
       bodyHeight: bodyRect.height,
-      bodyBottom: bodyRect.bottom,
       viewportHeight: window.innerHeight,
-      bodyScrolls: body.scrollHeight >= body.clientHeight,
+      bodyScrollHeight: body.scrollHeight,
+      bodyClientHeight: body.clientHeight,
+      bodyScrollTop: body.scrollTop,
+      maxScrollTop,
+      probeChanged,
+      bodyAtBottom: maxScrollTop === 0 || body.scrollTop >= maxScrollTop - 2,
+      rootScrollTop,
+      rootScrollUnchanged: rootScrollTop === scrollRoot.scrollTop,
+      shellScrollTop,
+      shellScrollUnchanged: shellScrollTop === dialog.scrollTop,
+      actionVisible: Boolean(actionRect && actionRect.top >= shellRect.top - 1 && actionRect.bottom <= shellRect.bottom + 1 && actionRect.left >= shellRect.left - 1 && actionRect.right <= shellRect.right + 1),
     };
   }`);
   assert.ok(report, `${description} should render its shell and scroll body`);
@@ -193,6 +316,14 @@ async function assertDialogLayout(dialogSelector, bodySelector, description) {
   assert.equal(report.bodyMinHeight, '0px', `${description} body must be allowed to shrink in a flex shell`);
   assert.ok(report.shellHeight <= report.viewportHeight - 1, `${description} shell must remain inside the viewport`);
   assert.ok(report.bodyTop >= report.shellTop - 1 && report.bodyBottom <= report.shellBottom + 1, `${description} body must render inside its shell`);
+  assert.equal(report.rootScrollUnchanged, true, `${description} must not transfer scrolling to the page`);
+  assert.equal(report.shellScrollUnchanged, true, `${description} shell must not become the scroll owner`);
+  assert.equal(report.actionVisible, true, `${description} close/save control must remain inside the shell after body scrolling`);
+  if (requireScroll) {
+    assert.ok(report.bodyScrollHeight > report.bodyClientHeight, `${description} body must overflow at a constrained viewport: ${JSON.stringify(report)}`);
+    assert.equal(report.probeChanged, true, `${description} body scrollTop must change when probed`);
+    assert.equal(report.bodyAtBottom, true, `${description} body must reach its near-bottom position`);
+  }
 }
 
 async function assertSelectFocus() {
@@ -205,13 +336,15 @@ async function assertSelectFocus() {
   const report = await evaluate(`() => [...document.querySelectorAll('select.utm-native-select')].map(element => {
     element.focus();
     const style = getComputedStyle(element);
-    return { label: element.getAttribute('aria-label'), active: document.activeElement === element, matchesFocus: element.matches(':focus'), matchesFocusVisible: element.matches(':focus-visible'), outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor, boxShadow: style.boxShadow };
+    return { label: element.getAttribute('aria-label'), active: document.activeElement === element, matchesFocus: element.matches(':focus'), matchesFocusVisible: element.matches(':focus-visible'), outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineOffset: style.outlineOffset, outlineColor: style.outlineColor, borderColor: style.borderColor, boxShadow: style.boxShadow };
   })`);
   windowRef.hide();
   assert.ok(report.length >= 1, 'at least one native select should use the shared focus class');
   for (const item of report) {
-    assert.equal(item.outlineStyle, 'solid', `${item.label} should have a visible focus outline`);
-    assert.equal(item.outlineWidth, '2px', `${item.label} should use the shared 2px focus outline`);
+    assert.equal(item.outlineStyle, 'none', `${item.label} should not render a detached focus outline`);
+    assert.equal(item.outlineOffset, '0px', `${item.label} should not render an outline offset`);
+    assert.doesNotMatch(item.borderColor, /245,\s*158,\s*11|234,\s*88,\s*12|255,\s*165,\s*0/i, `${item.label} should use the cyan focus border rather than a yellow/orange native halo`);
+    assert.notEqual(item.borderColor, 'rgb(71, 85, 105)', `${item.label} should visibly change its focus border`);
     assert.equal(item.boxShadow, 'none', `${item.label} should not retain the native yellow/orange focus shadow`);
   }
 }
@@ -228,11 +361,29 @@ async function assertViewportMatrix(dialogSelector, bodySelector, description) {
     windowRef.setSize(viewport.width, viewport.height);
     windowRef.webContents.setZoomFactor(viewport.zoom);
     await wait(80);
-    await assertDialogLayout(dialogSelector, bodySelector, `${description} at ${viewport.width}x${viewport.height} ${viewport.zoom * 100}%`);
+    await assertDialogLayout(dialogSelector, bodySelector, `${description} at ${viewport.width}x${viewport.height} ${viewport.zoom * 100}%`, viewport.height <= 768 || viewport.zoom > 1);
   }
   windowRef.webContents.setZoomFactor(1);
   windowRef.setSize(1440, 900);
   await wait(80);
+  await evaluate(`() => { const body = document.querySelector(${JSON.stringify(bodySelector)}); if (body) body.scrollTop = 0; }`);
+}
+
+function assertFlagReports(flags, description) {
+  assert.ok(flags.length > 0, `${description} should render selected flags`);
+  for (const flag of flags) {
+    assert.equal(flag.missing, false, `${description} ${flag.code} should render a flag element`);
+    assert.ok(flag.width >= 22.5 && flag.width <= 24.5, `${description} ${flag.code} flag width should stay close to 24 CSS pixels (got ${flag.width})`);
+    assert.ok(flag.height >= 16.5 && flag.height <= 18.5, `${description} ${flag.code} flag height should stay close to 18 CSS pixels (got ${flag.height})`);
+    assert.match(flag.backgroundImage, /flag-sprite\.webp/);
+    assert.ok(flag.atlasWidth > 0 && flag.atlasHeight > 0, `${description} ${flag.code} should use a decoded atlas`);
+    assert.ok(flag.atlasBoundsValid, `${description} ${flag.code} crop should stay within atlas bounds`);
+    assert.ok(flag.paintedPixels > 0, `${description} ${flag.code} flag atlas crop should contain painted pixels`);
+    assert.equal(flag.clipped, false, `${description} ${flag.code} flag should not be clipped by an ancestor: ${JSON.stringify(flag)}`);
+    assert.notEqual(flag.visibility, 'hidden');
+    assert.notEqual(flag.display, 'none');
+    assert.notEqual(flag.opacity, '0');
+  }
 }
 
 async function runRendererAssertions() {
@@ -246,7 +397,7 @@ async function runRendererAssertions() {
   const bodyText = await waitForExpression('() => document.body?.innerText?.includes(\'Bundle offers\') && document.body?.innerText?.includes(\'Storefront membership\')', 'the populated catalog dashboard');
   assert.equal(bodyText, true);
 
-  await click('() => document.querySelector(\'[aria-label="Edit Holo Trail"]\')', 'the Holo Trail editor');
+  await click('() => document.querySelector(\'[aria-label="Edit Access Pass"]\')', 'the Access Pass editor');
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the entitlement editor');
   assert.match(await evaluate('() => document.body.innerText'), /increments of 50/i);
   assert.doesNotMatch(await evaluate('() => document.body.innerText'), /step 50/i);
@@ -254,22 +405,15 @@ async function runRendererAssertions() {
   await waitForExpression('() => [...document.querySelectorAll(\'button\')].filter(element => (element.innerText ?? \'\').includes(\'Choose countries\')).length === 1', 'the normal restriction editor');
   await selectCountry(0, 'CA');
   await selectCountry(0, 'US');
+  await selectCountry(0, 'JP');
   await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Add variant\')', 'an alternate offer editor');
   await waitForExpression('() => [...document.querySelectorAll(\'button\')].filter(element => (element.innerText ?? \'\').includes(\'Choose countries\')).length === 2', 'the alternate compact restriction editor');
   await selectCountry(1, 'CA');
   await selectCountry(1, 'US');
+  await selectCountry(1, 'JP');
   const offerFlags = await selectedFlagReport();
-  assert.equal(offerFlags.length, 4, 'normal and alternate restrictions should retain both selected countries');
-  for (const flag of offerFlags) {
-    assert.equal(flag.missing, false, `${flag.code} should render a flag element`);
-    assert.ok(flag.width >= 22.5 && flag.width <= 24.5, `${flag.code} flag width should stay close to 24 CSS pixels (got ${flag.width})`);
-    assert.ok(flag.height >= 16.5 && flag.height <= 18.5, `${flag.code} flag height should stay close to 18 CSS pixels (got ${flag.height})`);
-    assert.match(flag.backgroundImage, /flag-sprite\.webp/);
-    assert.ok(flag.paintedPixels > 0, `${flag.code} flag atlas crop should contain painted pixels`);
-    assert.notEqual(flag.visibility, 'hidden');
-    assert.notEqual(flag.display, 'none');
-    assert.notEqual(flag.opacity, '0');
-  }
+  assert.equal(offerFlags.length, 6, 'normal and alternate restrictions should retain CA, US, and JP');
+  assertFlagReports(offerFlags, 'normal and alternate restrictions');
   await assertSelectFocus();
   await assertDialogLayout('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', '#offer-editor-panel', 'the entitlement editor');
   await assertViewportMatrix('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', '#offer-editor-panel', 'the entitlement editor');
@@ -280,15 +424,10 @@ async function runRendererAssertions() {
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="bundle-dialog-title"]\')', 'the bundle editor');
   await selectCountry(0, 'CA');
   await selectCountry(0, 'US');
+  await selectCountry(0, 'JP');
   const bundleFlags = await selectedFlagReport();
-  assert.equal(bundleFlags.length, 2, 'bundle restrictions should retain both selected countries');
-  for (const flag of bundleFlags) {
-    assert.equal(flag.missing, false, `${flag.code} should render in the bundle restriction editor`);
-    assert.ok(flag.width >= 22.5 && flag.width <= 24.5);
-    assert.ok(flag.height >= 16.5 && flag.height <= 18.5);
-    assert.match(flag.backgroundImage, /flag-sprite\.webp/);
-    assert.ok(flag.paintedPixels > 0, `${flag.code} flag atlas crop should contain painted pixels`);
-  }
+  assert.equal(bundleFlags.length, 3, 'bundle restrictions should retain CA, US, and JP');
+  assertFlagReports(bundleFlags, 'bundle restrictions');
   await assertSelectFocus();
   await assertDialogLayout('[role="dialog"][aria-labelledby="bundle-dialog-title"]', 'form > div.min-h-0', 'the bundle editor');
   await click('() => document.querySelector(\'[aria-label="Close bundle editor"]\')', 'the bundle editor close action');
@@ -296,27 +435,37 @@ async function runRendererAssertions() {
 
   await click('() => document.querySelector(\'[aria-label="Edit All Offers membership"]\')', 'the All Offers editor');
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="offer-display-dialog-title"]\')', 'the All Offers editor');
-  await assertDialogLayout('[role="dialog"][aria-labelledby="offer-display-dialog-title"]', 'form > div.min-h-0', 'the storefront editor');
+  windowRef.setSize(1000, 480);
+  windowRef.webContents.setZoomFactor(1.5);
+  await wait(80);
+  await assertDialogLayout('[role="dialog"][aria-labelledby="offer-display-dialog-title"]', 'form > div.min-h-0', 'the storefront editor at 1000x480 150%', true);
+  windowRef.webContents.setZoomFactor(1);
+  windowRef.setSize(1440, 900);
+  await wait(80);
   await click('() => document.querySelector(\'[aria-label="Close storefront editor"]\')', 'the storefront editor close action');
   await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="offer-display-dialog-title"]\')', 'the storefront editor to close');
 
   await click(buttonByText('Create Offer', true), 'the creation chooser');
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="creation-chooser-title"]\')', 'the creation chooser');
-  const chooser = await evaluate(`() => {
-    const dialog = document.querySelector('[role="dialog"][aria-labelledby="creation-chooser-title"]');
-    const body = dialog?.querySelector('.min-h-0.flex-1.overflow-y-auto');
-    return body ? { shellOverflow: getComputedStyle(dialog).overflow, bodyOverflowY: getComputedStyle(body).overflowY, bodyMinHeight: getComputedStyle(body).minHeight } : null;
-  }`);
-  assert.ok(chooser);
-  assert.equal(chooser.shellOverflow, 'hidden');
-  assert.equal(chooser.bodyOverflowY, 'auto');
-  assert.equal(chooser.bodyMinHeight, '0px');
+  windowRef.setSize(1280, 720);
+  windowRef.webContents.setZoomFactor(1.5);
+  await wait(80);
+  await assertDialogLayout('[role="dialog"][aria-labelledby="creation-chooser-title"]', '.min-h-0.flex-1.overflow-y-auto', 'the creation chooser at 1280x720 150%', true);
+  windowRef.webContents.setZoomFactor(1);
+  windowRef.setSize(1440, 900);
+  await wait(80);
   await click('() => document.querySelector(\'[aria-label="Close creation chooser"]\')', 'the creation chooser close action');
   await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="creation-chooser-title"]\')', 'the creation chooser to close');
 
   await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Need Help?\')', 'the setup dialog');
   await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Need Help?\'', 'the setup dialog');
-  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the setup dialog');
+  windowRef.setSize(1280, 720);
+  windowRef.webContents.setZoomFactor(1.5);
+  await wait(80);
+  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the setup dialog at 1280x720 150%', true);
+  windowRef.webContents.setZoomFactor(1);
+  windowRef.setSize(1440, 900);
+  await wait(80);
   await click('() => document.querySelector(\'[aria-label="Close help"]\')', 'the setup dialog close action');
 
   const results = await evaluate(`() => ({
@@ -336,7 +485,12 @@ async function cleanup() {
     // Cleanup continues even if Chromium has already exited.
   }
   if (bridgeProcess && bridgeProcess.exitCode === null) {
-    try { await request('/api/session/shutdown', 'POST', '{}'); } catch { /* the bridge may already be stopping */ }
+    try {
+      await Promise.race([
+        request('/api/session/shutdown', 'POST', '{}'),
+        wait(3000).then(() => { throw new Error('The renderer test bridge shutdown exceeded its bounded cleanup window.'); }),
+      ]);
+    } catch { /* the bridge may already be stopping or unreachable */ }
     await Promise.race([
       new Promise(resolve => bridgeProcess.once('exit', resolve)),
       wait(3000),
@@ -347,16 +501,14 @@ async function cleanup() {
 }
 
 async function main() {
-  if (!fs.existsSync(path.join(repositoryRoot, 'dist', 'index.html'))) throw new Error('The renderer build is missing. Run npm run build first.');
-  if (!fs.existsSync(path.join(sourceProjectRoot, 'UTM_Demo.uefnproject'))) throw new Error(`The UTM_Demo fixture was not found at ${sourceProjectRoot}.`);
+  if (!fs.existsSync(path.join(applicationRoot, 'dist', 'index.html'))) throw new Error(`The renderer build is missing from ${applicationRoot}.`);
   fs.rmSync(runtimeProjectRoot, { recursive: true, force: true });
-  fs.mkdirSync(path.join(runtimeProjectRoot, 'Content'), { recursive: true });
-  fs.copyFileSync(path.join(sourceProjectRoot, 'UTM_Demo.uefnproject'), path.join(runtimeProjectRoot, 'UTM_Demo.uefnproject'));
-  fs.cpSync(path.join(sourceProjectRoot, 'Content'), path.join(runtimeProjectRoot, 'Content'), { recursive: true });
+  await createShowcaseFixture();
+  if (!fs.existsSync(showcaseProjectFile)) throw new Error(`The deterministic showcase fixture was not created at ${showcaseProjectFile}.`);
 
   bridgePort = await reservePort();
-  bridgeProcess = spawn(process.execPath, [path.join(repositoryRoot, 'dist', 'server.cjs')], {
-    cwd: repositoryRoot,
+  bridgeProcess = spawn(electronPath, [serverPath], {
+    cwd: applicationRoot,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
@@ -366,8 +518,8 @@ async function main() {
       UEM_SESSION_TOKEN: sessionToken,
       UEM_EDITOR_TOKEN: editorToken,
       UEM_CONTENT_ROOT: path.join(runtimeProjectRoot, 'Content'),
-      UEM_ASSET_MOUNT: '/UTM_Demo',
-      UEM_PROJECT_FILE: path.join(runtimeProjectRoot, 'UTM_Demo.uefnproject'),
+      UEM_ASSET_MOUNT: '/Showcase',
+      UEM_PROJECT_FILE: showcaseProjectFile,
       UEM_PROJECT_PYTHON_ENABLED: '1',
       UEM_AUTO_CONNECTOR_INSTALLED: '0',
       UEM_UEFN_PROCESS_ID: '0',
@@ -376,8 +528,8 @@ async function main() {
       UEM_IDLE_TIMEOUT_MS: '600000',
     },
   });
-  bridgeProcess.stdout.on('data', () => undefined);
-  bridgeProcess.stderr.on('data', () => undefined);
+  bridgeProcess.stdout.on('data', data => { bridgeStdout = `${bridgeStdout}${data}`.slice(-12000); });
+  bridgeProcess.stderr.on('data', data => { bridgeStderr = `${bridgeStderr}${data}`.slice(-12000); });
   await waitForBridge();
 
   windowRef = new BrowserWindow({
@@ -393,7 +545,7 @@ async function main() {
     contentDir: contentRoot,
     assetFolder: 'EntitlementIcons',
     verseFile: 'managed_transactions.verse',
-    projectFile: path.join(runtimeProjectRoot, 'UTM_Demo.uefnproject'),
+    projectFile: showcaseProjectFile,
   });
   await windowRef.loadURL(`http://127.0.0.1:${bridgePort}/#${fragment}`);
   await waitForExpression('() => Boolean(document.getElementById(\'root\')?.firstElementChild)', 'the React dashboard root');
@@ -406,7 +558,10 @@ app.whenReady().then(async () => {
   try {
     await main();
     await cleanup();
-    app.quit();
+    // This is a bounded verification process, not the interactive manager.
+    // Force the Electron host to terminate after cleanup so packaged callers
+    // cannot retain a hidden parent process after a passing probe.
+    process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     await cleanup();
