@@ -4,7 +4,7 @@ import type { EntitlementItem, OfferDisplayGroup, ProjectConfig, PublicIdentityO
 import { derivePublicIdentity, type DerivedPublicIdentity } from '../../src/services/publicIdentity';
 import type { MigrationParityEntry } from '../../src/services/migrationParity';
 
-export const FLASHLIGHT_TAG_PROJECT_ROOT = 'C:/Users/brann/Documents/UEFN Projects/FlashlightTag01';
+export const FLASHLIGHT_TAG_PROJECT_ROOT = 'C:/fixture-projects/FlashlightTag01';
 
 export const FLASHLIGHT_TAG_MODULE_CONFIGURATION: NonNullable<Parameters<typeof defaultProjectConfig>[1]> = {
   deviceClassName: 'managed_transactions_device',
