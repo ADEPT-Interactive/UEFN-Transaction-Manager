@@ -266,7 +266,7 @@ try {
         triggers = @{ generateTriggerBinding = $true; generateButtonBinding = $false; generateSuccessTriggerBinding = $true }
     }
     $openBody = @{
-        config = @{ targetVerseFileName = "packaged-recovery.verse"; assetFolderName = "EntitlementIcons" }
+        config = @{ targetVerseFileName = "packaged_recovery.verse"; assetFolderName = "EntitlementIcons" }
         recovery = @{ entitlements = @($migratedRecord); bundles = @(); storefrontMembership = @{ allOffers = @(@{ entitlementId = "packaged-migrated" }); focused = @() }; retiredVerseKeys = @() }
     } | ConvertTo-Json -Depth 20
     $openedCatalog = Invoke-RestMethod -Uri "$baseUri/api/catalog/open" -Method Post -Headers $headers -ContentType "application/json" -Body $openBody -TimeoutSec 5
