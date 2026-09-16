@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Cloud, Gamepad2, Monitor, Plus, Search, Smartphone, X } from 'lucide-react';
 import { COUNTRY_CODE_OPTIONS, COUNTRY_PICKER_OPTIONS, EPIC_PLATFORM_FAMILIES, getCountryName } from '../constants/offerRestrictions';
 import { OfferRestrictions } from '../types/entitlement';
@@ -38,6 +38,7 @@ export const OfferRestrictionsEditor: React.FC<OfferRestrictionsEditorProps> = (
   const [countrySearch, setCountrySearch] = useState('');
   const countryPickerRef = useRef<HTMLDivElement>(null);
   const countryTriggerRef = useRef<HTMLButtonElement>(null);
+  const minimumAgeId = useId();
   const selectedCodes = restrictions.blockedCountryCodes ?? [];
   const filteredCountries = useMemo(() => {
     const query = countrySearch.trim().toLowerCase();
@@ -67,9 +68,10 @@ export const OfferRestrictionsEditor: React.FC<OfferRestrictionsEditorProps> = (
   return (
     <div className={`space-y-3 ${compact ? 'rounded-xl border border-slate-800 bg-slate-950/40 p-3' : ''}`}>
       {!compact && <div><p className="text-xs font-bold text-cyan-300 uppercase tracking-wider">Offer restrictions</p><p className="text-[11px] text-slate-400">Epic receives the country and platform values anonymously when validating the offer. Platform IDs are limited to the official Marketplace values.</p></div>}
-      <label className="block text-xs text-slate-300">Minimum purchase age
-        <span className="mt-1 flex items-center gap-2"><NumericInput min={0} max={99} value={restrictions.minimumPurchaseAge ?? ''} allowEmpty ariaLabel="Minimum purchase age" onChange={value => update({ minimumPurchaseAge: value === '' || value === 0 ? undefined : value })} className="w-16" /><span className="text-[11px] text-slate-500">Leave blank for no additional age gate.</span></span>
-      </label>
+      <div>
+        <label htmlFor={minimumAgeId} className="block text-xs text-slate-300">Minimum purchase age</label>
+        <div className="mt-1 flex items-center gap-2"><NumericInput id={minimumAgeId} min={0} max={99} value={restrictions.minimumPurchaseAge ?? ''} allowEmpty ariaLabel="Minimum purchase age" onChange={value => update({ minimumPurchaseAge: value === '' || value === 0 ? undefined : value })} className="w-16" /><span className="text-[11px] text-slate-500">Leave blank for no additional age gate.</span></div>
+      </div>
       <div>
         <p className="text-xs text-slate-300 mb-1">Blocked platform families</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">

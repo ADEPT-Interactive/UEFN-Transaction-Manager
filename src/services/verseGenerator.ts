@@ -5,7 +5,8 @@ import { toVerseApiStem } from './verseIdentity';
 import { derivePublicIdentity } from './publicIdentity';
 import { generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
-import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
+import { bundleQuantityBehavior, dynamicPriceEnabled, getBundleBehavior, isDynamicBundle } from './dynamicOffers';
+import { GeneratedSymbolRegistry } from './generatedSymbols';
 import {
   EDITABLE_CATEGORY_LABELS,
   EDITABLE_METADATA_SYMBOLS,
@@ -392,10 +393,8 @@ function dynamicBundleOfferClass(source: GeneratedBundleOffer): string {
 }
 
 function dynamicRemainingEntry(bundle: BundleOffer): BundleOfferItem | undefined {
-  if (!(bundle.dynamicRemaining || bundle.items.some(entry => bundleQuantityBehavior(bundle, entry) === 'fill-to-max')) || bundle.items.length !== 1) return undefined;
-  const entry = bundle.items[0];
-  if (!entry?.entitlementId || entry.bundleId || entry.quantity !== 1 || bundleQuantityBehavior(bundle, entry) !== 'fill-to-max') return undefined;
-  return entry;
+  const behavior = getBundleBehavior(bundle);
+  return behavior.mode === 'fill-to-max' ? behavior.fillToMaxEntry : undefined;
 }
 
 function runtimeBundleEntries(bundle: BundleOffer): BundleOfferItem[] {
@@ -403,10 +402,48 @@ function runtimeBundleEntries(bundle: BundleOffer): BundleOfferItem[] {
 }
 
 function hasRuntimeBundleValues(bundle: BundleOffer): boolean {
-  return dynamicPriceEnabled(bundle.dynamicOffer) || runtimeBundleEntries(bundle).length > 0;
+  const behavior = getBundleBehavior(bundle);
+  return behavior.mode === 'runtime';
 }
 
-function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles: BundleOffer[]): void {
+function assertGeneratedSymbolSafety(entitlements: EntitlementItem[], bundles: BundleOffer[], storefrontMembership: StorefrontMembership, config: ProjectConfig): void {
+  const registry = new GeneratedSymbolRegistry();
+  const register = (name: string, owner: string) => {
+    const conflict = registry.register(name, owner);
+    if (conflict) throw new Error('Cannot generate Verse: generated symbol "' + conflict.name + '" conflicts between ' + conflict.previousOwner + ' and ' + conflict.owner + '. Fix it in Validation.');
+  };
+  for (const [field, value] of [
+    ['assetFolderName', config.assetFolderName],
+    ['deviceClassName', config.deviceClassName],
+    ['infoModuleName', config.infoModuleName],
+    ['entitlementsModuleName', config.entitlementsModuleName],
+    ['pricesModuleName', config.pricesModuleName],
+    ['offersModuleName', config.offersModuleName],
+  ] as Array<[string, string]>) register(value, 'config.' + field);
+  const registerIdentity = (record: EntitlementItem | BundleOffer, kind: 'entitlement' | 'bundle', owner: string, parent?: EntitlementItem) => {
+    const identity = derivePublicIdentity(record, config, kind, parent);
+    for (const name of [identity.apiStem, identity.metadataStem, identity.entitlementStem, identity.priceStem, identity.offerStem]) {
+      if (name) register(name, owner);
+    }
+  };
+  for (const item of entitlements) {
+    registerIdentity(item, 'entitlement', 'entitlement.' + item.id);
+    for (const alternate of item.alternateOffers ?? []) {
+      const identity = derivePublicIdentity(alternate, config, 'alternate_offer', item);
+      for (const name of [identity.apiStem, identity.metadataStem, identity.priceStem, identity.offerStem]) {
+        if (name) register(name, 'alternate.' + alternate.id);
+      }
+    }
+  }
+  for (const bundle of bundles) registerIdentity(bundle, 'bundle', 'bundle.' + bundle.id);
+  for (const storefront of storefrontMembership.focused) {
+    const identity = derivePublicIdentity(storefront, config, 'storefront');
+    register(identity.apiStem, 'storefront.' + storefront.id);
+  }
+}
+
+function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles: BundleOffer[], storefrontMembership: StorefrontMembership, config: ProjectConfig): void {
+  assertGeneratedSymbolSafety(entitlements, bundles, storefrontMembership, config);
   for (const item of entitlements) {
     if (item.itemType !== 'durable' && item.itemType !== 'consumable') {
       throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an unsupported entitlement type. Fix it in Validation.`);
@@ -533,7 +570,7 @@ export function generateVerseCode(
   const storefrontMembership = Array.isArray(storefrontInput)
     ? legacyStorefrontMembership(entitlements, bundles, storefrontInput.map(normalizeOfferDisplayGroup))
     : normalizeStorefrontMembership(storefrontInput, entitlements, bundles).membership;
-  assertRenderableConfiguration(entitlements, bundles);
+  assertRenderableConfiguration(entitlements, bundles, storefrontMembership, config);
   const offerDisplayGroups = storefrontMembership.focused;
   const infoModule = config.infoModuleName;
   const entModule = config.entitlementsModuleName;
@@ -1250,12 +1287,12 @@ export function generateVerseCode(
         '            ReleaseMarketplaceUI(Player)',
         '',
       );
-    } else if (bundle.dynamicRemaining) {
+    } else if (getBundleBehavior(bundle).mode === 'invalid') {
       push(
         `    ${purchaseEntryName}<public>(Player:player):void =`,
         '        Acquired := TryAcquireMarketplaceUI(Player)',
         '        if (Acquired?):',
-        `            LogError("${escapeVerseString(bundle.name)} has an invalid dynamic remaining configuration.")`,
+        `            LogError("${escapeVerseString(bundle.name)} has an invalid ${bundle.dynamicRemaining ? 'dynamic remaining' : 'dynamic quantity'} configuration.")`,
         '            ReleaseMarketplaceUI(Player)',
         '',
       );

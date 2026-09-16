@@ -88,6 +88,35 @@ test('primary and alternate offers validate independent prices, metadata, identi
   assert.ok(alternateIssues.some(issue => issue.ruleName === 'short_description_length' && issue.field === 'alternateOffers.0.shortDescription'));
 });
 
+test('compliance warnings retain exact field paths for inline editor feedback', () => {
+  const item = validItem({
+    name: 'Pickaxe access',
+    shortDescription: 'A safe short description.',
+    description: 'A safe description.',
+    flags: { ...validItem().flags, paidRandomItemOdds: 'Emote table' },
+    alternateOffers: [{
+      id: 'alternate', verseKey: 'alternate_offer', name: 'Mobile emote', shortDescription: 'Variant', description: 'Variant',
+      priceVBucks: 100, iconTexture: 'EntitlementIcons.Alternate', restrictions: { blockedCountryCodes: [], blockedPlatformFamilies: [] },
+    }],
+  });
+  const issues = validateEntitlement(item, [item]);
+  const compliance = issues.filter(issue => issue.severity === 'warning' && (issue.ruleName === 'restricted_monetization_term' || issue.ruleName.startsWith('moderation_')));
+  assert.ok(compliance.length > 0);
+  assert.ok(compliance.every(issue => issue.field && issue.field !== 'name_or_description'));
+  assert.ok(compliance.some(issue => issue.field === 'name'));
+  assert.ok(compliance.some(issue => issue.field === 'flags.paidRandomItemOdds'));
+  assert.ok(compliance.some(issue => issue.field === 'alternateOffers.0.name'));
+});
+
+test('hostile generated keys are diagnosed and generation never rewrites them silently', () => {
+  const hostile = clone(publicApiItems[0]);
+  hostile.id = 'hostile';
+  hostile.verseKey = 'paid_random_item';
+  const issues = validateEntireProject([hostile], [], publicApiConfig);
+  assert.ok(issues.some(issue => issue.ruleName === 'generated_symbol_reserved' && issue.field === 'verseKey'));
+  assert.throws(() => generateVerseCode([hostile], [], publicApiConfig), /generated symbol/i);
+});
+
 test('MaxCount, quantity, and auto-consume rules reject values the generator cannot support', () => {
   const durable = validItem({ itemType: 'durable', maxCount: 2, autoConsume: true });
   const durableRules = rules(validateEntitlement(durable));

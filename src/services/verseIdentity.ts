@@ -1,4 +1,5 @@
 import { BundleOffer, EntitlementItem, OfferDisplayGroup } from '../types/entitlement';
+import { isGeneratedStemSafe } from './generatedSymbols';
 
 /**
  * Verse keywords and effect/access terms are kept out of generated identifiers.
@@ -97,7 +98,7 @@ export function createVerseKeyAllocator(
     const base = sanitizeVerseIdentifier(name);
     let candidate = base;
     let suffix = 2;
-    while (reserved.has(candidate.toLowerCase())) candidate = `${base}_${suffix++}`;
+    while (reserved.has(candidate.toLowerCase()) || !isGeneratedStemSafe(toVerseApiStem(candidate))) candidate = base + '_' + suffix++;
     return reserveAllocated(candidate);
   };
 
@@ -106,8 +107,8 @@ export function createVerseKeyAllocator(
     allocateAlternate(parentKey: string): string {
       const parent = sanitizeVerseIdentifier(parentKey);
       let ordinal = 1;
-      let candidate = `${parent}_alternate_${ordinal}`;
-      while (reserved.has(candidate.toLowerCase())) candidate = `${parent}_alternate_${++ordinal}`;
+      let candidate = parent + '_alternate_' + ordinal;
+      while (reserved.has(candidate.toLowerCase()) || !isGeneratedStemSafe(toVerseApiStem(candidate))) candidate = parent + '_alternate_' + (++ordinal);
       return reserveAllocated(candidate);
     },
     has(key: string): boolean {
@@ -159,5 +160,9 @@ export function normalizeRetiredVerseKeys(value: unknown): string[] {
 export function draftVerseKeyForName(currentKey: string, previousName: string, nextName: string, isExisting: boolean): string {
   if (isExisting) return currentKey;
   const previousGeneratedKey = sanitizeVerseIdentifier(previousName);
-  return !currentKey || currentKey === previousGeneratedKey ? sanitizeVerseIdentifier(nextName) : currentKey;
+  if (!currentKey || currentKey === previousGeneratedKey) {
+    const base = sanitizeVerseIdentifier(nextName);
+    return isGeneratedStemSafe(toVerseApiStem(base)) ? base : base + '_2';
+  }
+  return currentKey;
 }

@@ -3,9 +3,10 @@ import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offer
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
 import { characterCount, generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
+import { GENERATED_NATIVE_RESERVED_SYMBOLS, GeneratedSymbolRegistry, isGeneratedStemSafe } from './generatedSymbols';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
-import { bundleQuantityBehavior, dynamicPriceEnabled, isDynamicBundle } from './dynamicOffers';
+import { bundleQuantityBehavior, dynamicPriceEnabled, getBundleBehavior, isDynamicBundle } from './dynamicOffers';
 import { derivePublicIdentity, validateStoredPublicIdentity } from './publicIdentity';
 
 export { canonicalSanitizeVerseIdentifier as sanitizeVerseIdentifier };
@@ -169,6 +170,24 @@ function validateCompliance(ownerId: string, texts: string[], entitlementId?: st
   return issues;
 }
 
+type ComplianceField = { field: string; value: string };
+
+function validateComplianceFields(ownerId: string, fields: ComplianceField[], entitlementId?: string, bundleId?: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const field of fields) {
+    const fieldKey = field.field.replace(/[^a-z0-9]+/gi, '-');
+    const matches = validateCompliance(ownerId + '-' + fieldKey, [field.value], entitlementId, bundleId);
+    for (const match of matches) {
+      issues.push({
+        ...match,
+        id: ownerId + '-' + match.ruleName + '-' + fieldKey,
+        field: field.field,
+      });
+    }
+  }
+  return issues;
+}
+
 function validateDuration(ownerId: string, description: string, durationDescription: string, entitlementId?: string, bundleId?: string): ValidationIssue[] {
   if (!/(?:limited|temporary|expires?|\b\d+\s*[- ]?day|\b\d+\s*hours?)/i.test(`${description} ${durationDescription}`)) return [];
   if (!durationDescription.trim()) return [issue(`${ownerId}-duration`, 'error', 'Time-limited benefits must include a clear duration disclosure.', 'duration_disclosure', 'durationDescription', entitlementId, bundleId)];
@@ -214,6 +233,9 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
   if (allItems.some(other => other.id !== id && safeText(other.verseKey).toLowerCase() === verseKey.toLowerCase())) {
     issues.push(issue(`${id}-key-duplicate`, 'error', `Duplicate Verse key "${verseKey}".`, 'identifier_unique', 'verseKey', id));
   }
+  if (validateVerseIdentifier(verseKey) && !isGeneratedStemSafe(toVerseApiStem(verseKey))) {
+    issues.push(issue(id + '-generated-key', 'error', 'Verse key "' + verseKey + '" maps to a generated/native symbol that UTM reserves. Choose another key; existing public identities are never rewritten automatically.', 'generated_symbol_reserved', 'verseKey', id));
+  }
   if (item.itemType !== 'durable' && item.itemType !== 'consumable') {
     issues.push(issue(`${id}-type`, 'error', `${label || 'Entitlement'} must use a supported entitlement type: durable or consumable.`, 'entitlement_type', 'itemType', id));
   }
@@ -253,7 +275,13 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
   }
   issues.push(...validateDuration(id, description, durationDescription, id));
   issues.push(...validateRestrictions(id, item.offerRestrictions, 'offerRestrictions', id));
-  issues.push(...validateCompliance(id, [name, shortDescription, description, durationDescription, paidRandomItemOdds], id));
+  issues.push(...validateComplianceFields(id, [
+    { field: 'name', value: name },
+    { field: 'shortDescription', value: shortDescription },
+    { field: 'description', value: description },
+    { field: 'durationDescription', value: durationDescription },
+    { field: 'flags.paidRandomItemOdds', value: paidRandomItemOdds },
+  ], id));
 
   const alternateOffers = Array.isArray(item.alternateOffers) ? item.alternateOffers : [];
   const alternateKeys = new Set<string>();
@@ -268,6 +296,9 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
     const alternateDurationDescription = safeText(offer.durationDescription);
     const alternateIconTexture = safeText(offer.iconTexture);
     if (!validateVerseIdentifier(alternateVerseKey)) issues.push(issue(`${offerId}-key`, 'error', 'Alternate offer Verse key must be a valid Verse identifier.', 'alternate_offer_identifier', `alternateOffers.${index}.verseKey`, id));
+    if (validateVerseIdentifier(alternateVerseKey) && !isGeneratedStemSafe(toVerseApiStem(alternateVerseKey))) {
+      issues.push(issue(offerId + '-generated-key', 'error', 'Alternate offer Verse key "' + alternateVerseKey + '" maps to a generated/native symbol that UTM reserves.', 'generated_symbol_reserved', 'alternateOffers.' + index + '.verseKey', id));
+    }
     const normalized = alternateVerseKey.toLowerCase();
     if (alternateKeys.has(normalized) || normalized === verseKey.toLowerCase()) issues.push(issue(`${offerId}-key-duplicate`, 'error', `Alternate offer Verse key "${alternateVerseKey}" conflicts with another offer.`, 'alternate_offer_identifier_unique', `alternateOffers.${index}.verseKey`, id));
     alternateKeys.add(normalized);
@@ -289,7 +320,12 @@ export function validateEntitlement(item: EntitlementItem, allItems: Entitlement
     issues.push(...validateDuration(offerId, alternateDescription, alternateDurationDescription, id));
     if (!validateTextureExpression(alternateIconTexture.trim())) issues.push(issue(`${offerId}-icon`, 'error', 'Alternate offer icon must be a dotted Verse texture expression.', 'alternate_offer_icon_expression', `alternateOffers.${index}.iconTexture`, id));
     issues.push(...validateRestrictions(offerId, offer.restrictions, `alternateOffers.${index}.restrictions`, id));
-    issues.push(...validateCompliance(offerId, [alternateName, alternateShortDescription, alternateDescription, alternateDurationDescription], id));
+    issues.push(...validateComplianceFields(offerId, [
+      { field: 'alternateOffers.' + index + '.name', value: alternateName },
+      { field: 'alternateOffers.' + index + '.shortDescription', value: alternateShortDescription },
+      { field: 'alternateOffers.' + index + '.description', value: alternateDescription },
+      { field: 'alternateOffers.' + index + '.durationDescription', value: alternateDurationDescription },
+    ], id));
   });
 
   return issues;
@@ -307,6 +343,7 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   const bundleEntries = Array.isArray(bundle.items) ? bundle.items : [];
   const label = name || verseKey || id;
   const entitlementById = new Map(entitlements.map(item => [item.id, item]));
+  const bundleBehavior = getBundleBehavior(bundle);
 
   if (!id.trim()) issues.push(issue('bundle-id-required', 'error', `${label || 'Bundle'} must have a stable record identifier.`, 'bundle_id_required', 'id', undefined, id || undefined));
   if (!validateVerseIdentifier(verseKey)) {
@@ -315,6 +352,9 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   if (allBundles.some(other => safeText(other.id) !== id && safeText(other.verseKey).toLowerCase() === verseKey.toLowerCase()) ||
       entitlements.some(item => safeText(item.verseKey).toLowerCase() === verseKey.toLowerCase())) {
     issues.push(issue(`${id}-key-duplicate`, 'error', `Bundle Verse key "${verseKey}" conflicts with another offer.`, 'bundle_identifier_unique', 'verseKey', undefined, id));
+  }
+  if (validateVerseIdentifier(verseKey) && !isGeneratedStemSafe(toVerseApiStem(verseKey))) {
+    issues.push(issue(id + '-generated-key', 'error', 'Bundle Verse key "' + verseKey + '" maps to a generated/native symbol that UTM reserves. Choose another key; existing public identities are never rewritten automatically.', 'generated_symbol_reserved', 'verseKey', undefined, id));
   }
   const normalizedBundle = { ...bundle, id, name, shortDescription, description, verseKey, durationDescription, iconTexture, items: bundleEntries };
   const randomDisclosures = paidRandomDisclosuresForBundle(normalizedBundle, entitlements, allBundles).join('; ');
@@ -332,7 +372,12 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
   issues.push(...validatePrice(label, id, bundle.priceVBucks, id));
   issues.push(...validateDuration(id, description, durationDescription, undefined, id));
   issues.push(...validateRestrictions(id, bundle.restrictions, 'restrictions', undefined, id));
-  issues.push(...validateCompliance(id, [name, shortDescription, description, durationDescription], undefined, id));
+  issues.push(...validateComplianceFields(id, [
+    { field: 'name', value: name },
+    { field: 'shortDescription', value: shortDescription },
+    { field: 'description', value: description },
+    { field: 'durationDescription', value: durationDescription },
+  ], undefined, id));
   if (!validateTextureExpression(iconTexture.trim())) {
     issues.push(issue(`${id}-icon`, 'error', 'Bundle icon must be a dotted Verse texture expression.', 'bundle_icon_expression', 'iconTexture', undefined, id));
   }
@@ -340,6 +385,9 @@ export function validateBundleOffer(bundle: BundleOffer, entitlements: Entitleme
     issues.push(issue(`${id}-items-min`, 'error', `${label} must contain at least one entitlement offer entry.`, 'bundle_items_min', 'items', undefined, id));
   }
 
+  if (!bundleBehavior.valid) {
+    issues.push(issue(id + '-quantity-behavior', 'error', label + ' has an invalid quantity behavior. ' + (bundleBehavior.reason ?? 'Choose one canonical bundle mode.'), 'bundle_quantity_behavior', 'items', undefined, id));
+  }
   const seen = new Set<string>();
   bundleEntries.forEach((entry, index) => {
     const entitlement = entry.entitlementId ? entitlementById.get(entry.entitlementId) : undefined;
@@ -443,6 +491,9 @@ export function validateOfferDisplayGroup(group: OfferDisplayGroup, entitlements
   const groupVerseKey = safeText(group.verseKey);
   const groupName = safeText(group.name);
   const groupEntries = Array.isArray(group.entries) ? group.entries : [];
+  if (validateVerseIdentifier(groupVerseKey) && !isGeneratedStemSafe(toVerseApiStem(groupVerseKey))) {
+    issues.push(issue(groupId + '-generated-key', 'error', 'Offer display Verse key "' + groupVerseKey + '" maps to a generated/native symbol that UTM reserves.', 'generated_symbol_reserved', 'verseKey'));
+  }
   if (!groupId.trim()) issues.push(issue('storefront-id-required', 'error', `${groupName || 'Storefront'} must have a stable record identifier.`, 'offer_display_id_required', 'id'));
   if (!validateVerseIdentifier(groupVerseKey)) issues.push(issue(`${groupId}-key`, 'error', 'Offer display Verse key must be a valid Verse identifier.', 'offer_display_identifier', 'verseKey'));
   if (allGroups.some(candidate => safeText(candidate.id) !== groupId && safeText(candidate.verseKey).toLowerCase() === groupVerseKey.toLowerCase())) issues.push(issue(`${groupId}-key-duplicate`, 'error', `Offer display Verse key "${groupVerseKey}" is already used.`, 'offer_display_identifier_unique', 'verseKey'));
@@ -668,11 +719,12 @@ export function validateEntireProject(
   });
 
   const generatedSymbols = new Map<string, string>();
+  const generatedSymbolRegistry = new GeneratedSymbolRegistry();
   const registerGeneratedSymbol = (name: string, owner: string) => {
     const key = name.toLowerCase();
-    const previous = generatedSymbols.get(key);
-    if (previous && previous !== owner) issues.push(issue(`generated-symbol-${key}`, 'error', `Generated Verse symbol "${name}" conflicts between ${previous} and ${owner}.`, 'generated_symbol_unique'));
-    else generatedSymbols.set(key, owner);
+    const conflict = generatedSymbolRegistry.register(name, owner);
+    if (conflict) issues.push(issue('generated-symbol-' + key, 'error', 'Generated Verse symbol "' + conflict.name + '" conflicts between ' + conflict.previousOwner + ' and ' + conflict.owner + '.', 'generated_symbol_unique'));
+    if (!generatedSymbols.has(key)) generatedSymbols.set(key, owner);
   };
   for (const [field, value] of [
     ['assetFolderName', config?.assetFolderName], ['deviceClassName', config?.deviceClassName], ['infoModuleName', config?.infoModuleName],
@@ -684,7 +736,12 @@ export function validateEntireProject(
   });
   bundles.forEach(bundle => registerGeneratedSymbol(config ? derivePublicIdentity(bundle, config, 'bundle').apiStem : toPascalCase(bundle.verseKey), `bundle.${bundle.id}`));
   storefrontMembership.focused.forEach(group => registerGeneratedSymbol(config ? derivePublicIdentity(group, config, 'storefront').apiStem : toPascalCase(group.verseKey), `offer-display.${group.id}`));
-  for (const [memberName, owner] of memberOwners) registerGeneratedSymbol(memberName, `device-member.${owner}`);
+  for (const [memberName, owner] of memberOwners) {
+    // Fixed native/generator members are already seeded in the registry. They
+    // are expected output, not a second owner of the same reserved symbol.
+    if (GENERATED_NATIVE_RESERVED_SYMBOLS.has(memberName)) continue;
+    registerGeneratedSymbol(memberName, `device-member.${owner}`);
+  }
 
   const entitlementIds = new Set<string>();
   const alternateOfferIds = new Set<string>();

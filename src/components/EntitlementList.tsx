@@ -26,6 +26,7 @@ interface EntitlementListProps {
   onEdit: (item: EntitlementItem) => void;
   onDuplicate: (item: EntitlementItem) => void;
   onDelete: (id: string) => void;
+  warningCounts?: Record<string, number>;
   creationRequest?: number;
 }
 
@@ -37,6 +38,7 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  warningCounts = {},
   creationRequest = 0,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -224,6 +226,7 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
               onEdit={onEdit}
               onDuplicate={onDuplicate}
               onDelete={onDelete}
+              warningCount={warningCounts[item.id] ?? 0}
             />
           ))}
         </div>

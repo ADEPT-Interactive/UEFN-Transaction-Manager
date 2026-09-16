@@ -20,6 +20,13 @@ test('canonical allocator uses readable case-insensitive keys and deterministic 
   assert.equal(allocator.allocate('vip pass'), 'vip_pass_4');
 });
 
+test('allocator and draft identity avoid generated native symbol collisions', () => {
+  const allocator = createVerseKeyAllocator();
+  assert.equal(allocator.allocate('Paid Random Item'), 'paid_random_item_2');
+  assert.equal(allocator.allocateAlternate('paid_random_item'), 'paid_random_item_alternate_1');
+  assert.equal(draftVerseKeyForName('', '', 'Paid Random Item', false), 'paid_random_item_2');
+});
+
 test('sanitization handles punctuation, Unicode, leading numbers, empty names, and keywords defensively', () => {
   assert.equal(sanitizeVerseIdentifier("Player's Bundle"), 'player_s_bundle');
   assert.equal(sanitizeVerseIdentifier('123 Coins'), 'item_123_coins');

@@ -231,7 +231,8 @@ function pickMutationFields(value: Record<string, unknown>, keys: readonly strin
     .map(key => [key, value[key]]));
 }
 
-function mutationRestrictions(value: unknown): Record<string, unknown> | undefined {
+function mutationRestrictions(value: unknown): Record<string, unknown> | null | undefined {
+  if (value === null) return null;
   const source = record(value);
   if (!Object.keys(source).length) return undefined;
   return {
@@ -241,7 +242,8 @@ function mutationRestrictions(value: unknown): Record<string, unknown> | undefin
   };
 }
 
-function mutationDynamicOffer(value: unknown): Record<string, unknown> | undefined {
+function mutationDynamicOffer(value: unknown): Record<string, unknown> | null | undefined {
+  if (value === null) return null;
   const source = record(value);
   return source.priceBehavior === 'runtime' ? { priceBehavior: 'runtime' } : undefined;
 }
@@ -705,6 +707,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
         if (!nextOffer || nextOffer.verseKey !== previousOffer.verseKey) retired.push(previousOffer.verseKey);
       }
       if (retired.length) document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, ...retired]);
+      for (const key of ['durationDescription', 'offerRestrictions']) {
+        if (!(key in (next as unknown as Record<string, unknown>))) delete (current as unknown as Record<string, unknown>)[key];
+      }
       Object.assign(current, next);
       const validOfferKeys = new Set([current.verseKey, ...(current.alternateOffers ?? []).map(offer => offer.verseKey)]);
       const before = document.storefrontMembership.allOffers.length + document.storefrontMembership.focused.reduce((sum, group) => sum + group.entries.length, 0);
@@ -763,6 +768,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       const previousKey = current.verseKey;
       const next = normalizeBundle(patchObject(current as unknown as Record<string, unknown>, bundleMutationPayload(payload)), document.bundles.indexOf(current));
       if (next.verseKey !== previousKey) document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, previousKey]);
+      for (const key of ['durationDescription', 'restrictions', 'dynamicOffer']) {
+        if (!(key in (next as unknown as Record<string, unknown>))) delete (current as unknown as Record<string, unknown>)[key];
+      }
       Object.assign(current, next);
       return { affected: current, cascades };
     }

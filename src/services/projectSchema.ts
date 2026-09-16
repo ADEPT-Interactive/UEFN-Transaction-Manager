@@ -10,7 +10,7 @@ import {
   storefrontEditableName,
 } from './editableBindings';
 import { legacyStorefrontMembership, offerDisplayEntryKey, resolveStorefrontEntry } from './storefrontMembership';
-import { isDynamicBundle } from './dynamicOffers';
+import { getBundleBehavior, isDynamicBundle } from './dynamicOffers';
 import { normalizePublicIdentityOverrides } from './publicIdentity';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -93,7 +93,7 @@ function normalizeAlternateOffer(value: unknown, parentKey: string, index: numbe
     name: stringValue(value.name, verseKey),
     shortDescription: stringValue(value.shortDescription),
     description: stringValue(value.description),
-    ...(value.durationDescription !== undefined ? { durationDescription: stringValue(value.durationDescription) } : {}),
+    ...(value.durationDescription !== undefined && value.durationDescription !== null ? { durationDescription: stringValue(value.durationDescription) } : {}),
     priceVBucks: numberValue(value.priceVBucks, 100),
     iconTexture: stringValue(value.iconTexture, `EntitlementIcons.${verseKey}`),
     iconImageData: stringValue(value.iconImageData) || undefined,
@@ -147,8 +147,8 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       paidArea: booleanValue(flags.paidArea),
       consequentialToGameplay: booleanValue(flags.consequentialToGameplay, true),
     },
-    ...(value.durationDescription !== undefined ? { durationDescription: stringValue(value.durationDescription) } : {}),
-    ...(value.offerRestrictions !== undefined ? { offerRestrictions: normalizeOfferRestrictions(value.offerRestrictions) } : {}),
+    ...(value.durationDescription !== undefined && value.durationDescription !== null ? { durationDescription: stringValue(value.durationDescription) } : {}),
+    ...(value.offerRestrictions !== undefined && value.offerRestrictions !== null ? { offerRestrictions: normalizeOfferRestrictions(value.offerRestrictions) } : {}),
     ...(Array.isArray(value.alternateOffers)
       ? { alternateOffers: value.alternateOffers.map((entry, offerIndex) => normalizeAlternateOffer(entry, verseKey, offerIndex)) }
       : {}),
@@ -198,8 +198,8 @@ export function normalizeBundle(value: unknown, index: number): BundleOffer {
     priceVBucks: numberValue(value.priceVBucks, 100),
     iconTexture: stringValue(value.iconTexture, `EntitlementIcons.${verseKey}`),
     iconImageData: stringValue(value.iconImageData) || undefined,
-    ...(value.durationDescription !== undefined ? { durationDescription: stringValue(value.durationDescription) } : {}),
-    ...(value.restrictions !== undefined ? { restrictions: normalizeOfferRestrictions(value.restrictions) } : {}),
+    ...(value.durationDescription !== undefined && value.durationDescription !== null ? { durationDescription: stringValue(value.durationDescription) } : {}),
+    ...(value.restrictions !== undefined && value.restrictions !== null ? { restrictions: normalizeOfferRestrictions(value.restrictions) } : {}),
     ...(dynamicOffer ? { dynamicOffer } : {}),
     // Keep the legacy flag in the in-memory shape so older callers remain safe.
     // cleanManagedData strips it after migration to the canonical model.
@@ -554,12 +554,12 @@ export function cleanManagedData(
       const { quantityBehavior, ...rest } = item;
       return quantityBehavior ? { ...rest, quantityBehavior } : rest;
     });
-    const hasDynamicBehavior = Boolean(withoutLegacyFlag.dynamicOffer?.priceBehavior === 'runtime'
-      || items.some(item => 'quantityBehavior' in item));
+    const behavior = getBundleBehavior(withoutLegacyFlag);
+    const hasRuntimePrice = withoutLegacyFlag.dynamicOffer?.priceBehavior === 'runtime';
     return {
       ...withoutLegacyFlag,
       items,
-      ...(hasDynamicBehavior ? { dynamicOffer: withoutLegacyFlag.dynamicOffer ?? {} } : {}),
+      ...(hasRuntimePrice || behavior.mode === 'runtime' && withoutLegacyFlag.dynamicOffer ? { dynamicOffer: withoutLegacyFlag.dynamicOffer } : {}),
     };
   };
   const clean: {

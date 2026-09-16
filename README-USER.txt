@@ -1,4 +1,4 @@
-UEFN TRANSACTION MANAGER 4.3.7
+UEFN TRANSACTION MANAGER 4.4.0
 
 GET STARTED
 
@@ -22,7 +22,7 @@ Use the generated purchase helpers, ownership/count queries, grants, consumption
 
 AGENT INTEGRATION
 
-UTM 4.3 can work with Unreal MCP through an MCP-compatible coding agent.
+UTM 4.4 can work with Unreal MCP through an MCP-compatible coding agent.
 
 1. Open the exact project in UEFN, then enable Python Editor Scripting and UEFN MCP Toolsets in that project.
 2. Open the visible Agent button in the Transaction Manager workspace. If the catalog is empty and you already have transactions, choose Start guided migration.

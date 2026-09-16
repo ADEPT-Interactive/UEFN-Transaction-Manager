@@ -18,6 +18,7 @@ interface EntitlementCardProps {
   onEdit: (item: EntitlementItem) => void;
   onDuplicate: (item: EntitlementItem) => void;
   onDelete: (id: string) => void;
+  warningCount?: number;
 }
 
 export const EntitlementCard: React.FC<EntitlementCardProps> = ({
@@ -25,6 +26,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  warningCount = 0,
 }) => {
   const isConsumable = item.itemType === 'consumable';
 
@@ -76,6 +78,12 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
 
         {/* Badges Bar */}
         <div className="flex flex-wrap gap-1.5 mt-3">
+          {warningCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/35 px-2 py-0.5 rounded-md" title="Active validation warnings for this offer">
+              <ShieldAlert className="w-3 h-3" />
+              <span>{warningCount} {warningCount === 1 ? 'warning' : 'warnings'}</span>
+            </span>
+          )}
           {/* Durable vs Consumable Badge */}
           {isConsumable ? (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md">
