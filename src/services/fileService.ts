@@ -1,5 +1,6 @@
 import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import { cleanManagedData } from './projectSchema';
+import { buildCatalogReplacementPayload } from './catalogMutationPayloads';
 import { PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import versionInfo from '../../version.json';
 import type { EditorConnectionState } from '../../shared/editorState';
@@ -283,7 +284,7 @@ export const FileService = {
       const response = await fetch(`${API_BASE}/catalog/replace`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-UEM-Token': getToken() },
-        body: JSON.stringify({ catalog, expectedRevision }),
+        body: JSON.stringify({ catalog: buildCatalogReplacementPayload(catalog), expectedRevision }),
       });
       const data = await response.json().catch(() => ({ success: false, error: `Bridge returned HTTP ${response.status}.` }));
       return { ...(data as { success: boolean; catalog?: CatalogSnapshotPayload; code?: string; data?: Record<string, unknown>; error?: string }), status: response.status };

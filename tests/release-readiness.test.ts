@@ -39,8 +39,9 @@ function catalogDocument(root: string): CatalogDocument {
   return {
     config: defaultProjectConfig(root),
     entitlements: [{
-      id: 'ent-1', verseKey: 'offer', name: 'Offer', shortDescription: 'Offer', description: 'Offer', priceVBucks: 100,
-      itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.UTM_PlaceholderIcon',
+    id: 'ent-1', verseKey: 'offer', name: 'Offer', shortDescription: 'Offer', description: 'Offer', priceVBucks: 100,
+    itemType: 'durable', maxCount: 1, autoConsume: false, iconTexture: 'EntitlementIcons.UTM_PlaceholderIcon',
+      publicIdentity: { apiStem: 'PublishedOffer', metadataStem: 'PublishedOffer', entitlementStem: 'PublishedOffer', priceStem: 'offer', offerStem: 'offer' },
       flags: { paidRandomItem: false, paidRandomItemOdds: '', paidArea: false, consequentialToGameplay: true },
       triggers: { generateTriggerBinding: true, generateButtonBinding: false },
     }],
@@ -369,5 +370,76 @@ test('Case J: migration/catalog replacement also requires first-run readiness', 
     assert.equal(replacement.status, 409);
     assert.equal(replacement.body.code, 'PROJECT_NOT_READY');
     assert.equal(fs.existsSync(path.join(bridge.contentRoot, 'managed_transactions.verse')), false);
+  } finally { await bridge.close(); }
+});
+
+test('Case K: installed bridge CRUD tolerates identity echoes and keeps temporary records isolated', async () => {
+  const bridge = await startBridge({ pythonEnabled: false, initialized: true, assetPresent: true });
+  try {
+    const opened = await openCatalog(bridge);
+    const original = opened.body.catalog.entitlements[0];
+    let revision = opened.body.catalog.revision;
+    const migratedEdit = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'update_entitlement', entitlementId: original.id, data: { ...original, name: 'Published Offer edited' } } }) });
+    assert.equal(migratedEdit.status, 200);
+    revision = migratedEdit.body.catalog.revision;
+
+    const created = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'create_entitlement', data: { name: 'Installed CRUD temporary', shortDescription: 'Temporary', description: 'Temporary' } } }) });
+    assert.equal(created.status, 200);
+    const temporary = created.body.catalog.entitlements.find((item: any) => item.name === 'Installed CRUD temporary');
+    assert.ok(temporary);
+    revision = created.body.catalog.revision;
+    const nativeEdit = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'update_entitlement', entitlementId: temporary.id, data: { ...temporary, name: 'Installed CRUD edited' } } }) });
+    assert.equal(nativeEdit.status, 200);
+    revision = nativeEdit.body.catalog.revision;
+
+    const alternate = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'create_alternate_offer', data: { entitlementId: temporary.id, name: 'Temporary alternate', shortDescription: 'Temporary', description: 'Temporary' } } }) });
+    assert.equal(alternate.status, 200);
+    const alternateRecord = alternate.body.affected;
+    assert.ok(alternateRecord?.verseKey);
+    revision = alternate.body.catalog.revision;
+    const alternateEdit = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'update_alternate_offer', entitlementId: temporary.id, alternateOfferId: alternateRecord.id, data: { ...alternateRecord, name: 'Temporary alternate edited' } } }) });
+    assert.equal(alternateEdit.status, 200);
+    revision = alternateEdit.body.catalog.revision;
+
+    const duplicate = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'create_entitlement', data: { name: 'Installed CRUD duplicate', shortDescription: 'Temporary', description: 'Temporary', itemType: temporary.itemType, priceVBucks: temporary.priceVBucks } } }) });
+    assert.equal(duplicate.status, 200);
+    const duplicateRecord = duplicate.body.catalog.entitlements.find((item: any) => item.name === 'Installed CRUD duplicate');
+    assert.ok(duplicateRecord);
+    revision = duplicate.body.catalog.revision;
+    const deleteAlternate = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'delete_alternate_offer', entitlementId: temporary.id, alternateOfferId: alternateRecord.id } }) });
+    assert.equal(deleteAlternate.status, 200);
+    revision = deleteAlternate.body.catalog.revision;
+    const deleteDuplicate = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'delete_entitlement', entitlementId: duplicateRecord.id } }) });
+    assert.equal(deleteDuplicate.status, 200);
+    revision = deleteDuplicate.body.catalog.revision;
+    const deleteTemporary = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: revision, operation: { type: 'delete_entitlement', entitlementId: temporary.id } }) });
+    assert.equal(deleteTemporary.status, 200);
+    assert.equal(deleteTemporary.body.catalog.entitlements.some((item: any) => item.id === original.id), true);
+  } finally { await bridge.close(); }
+});
+
+test('Case L: bridge parser failures return stable renderer-safe diagnostics', async () => {
+  const bridge = await startBridge({ pythonEnabled: false });
+  try {
+    const oversized = JSON.stringify({ expectedRevision: '1', operation: { type: 'create_entitlement', data: { name: 'oversized', iconImageData: 'x'.repeat(2 * 1024 * 1024) } } });
+    const tooLarge = await bridge.request('/api/catalog/mutate', { method: 'POST', body: oversized });
+    assert.equal(tooLarge.status, 413);
+    assert.equal(tooLarge.body.code, 'REQUEST_PAYLOAD_TOO_LARGE');
+    assert.match(tooLarge.body.error, /too large|preview image/i);
+    assert.doesNotMatch(JSON.stringify(tooLarge.body), /Unexpected bridge error/i);
+
+    const invalid = await bridge.request('/api/catalog/mutate', { method: 'POST', body: '{"expectedRevision":' });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.code, 'INVALID_JSON');
+    assert.match(invalid.body.error, /invalid JSON/i);
+
+    const internal = await bridge.request('/api/catalog/mutate', { method: 'POST', body: JSON.stringify({ expectedRevision: '1', operation: { type: 'set_storefront_membership', storefrontId: 'all', data: { entries: [null] } } }) });
+    assert.equal(internal.status, 500);
+    assert.equal(internal.body.code, 'BRIDGE_INTERNAL_ERROR');
+    assert.match(internal.body.data.reference, /^BRIDGE-/);
+    assert.doesNotMatch(JSON.stringify(internal.body), /stack|node_modules|Unexpected bridge error/i);
+    const diagnosticLog = path.join(bridge.root, 'LocalAppData', 'UEFN Entitlement Manager', 'logs', 'bridge.log');
+    assert.equal(fs.existsSync(diagnosticLog), true);
+    assert.match(fs.readFileSync(diagnosticLog, 'utf8'), new RegExp(internal.body.data.reference));
   } finally { await bridge.close(); }
 });

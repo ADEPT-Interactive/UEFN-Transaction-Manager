@@ -103,7 +103,7 @@ function normalizeAlternateOffer(value: unknown, parentKey: string, index: numbe
 }
 
 export function stripTransientImages<T extends EntitlementItem | BundleOffer>(item: T): T {
-  const { iconImageData: _iconImageData, alternateOffers, ...rest } = item as T & { alternateOffers?: Array<Record<string, unknown>> };
+  const { iconImageData: _iconImageData, iconFileName: _iconFileName, alternateOffers, ...rest } = item as T & { iconFileName?: string; alternateOffers?: Array<Record<string, unknown>> };
   return {
     ...rest,
     ...(alternateOffers ? {

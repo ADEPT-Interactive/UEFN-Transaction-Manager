@@ -63,6 +63,7 @@ if (configuredProjectFile) {
 }
 
 const stateRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitlement Manager');
+const bridgeDiagnosticLogPath = path.join(stateRoot, 'logs', 'bridge.log');
 const agentIntegrationStatePath = path.join(stateRoot, 'agent-integration.json');
 const defaultCatalogConfig = defaultProjectConfig(contentRoot);
 
@@ -86,6 +87,47 @@ function saveAgentIntegrationState(state: AgentIntegrationState): void {
   const temporary = `${agentIntegrationStatePath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
   fs.renameSync(temporary, agentIntegrationStatePath);
+}
+
+function bridgeDiagnosticReference(): string {
+  return `BRIDGE-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function logBridgeFailure(error: unknown, request: express.Request): string {
+  const reference = bridgeDiagnosticReference();
+  const stack = error instanceof Error ? error.stack ?? error.message : String(error);
+  try {
+    fs.mkdirSync(path.dirname(bridgeDiagnosticLogPath), { recursive: true });
+    fs.appendFileSync(
+      bridgeDiagnosticLogPath,
+      `[${new Date().toISOString()}] ${reference} ${request.method} ${request.originalUrl}\n${stack}\n`,
+      { encoding: 'utf8' },
+    );
+  } catch {
+    // The renderer still receives a safe reference if the local log cannot be written.
+  }
+  return reference;
+}
+
+function sendBridgeInternalError(error: unknown, request: express.Request, response: express.Response): void {
+  const reference = logBridgeFailure(error, request);
+  response.status(500).json({
+    success: false,
+    code: 'BRIDGE_INTERNAL_ERROR',
+    error: `The bridge could not complete the request. Diagnostic reference: ${reference}.`,
+    data: { reference },
+  });
+}
+
+function bodyParserError(error: unknown): { status: 400 | 413; code: 'INVALID_JSON' | 'REQUEST_PAYLOAD_TOO_LARGE'; message: string } | undefined {
+  const candidate = error as { type?: unknown; status?: unknown; statusCode?: unknown };
+  if (candidate?.type === 'entity.too.large' || candidate?.status === 413 || candidate?.statusCode === 413) {
+    return { status: 413, code: 'REQUEST_PAYLOAD_TOO_LARGE', message: 'The request body is too large. Remove preview image data and try again.' };
+  }
+  if (candidate?.type === 'entity.parse.failed' || candidate?.status === 400 || candidate?.statusCode === 400) {
+    return { status: 400, code: 'INVALID_JSON', message: 'The request body contains invalid JSON.' };
+  }
+  return undefined;
 }
 
 function readCatalogAtConfig(config: CatalogDocument['config']): { document: CatalogDocument; contentHash: string | null; managed: boolean } {
@@ -682,8 +724,10 @@ app.post('/api/catalog/replace', async (req, res) => {
     const result = catalogSession.replaceDocument(req.body.catalog as CatalogDocument, req.body.expectedRevision);
     res.json({ success: true, catalog: result.snapshot, cascades: result.cascades });
   } catch (error) {
-    const status = error instanceof CatalogDomainError ? error.status : 400;
-    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Catalog replacement failed.', ...(error instanceof CatalogDomainError ? { code: error.code, data: error.data } : {}) });
+    if (error instanceof CatalogDomainError) {
+      return res.status(error.status).json({ success: false, error: error.message, code: error.code, data: error.data });
+    }
+    sendBridgeInternalError(error, req, res);
   }
 });
 
@@ -695,8 +739,10 @@ app.post('/api/catalog/mutate', async (req, res) => {
     const result = catalogSession.mutate(req.body.operation, req.body.expectedRevision);
     res.json({ success: true, catalog: result.snapshot, affected: result.affected, cascades: result.cascades });
   } catch (error) {
-    const status = error instanceof CatalogDomainError ? error.status : 400;
-    res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Catalog mutation failed.', ...(error instanceof CatalogDomainError ? { code: error.code, data: error.data } : {}) });
+    if (error instanceof CatalogDomainError) {
+      return res.status(error.status).json({ success: false, error: error.message, code: error.code, data: error.data });
+    }
+    sendBridgeInternalError(error, req, res);
   }
 });
 
@@ -1081,9 +1127,11 @@ app.get('*', (_req, res) => {
   return res.status(503).send('Frontend build unavailable. Run npm run build.');
 });
 
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (error instanceof multer.MulterError) return res.status(400).json({ success: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Images must be 5 MB or smaller.' : error.message });
-  return res.status(500).json({ success: false, error: 'Unexpected bridge error.' });
+app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const parsed = bodyParserError(error);
+  if (parsed) return res.status(parsed.status).json({ success: false, code: parsed.code, error: parsed.message });
+  if (error instanceof multer.MulterError) return res.status(400).json({ success: false, code: 'MULTER_ERROR', error: error.code === 'LIMIT_FILE_SIZE' ? 'Images must be 5 MB or smaller.' : error.message });
+  return sendBridgeInternalError(error, req, res);
 });
 
 const server = app.listen(port, host, () => {

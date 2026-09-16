@@ -1,6 +1,6 @@
 # Agent Integration
 
-UEFN Transaction Manager 4.3.6 works alongside Unreal MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through Unreal MCP. Your project Verse remains responsible for gameplay and business logic.
+UEFN Transaction Manager 4.3.7 works alongside Unreal MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through Unreal MCP. Your project Verse remains responsible for gameplay and business logic.
 
 ## Before you connect
 

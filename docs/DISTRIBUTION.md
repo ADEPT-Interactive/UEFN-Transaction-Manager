@@ -1,12 +1,12 @@
 # UEFN Transaction Manager distribution and update infrastructure
 
-Transaction Manager 4.3.6 separates human downloads from machine updates and keeps portable upgrades in-place.
+Transaction Manager 4.3.7 separates human downloads from machine updates and keeps portable upgrades in-place.
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
 ## Current supported release
 
-`v4.3.6` is the current supported public release. `v4.3.5` remains publicly retained as the prior identity-preservation and updater baseline; `v4.3.2` remains publicly retained as the earlier portable-updater acceptance baseline. Their tags, releases, and Git history remain intact.
+`v4.3.7` is the current supported public release. `v4.3.6` remains publicly retained as the prior identity-preservation baseline; `v4.3.5` remains publicly retained as the prior renderer baseline; `v4.3.2` remains publicly retained as the earlier portable-updater acceptance baseline. Their tags, releases, and Git history remain intact.
 
 ## Human downloads
 
@@ -32,15 +32,15 @@ A reserved future beta path is `uem/beta/`. The preferred R2 bucket is `adept-so
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Transaction-Manager-Setup-4.3.6.exe
-uem/stable/UEFN-Transaction-Manager-Setup-4.3.6.exe.blockmap
-uem/stable/manifests/4.3.6.yml
-uem/stable/manifests/portable-4.3.6.json
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.7.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.3.7.exe.blockmap
+uem/stable/manifests/4.3.7.yml
+uem/stable/manifests/portable-4.3.7.json
 uem/stable/portable-latest.json
-uem/stable/UEFN-Transaction-Manager-4.3.6-Portable.zip
+uem/stable/UEFN-Transaction-Manager-4.3.7-Portable.zip
 ```
 
-The stable R2 origin will contain only the active 4.3.6 payload and feed objects listed above after guarded promotion. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.6 artifacts are immutable for this release. Git history and the public 4.3.5 and 4.3.2 releases retain prior acceptance baselines; older public artifacts are not otherwise part of the supported distribution.
+The stable R2 origin will contain only the active 4.3.7 payload and feed objects listed above after guarded promotion. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.3.7 artifacts are immutable for this release. Git history and the public 4.3.6, 4.3.5, and 4.3.2 releases retain prior acceptance baselines; older public artifacts are not otherwise part of the supported distribution.
 
 ### Build and installer contract
 
@@ -85,7 +85,7 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 ## Recovery and cutoff
 
-Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the last verified payload until a separately authorized release is ready. The retained 4.3.5 and 4.3.2 public releases are not the stable pointer after 4.3.6 promotion.
+Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the last verified payload until a separately authorized release is ready. The retained 4.3.6, 4.3.5, and 4.3.2 public releases are not the stable pointer after 4.3.7 promotion.
 
 The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; the public 4.3.2 release remains only as the explicitly retained updater baseline. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
@@ -100,7 +100,7 @@ The compatibility namespace and updater path continue to support existing instal
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The 4.3.6 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work remain part of the 4.3 release line.
+The 4.3.7 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work remain part of the 4.3 release line.
 
 ## Rename compatibility boundary
 

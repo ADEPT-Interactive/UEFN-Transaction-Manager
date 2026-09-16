@@ -239,6 +239,66 @@ try {
     }
     if (-not $editorSession.success) { throw "The packaged release could not establish its verified editor test session." }
 
+    # Exercise the packaged bridge with a synthetic existing-project record.
+    # The record carries a published identity so the smoke test proves that a
+    # renderer-shaped full-record edit is tolerated without changing identity.
+    $placeholderPackage = Join-Path $bridgeRoot "EntitlementIcons\UTM_PlaceholderIcon.uasset"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $placeholderPackage) -Force | Out-Null
+    [IO.File]::WriteAllText($placeholderPackage, "packaged CRUD acceptance fixture", [Text.UTF8Encoding]::new($false))
+    function Invoke-PackagedCatalogMutation {
+        param([Parameter(Mandatory = $true)] [object]$Operation, [Parameter(Mandatory = $true)] [string]$Revision)
+        $body = @{ expectedRevision = $Revision; operation = $Operation } | ConvertTo-Json -Depth 20
+        return Invoke-RestMethod -Uri "$baseUri/api/catalog/mutate" -Method Post -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 5
+    }
+    $migratedRecord = @{
+        id = "packaged-migrated"
+        verseKey = "published_offer"
+        publicIdentity = @{ apiStem = "PublishedOffer"; metadataStem = "PublishedOffer"; entitlementStem = "PublishedOffer"; priceStem = "published_offer"; offerStem = "published_offer" }
+        name = "Packaged migrated offer"
+        shortDescription = "Packaged acceptance"
+        description = "Packaged acceptance"
+        priceVBucks = 100
+        itemType = "durable"
+        maxCount = 1
+        autoConsume = $false
+        iconTexture = "EntitlementIcons.UTM_PlaceholderIcon"
+        flags = @{ paidRandomItem = $false; paidRandomItemOdds = ""; paidArea = $false; consequentialToGameplay = $true }
+        triggers = @{ generateTriggerBinding = $true; generateButtonBinding = $false; generateSuccessTriggerBinding = $true }
+    }
+    $openBody = @{
+        config = @{ targetVerseFileName = "packaged_recovery.verse"; assetFolderName = "EntitlementIcons" }
+        recovery = @{ entitlements = @($migratedRecord); bundles = @(); storefrontMembership = @{ allOffers = @(@{ entitlementId = "packaged-migrated" }); focused = @() }; retiredVerseKeys = @() }
+    } | ConvertTo-Json -Depth 20
+    $openedCatalog = Invoke-RestMethod -Uri "$baseUri/api/catalog/open" -Method Post -Headers $headers -ContentType "application/json" -Body $openBody -TimeoutSec 5
+    if (-not $openedCatalog.success -or $openedCatalog.catalog.entitlements.Count -ne 1) { throw "The packaged bridge could not open the CRUD acceptance catalog." }
+    $catalogRevision = [string]$openedCatalog.catalog.revision
+    $migrated = $openedCatalog.catalog.entitlements[0]
+    $migrated.name = "Packaged migrated edit"
+    $edited = Invoke-PackagedCatalogMutation -Operation @{ type = "update_entitlement"; entitlementId = $migrated.id; data = $migrated } -Revision $catalogRevision
+    if (-not $edited.success -or $edited.catalog.entitlements[0].verseKey -ne "published_offer" -or $edited.catalog.entitlements[0].publicIdentity.apiStem -ne "PublishedOffer") { throw "Packaged migrated full-record edit did not preserve public identity." }
+    $catalogRevision = [string]$edited.catalog.revision
+    $createdCrud = Invoke-PackagedCatalogMutation -Operation @{ type = "create_entitlement"; data = @{ name = "Packaged CRUD temporary"; shortDescription = "Temporary"; description = "Temporary" } } -Revision $catalogRevision
+    $temporary = @($createdCrud.catalog.entitlements | Where-Object { $_.name -eq "Packaged CRUD temporary" })[0]
+    if (-not $temporary) { throw "Packaged bridge CRUD create did not return the temporary entitlement." }
+    $catalogRevision = [string]$createdCrud.catalog.revision
+    $temporary.name = "Packaged CRUD edited"
+    $editedCrud = Invoke-PackagedCatalogMutation -Operation @{ type = "update_entitlement"; entitlementId = $temporary.id; data = $temporary } -Revision $catalogRevision
+    if (-not $editedCrud.success) { throw "Packaged bridge CRUD edit failed." }
+    $catalogRevision = [string]$editedCrud.catalog.revision
+    $createdAlternate = Invoke-PackagedCatalogMutation -Operation @{ type = "create_alternate_offer"; data = @{ entitlementId = $temporary.id; name = "Packaged temporary alternate"; shortDescription = "Temporary"; description = "Temporary" } } -Revision $catalogRevision
+    $alternate = $createdAlternate.affected
+    if (-not $alternate -or -not $alternate.verseKey) { throw "Packaged bridge CRUD alternate create failed." }
+    $catalogRevision = [string]$createdAlternate.catalog.revision
+    $alternate.name = "Packaged temporary alternate edited"
+    $editedAlternate = Invoke-PackagedCatalogMutation -Operation @{ type = "update_alternate_offer"; entitlementId = $temporary.id; alternateOfferId = $alternate.id; data = $alternate } -Revision $catalogRevision
+    if (-not $editedAlternate.success) { throw "Packaged bridge CRUD alternate edit failed." }
+    $catalogRevision = [string]$editedAlternate.catalog.revision
+    $deletedAlternate = Invoke-PackagedCatalogMutation -Operation @{ type = "delete_alternate_offer"; entitlementId = $temporary.id; alternateOfferId = $alternate.id } -Revision $catalogRevision
+    $catalogRevision = [string]$deletedAlternate.catalog.revision
+    $deletedTemporary = Invoke-PackagedCatalogMutation -Operation @{ type = "delete_entitlement"; entitlementId = $temporary.id } -Revision $catalogRevision
+    if ($deletedTemporary.catalog.entitlements.Count -ne 1 -or $deletedTemporary.catalog.entitlements[0].id -ne "packaged-migrated" -or $deletedTemporary.catalog.entitlements[0].verseKey -ne "published_offer") { throw "Packaged bridge CRUD cleanup changed the original migrated record." }
+    Write-Host "Verified packaged entitlement and alternate CRUD, migrated full-record edit, identity preservation, and temporary cleanup." -ForegroundColor Green
+
     $generatePngScript = @'
 const importedSharp = require(process.argv[2]);
 const sharp = importedSharp.default ?? importedSharp;
