@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CatalogDomainError, CatalogSession, defaultProjectConfig } from '../src/services/catalogSession';
+import { buildBundleCreatePayload, buildEntitlementCreatePayload, buildEntitlementUpdatePayload, buildStorefrontUpdatePayload } from '../src/services/catalogMutationPayloads';
 
 function session() {
   const config = defaultProjectConfig('C:/Demo/Content');
@@ -108,4 +109,58 @@ test('entitlement updates use the same domain cleanup for removed alternate refe
   assert.equal(updated.snapshot.storefrontMembership.allOffers.length, 0);
   assert.ok(updated.cascades.some(value => value.includes('storefront')));
   assert.ok(alternateKey && updated.snapshot.retiredVerseKeys.includes(alternateKey));
+});
+
+test('ordinary updates tolerate an echoed identity and discard it in favor of authoritative server state', () => {
+  const catalog = session();
+  const created = catalog.mutate({ type: 'create_entitlement', data: { name: 'Echoed', alternateOffers: [{ name: 'Mobile' }] } }, '1');
+  const item = created.snapshot.entitlements[0];
+  const alternate = item.alternateOffers![0];
+  const updated = catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: { ...item, name: 'Echoed edit', alternateOffers: [{ ...alternate, name: 'Mobile edit' }] } }, '2');
+  assert.equal(updated.snapshot.entitlements[0].name, 'Echoed edit');
+  assert.equal(updated.snapshot.entitlements[0].verseKey, item.verseKey);
+  assert.equal(updated.snapshot.entitlements[0].alternateOffers![0].verseKey, alternate.verseKey);
+});
+
+test('identity changes are rejected atomically for top-level and nested alternate updates', () => {
+  const catalog = session();
+  const created = catalog.mutate({ type: 'create_entitlement', data: { name: 'Atomic', alternateOffers: [{ name: 'Mobile' }] } }, '1');
+  const item = created.snapshot.entitlements[0];
+  const alternate = item.alternateOffers![0];
+  const before = catalog.snapshot();
+  assert.throws(() => catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: { verseKey: 'changed_atomic' } }, '2'), (error: unknown) => error instanceof CatalogDomainError && error.code === 'CATALOG_IDENTITY_IMPORT_REQUIRED');
+  assert.deepEqual(catalog.snapshot().entitlements, before.entitlements);
+  assert.throws(() => catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: { alternateOffers: [{ id: alternate.id, verseKey: 'changed_alternate' }] } }, '2'), (error: unknown) => error instanceof CatalogDomainError && error.code === 'CATALOG_IDENTITY_IMPORT_REQUIRED');
+  assert.deepEqual(catalog.snapshot().entitlements, before.entitlements);
+});
+
+test('mutation serializers omit imported identity, hydrated artwork, and file-picker metadata', () => {
+  const item = {
+    ...session().mutate({ type: 'create_entitlement', data: { name: 'Serialized' } }, '1').snapshot.entitlements[0],
+    publicIdentity: { apiStem: 'PublishedSerialized' },
+    iconImageData: 'data:image/png;base64,large',
+    iconFileName: 'preview.png',
+  };
+  const create = buildEntitlementCreatePayload(item);
+  const update = buildEntitlementUpdatePayload(item);
+  assert.equal('verseKey' in create, false);
+  assert.equal('publicIdentity' in create, false);
+  assert.equal('iconImageData' in create, false);
+  assert.equal('iconFileName' in create, false);
+  assert.equal('verseKey' in update, false);
+  assert.equal('publicIdentity' in update, false);
+  assert.equal('iconImageData' in update, false);
+  assert.equal('iconFileName' in update, false);
+});
+
+test('bundle and storefront updates preserve their own public identity', () => {
+  const catalog = session();
+  const bundle = catalog.mutate({ type: 'create_bundle', data: { name: 'Pack', items: [] } }, '1').snapshot.bundles[0];
+  const storefront = catalog.mutate({ type: 'create_storefront', data: { name: 'Store', entries: [] } }, '2').snapshot.storefrontMembership.focused[0];
+  const nextBundle = catalog.mutate({ type: 'update_bundle', bundleId: bundle.id, data: { ...bundle, name: 'Pack edit' } }, '3');
+  const nextStorefront = catalog.mutate({ type: 'update_storefront', storefrontId: storefront.id, data: { ...storefront, name: 'Store edit' } }, '4');
+  assert.equal(nextBundle.snapshot.bundles[0].verseKey, bundle.verseKey);
+  assert.equal(nextStorefront.snapshot.storefrontMembership.focused[0].verseKey, storefront.verseKey);
+  assert.equal(buildBundleCreatePayload(bundle).verseKey, undefined);
+  assert.equal(buildStorefrontUpdatePayload(storefront).verseKey, undefined);
 });

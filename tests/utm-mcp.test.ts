@@ -310,10 +310,10 @@ test('existing-project migration patches require a pre-apply parity table', asyn
 test('official UTM MCP client exposes Flashlight Tag identity parity and atomic adoption evidence', async () => {
   const port = await freePort();
   const host = new UTMcpHost({
-    version: '4.3.6',
+    version: '4.3.7',
     catalog: new CatalogSession(flashlightTagCatalog()),
     getProjectContext: () => ({
-      productVersion: '4.3.6',
+      productVersion: '4.3.7',
       projectName: 'Flashlight Tag',
       projectFile: 'C:/fixture-projects/FlashlightTag01/FlashlightTag01.uefnproject',
       projectRoot: 'C:/fixture-projects/FlashlightTag01',

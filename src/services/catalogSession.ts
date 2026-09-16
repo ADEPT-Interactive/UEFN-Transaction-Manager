@@ -20,6 +20,7 @@ import { createVerseKeyAllocator, isValidVerseIdentifier, normalizeRetiredVerseK
 import { validateEntireProject } from './validator';
 import {
   derivePublicIdentity,
+  identityOverrideKeys,
   normalizePublicIdentityOverrides,
   publicIdentitiesEqual,
   type IdentityRecord,
@@ -221,16 +222,90 @@ function integrity(document: CatalogDocument): string[] {
   return problems;
 }
 
+const mutationIdentityKeys = new Set(['id', 'verseKey', 'publicIdentity']);
+const mutationTransientKeys = new Set(['iconImageData', 'iconFileName']);
+
+function pickMutationFields(value: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys
+    .filter(key => value[key] !== undefined)
+    .map(key => [key, value[key]]));
+}
+
+function mutationRestrictions(value: unknown): Record<string, unknown> | undefined {
+  const source = record(value);
+  if (!Object.keys(source).length) return undefined;
+  return {
+    ...(source.minimumPurchaseAge !== undefined ? { minimumPurchaseAge: source.minimumPurchaseAge } : {}),
+    ...(source.blockedCountryCodes !== undefined ? { blockedCountryCodes: source.blockedCountryCodes } : {}),
+    ...(source.blockedPlatformFamilies !== undefined ? { blockedPlatformFamilies: source.blockedPlatformFamilies } : {}),
+  };
+}
+
+function mutationDynamicOffer(value: unknown): Record<string, unknown> | undefined {
+  const source = record(value);
+  return source.priceBehavior === 'runtime' ? { priceBehavior: 'runtime' } : undefined;
+}
+
+function alternateMutationPayload(value: unknown, includeId: boolean): Record<string, unknown> {
+  const source = record(value);
+  return {
+    ...(includeId && source.id !== undefined ? { id: source.id } : {}),
+    ...pickMutationFields(source, ['name', 'shortDescription', 'description', 'durationDescription', 'priceVBucks', 'iconTexture']),
+    ...(source.restrictions !== undefined ? { restrictions: mutationRestrictions(source.restrictions) } : {}),
+    ...(source.dynamicOffer !== undefined ? { dynamicOffer: mutationDynamicOffer(source.dynamicOffer) } : {}),
+  };
+}
+
+function entitlementMutationPayload(value: unknown, includeAlternateIds: boolean): Record<string, unknown> {
+  const source = record(value);
+  return {
+    ...pickMutationFields(source, [
+      'name', 'shortDescription', 'description', 'priceVBucks', 'itemType', 'maxCount',
+      'autoConsume', 'iconTexture', 'durationDescription',
+    ]),
+    ...(source.flags !== undefined ? { flags: pickMutationFields(record(source.flags), ['paidRandomItem', 'paidRandomItemOdds', 'paidArea', 'consequentialToGameplay']) } : {}),
+    ...(source.offerRestrictions !== undefined ? { offerRestrictions: mutationRestrictions(source.offerRestrictions) } : {}),
+    ...(source.dynamicOffer !== undefined ? { dynamicOffer: mutationDynamicOffer(source.dynamicOffer) } : {}),
+    ...(source.triggers !== undefined ? { triggers: pickMutationFields(record(source.triggers), ['generateTriggerBinding', 'generateButtonBinding', 'generateSuccessTriggerBinding']) } : {}),
+    ...(Array.isArray(source.alternateOffers)
+      ? { alternateOffers: source.alternateOffers.map(value => alternateMutationPayload(value, includeAlternateIds)) }
+      : {}),
+  };
+}
+
+function bundleItemMutationPayload(value: unknown): Record<string, unknown> {
+  return pickMutationFields(record(value), ['entitlementId', 'bundleId', 'offerVerseKey', 'quantity', 'quantityBehavior']);
+}
+
+function bundleMutationPayload(value: unknown): Record<string, unknown> {
+  const source = record(value);
+  return {
+    ...pickMutationFields(source, ['name', 'shortDescription', 'description', 'priceVBucks', 'iconTexture', 'durationDescription']),
+    ...(source.restrictions !== undefined ? { restrictions: mutationRestrictions(source.restrictions) } : {}),
+    ...(source.dynamicOffer !== undefined ? { dynamicOffer: mutationDynamicOffer(source.dynamicOffer) } : {}),
+    ...(Array.isArray(source.items) ? { items: source.items.map(bundleItemMutationPayload) } : {}),
+  };
+}
+
+function storefrontMutationPayload(value: unknown): Record<string, unknown> {
+  const source = record(value);
+  return {
+    ...pickMutationFields(source, ['name', 'generateTriggerBinding']),
+    ...(Array.isArray(source.entries) ? { entries: source.entries.map(entry => pickMutationFields(record(entry), ['entitlementId', 'bundleId', 'offerVerseKey'])) } : {}),
+  };
+}
+
 function applyEntitlementCreate(document: CatalogDocument, payload: Record<string, unknown>, identity?: { id?: string; verseKey?: string }): EntitlementItem {
   const ids = new Set(document.entitlements.map(item => item.id).concat(document.bundles.map(item => item.id)).concat(document.storefrontMembership.focused.map(item => item.id)).concat(document.entitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => offer.id))));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
-  const name = text(payload.name) ?? 'Entitlement';
+  const cleanPayload = entitlementMutationPayload(payload, true);
+  const name = text(cleanPayload.name) ?? 'Entitlement';
   // Verse keys are UTM-managed identity. Create operations may carry a stale
   // client hint, but it must never override the canonical allocator.
   const verseKey = allocator.allocate(name);
   const managedPayload = withManagedAlternateKeys({
-    ...payload,
-    iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
+    ...cleanPayload,
+    iconTexture: text(cleanPayload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
   }, verseKey, allocator);
   const item = normalizeEntitlement({ ...managedPayload, id: uniqueId(identity?.id ?? payload.id, 'ent', ids), verseKey, name }, document.entitlements.length);
   document.entitlements.push(item);
@@ -244,11 +319,12 @@ function applyAlternateCreate(document: CatalogDocument, payload: Record<string,
   if (!parent) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Entitlement ${parentId ?? '(missing)'} does not exist.`, {}, 400);
   const ids = new Set(document.entitlements.flatMap(item => (item.alternateOffers ?? []).map(offer => offer.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
-  const name = text(payload.name) ?? `${parent.name} Alternate`;
+  const cleanPayload = alternateMutationPayload(payload, false);
+  const name = text(cleanPayload.name) ?? `${parent.name} Alternate`;
   const verseKey = allocator.allocateAlternate(parent.verseKey);
   const alternate = {
-    ...payload,
-    iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
+    ...cleanPayload,
+    iconTexture: text(cleanPayload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`,
     id: uniqueId(identity?.id ?? payload.id, 'offer', ids),
     verseKey,
     name,
@@ -262,8 +338,9 @@ function applyAlternateCreate(document: CatalogDocument, payload: Record<string,
 function applyBundleCreate(document: CatalogDocument, payload: Record<string, unknown>, identity?: { id?: string; verseKey?: string }): BundleOffer {
   const ids = new Set(document.bundles.map(item => item.id).concat(document.entitlements.map(item => item.id)).concat(document.storefrontMembership.focused.map(item => item.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
-  const name = text(payload.name) ?? 'Bundle';
-  const bundle = normalizeBundle({ ...payload, iconTexture: text(payload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: allocator.allocate(name), name }, document.bundles.length);
+  const cleanPayload = bundleMutationPayload(payload);
+  const name = text(cleanPayload.name) ?? 'Bundle';
+  const bundle = normalizeBundle({ ...cleanPayload, iconTexture: text(cleanPayload.iconTexture) ?? `${document.config.assetFolderName}.UTM_PlaceholderIcon`, id: uniqueId(identity?.id ?? payload.id, 'bundle', ids), verseKey: allocator.allocate(name), name }, document.bundles.length);
   document.bundles.push(bundle);
   if (!bundle.dynamicOffer && !bundle.dynamicRemaining && !document.storefrontMembership.allOffers.some(entry => entry.bundleId === bundle.id)) document.storefrontMembership.allOffers.push({ bundleId: bundle.id });
   return bundle;
@@ -272,15 +349,19 @@ function applyBundleCreate(document: CatalogDocument, payload: Record<string, un
 function applyStorefrontCreate(document: CatalogDocument, payload: Record<string, unknown>, identity?: { id?: string; verseKey?: string }): OfferDisplayGroup {
   const ids = new Set(document.storefrontMembership.focused.map(group => group.id).concat(document.entitlements.map(item => item.id)).concat(document.bundles.map(item => item.id)));
   const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
-  const name = text(payload.name) ?? 'Storefront';
-  const group = normalizeOfferDisplayGroup({ ...payload, id: uniqueId(identity?.id ?? payload.id, 'store', ids), verseKey: allocator.allocate(name), name }, document.storefrontMembership.focused.length);
+  const cleanPayload = storefrontMutationPayload(payload);
+  const name = text(cleanPayload.name) ?? 'Storefront';
+  const group = normalizeOfferDisplayGroup({ ...cleanPayload, id: uniqueId(identity?.id ?? payload.id, 'store', ids), verseKey: allocator.allocate(name), name }, document.storefrontMembership.focused.length);
   document.storefrontMembership.focused.push(group);
   return group;
 }
 
 function patchObject<T extends Record<string, unknown>>(current: T, patch: Record<string, unknown>): T {
   const next = { ...current } as T;
-  for (const [key, value] of Object.entries(patch)) if (!['id', 'verseKey', 'entitlementId', 'alternateOfferId', 'bundleId', 'storefrontId', 'type'].includes(key)) (next as Record<string, unknown>)[key] = value;
+  for (const [key, value] of Object.entries(patch)) {
+    if (mutationIdentityKeys.has(key) || mutationTransientKeys.has(key) || ['entitlementId', 'alternateOfferId', 'bundleId', 'storefrontId', 'type'].includes(key)) continue;
+    (next as Record<string, unknown>)[key] = value;
+  }
   return next;
 }
 
@@ -300,7 +381,9 @@ function withManagedAlternateKeys(
       const prior = candidateId ? existingById.get(candidateId) : undefined;
       return {
         ...candidate,
-        ...(prior ? { id: prior.id, verseKey: prior.verseKey } : { verseKey: allocator.allocateAlternate(parentVerseKey) }),
+        ...(prior
+          ? { id: prior.id, verseKey: prior.verseKey, ...(prior.publicIdentity ? { publicIdentity: prior.publicIdentity } : {}) }
+          : { verseKey: allocator.allocateAlternate(parentVerseKey) }),
       };
     }),
   };
@@ -310,21 +393,109 @@ function hasOwn(value: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function hasSuppliedIdentity(value: Record<string, unknown>): boolean {
+  if (hasOwn(value, 'verseKey') && value.verseKey !== undefined) return true;
+  if (!hasOwn(value, 'publicIdentity') || value.publicIdentity === undefined) return false;
+  const normalized = normalizePublicIdentityOverrides(value.publicIdentity);
+  return normalized !== undefined || value.publicIdentity === null || typeof value.publicIdentity !== 'object' || Array.isArray(value.publicIdentity);
+}
+
+function identitySources(operation: CatalogPatchOperation, candidate?: Record<string, unknown>): Record<string, unknown>[] {
+  const data = record(operation.data);
+  return candidate ? [candidate] : [operation, data];
+}
+
+function throwIdentityChange(
+  operationType: string,
+  kind: PublicIdentityKind,
+  targetId: string | undefined,
+  changedFields: string[],
+): never {
+  throw new CatalogDomainError(
+    CATALOG_ERROR_CODES.identityImportRequired,
+    `Operation ${operationType} cannot change a Verse key or public identity through ordinary CRUD. Use adopt_existing_identity in an existing-project migration so identity adoption is explicit and parity-checked.`,
+    {
+      operationType,
+      kind,
+      ...(targetId ? { targetId } : {}),
+      changedFields: [...new Set(changedFields)],
+      guidance: 'Omit identity fields for ordinary edits. Existing published identities require adopt_existing_identity with migration parity.',
+    },
+    400,
+  );
+}
+
+function assertIdentityPreserved(
+  operationType: string,
+  kind: PublicIdentityKind,
+  target: IdentityRecord,
+  parent: EntitlementItem | undefined,
+  config: ProjectConfig,
+  sources: Record<string, unknown>[],
+  targetId: string = target.id,
+): void {
+  const authoritative = derivePublicIdentity(target, config, kind, parent);
+  const changedFields: string[] = [];
+  for (const source of sources) {
+    if (hasOwn(source, 'verseKey') && source.verseKey !== undefined && source.verseKey !== authoritative.verseKey) changedFields.push('verseKey');
+    if (!hasOwn(source, 'publicIdentity') || source.publicIdentity === undefined) continue;
+    const value = source.publicIdentity;
+    const normalized = normalizePublicIdentityOverrides(value);
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      changedFields.push('publicIdentity');
+      continue;
+    }
+    const raw = value as Record<string, unknown>;
+    for (const key of Object.keys(raw)) {
+      if (!identityOverrideKeys(kind).includes(key as keyof PublicIdentityOverrides)) {
+        changedFields.push(`publicIdentity.${key}`);
+        continue;
+      }
+      const candidate = normalized?.[key as keyof PublicIdentityOverrides];
+      const authoritativeValue = authoritative[key as keyof DerivedPublicIdentity];
+      if (typeof raw[key] !== 'string' || !raw[key].trim() || candidate !== authoritativeValue) changedFields.push(`publicIdentity.${key}`);
+    }
+  }
+  if (changedFields.length) throwIdentityChange(operationType, kind, targetId, changedFields);
+}
+
+function assertNestedAlternateIdentities(operation: CatalogPatchOperation, parent: EntitlementItem, config: ProjectConfig): void {
+  const data = record(operation.data);
+  const candidates = [
+    ...(Array.isArray(operation.alternateOffers) ? operation.alternateOffers : []),
+    ...(Array.isArray(data.alternateOffers) ? data.alternateOffers : []),
+  ];
+  const seen = new Set<string>();
+  for (const value of candidates) {
+    const candidate = record(value);
+    const candidateId = text(candidate.id);
+    const marker = candidateId ?? JSON.stringify(candidate);
+    if (seen.has(marker)) continue;
+    seen.add(marker);
+    const prior = candidateId ? parent.alternateOffers?.find(offer => offer.id === candidateId) : undefined;
+    if (prior) {
+      assertIdentityPreserved(operation.type, 'alternate_offer', prior, parent, config, [candidate], candidateId);
+    } else if (hasSuppliedIdentity(candidate)) {
+      throwIdentityChange(operation.type, 'alternate_offer', candidateId, ['new alternate identity']);
+    }
+  }
+}
+
 function rejectImplicitIdentityImport(operation: CatalogPatchOperation): void {
   const data = record(operation.data);
   const payload = { ...operation, ...data };
-  const genericIdentityOperation = /^(create|update)_(entitlement|alternate_offer|bundle|storefront)$/.test(operation.type);
+  const genericIdentityOperation = /^create_(entitlement|alternate_offer|bundle|storefront)$/.test(operation.type);
   if (!genericIdentityOperation) return;
   const nestedIdentity = Array.isArray(payload.alternateOffers)
     && payload.alternateOffers.some(value => {
       const candidate = record(value);
-      return hasOwn(candidate, 'verseKey') || hasOwn(candidate, 'publicIdentity');
+      return hasSuppliedIdentity(candidate);
     });
-  if (!hasOwn(operation, 'verseKey') && !hasOwn(data, 'verseKey') && !hasOwn(operation, 'publicIdentity') && !hasOwn(data, 'publicIdentity') && !nestedIdentity) return;
+  if (!hasSuppliedIdentity(operation) && !hasSuppliedIdentity(data) && !nestedIdentity) return;
   throw new CatalogDomainError(
     CATALOG_ERROR_CODES.identityImportRequired,
-    `Operation ${operation.type} cannot supply a Verse key or public identity. Use adopt_existing_identity in an existing-project migration so identity adoption is explicit and parity-checked.`,
-    { operationType: operation.type, guidance: 'Generic create/update operations allocate or preserve UTM-managed identity. Existing published identities require adopt_existing_identity.' },
+    `Operation ${operation.type} cannot supply a Verse key or public identity for a new record. UTM allocates canonical identity; use adopt_existing_identity only for an explicit existing-project migration.`,
+    { operationType: operation.type, guidance: 'New records omit verseKey and publicIdentity. Existing published identities require adopt_existing_identity.' },
     400,
   );
 }
@@ -371,6 +542,42 @@ function identityRecords(document: CatalogDocument): Array<{ kind: PublicIdentit
   for (const bundle of document.bundles) result.push({ kind: 'bundle', record: bundle });
   for (const group of document.storefrontMembership.focused) result.push({ kind: 'storefront', record: group });
   return result;
+}
+
+function replacementIdentityKey(kind: PublicIdentityKind, record: IdentityRecord): string {
+  return `${kind}:${record.id}`;
+}
+
+function assertReplacementIdentityPreserved(current: CatalogDocument, replacement: CatalogDocument): void {
+  const currentEntries = identityRecords(current);
+  const replacementEntries = identityRecords(replacement);
+  const replacementByKey = new Map(replacementEntries.map(entry => [replacementIdentityKey(entry.kind, entry.record), entry]));
+  for (const entry of currentEntries) {
+    const next = replacementByKey.get(replacementIdentityKey(entry.kind, entry.record));
+    if (!next) continue;
+    const currentIdentity = derivePublicIdentity(entry.record, current.config, entry.kind, entry.parent);
+    const nextIdentity = derivePublicIdentity(next.record, replacement.config, next.kind, next.parent);
+    if (!publicIdentitiesEqual(currentIdentity, nextIdentity)) {
+      throw new CatalogDomainError(
+        CATALOG_ERROR_CODES.identityImportRequired,
+        `Catalog replacement cannot change the public Verse identity of ${entry.record.id}. Use adopt_existing_identity in an existing-project migration so identity adoption is explicit and parity-checked.`,
+        { targetId: entry.record.id, kind: entry.kind, current: currentIdentity, requested: nextIdentity, guidance: 'Ordinary catalog synchronization may edit commerce fields but must preserve published keys, modules, and public paths.' },
+        400,
+      );
+    }
+  }
+  const currentKeys = new Set(currentEntries.map(entry => replacementIdentityKey(entry.kind, entry.record)));
+  for (const entry of replacementEntries) {
+    if (currentKeys.has(replacementIdentityKey(entry.kind, entry.record))) continue;
+    if (entry.record.publicIdentity) {
+      throw new CatalogDomainError(
+        CATALOG_ERROR_CODES.identityImportRequired,
+        `Catalog replacement cannot import public identity for new ${entry.kind} ${entry.record.id}. Use an explicit existing-project identity adoption path.`,
+        { targetId: entry.record.id, kind: entry.kind, guidance: 'New records omit publicIdentity and receive canonical identity from UTM.' },
+        400,
+      );
+    }
+  }
 }
 
 function assertPublicIdentitySet(document: CatalogDocument): void {
@@ -485,10 +692,12 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       const id = text(operation.entitlementId ?? payload.id);
       const current = document.entitlements.find(item => item.id === id);
       if (!current) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Entitlement ${id ?? '(missing)'} does not exist.`, {}, 400);
+      assertIdentityPreserved(operation.type, 'entitlement', current, undefined, document.config, identitySources(operation));
+      assertNestedAlternateIdentities(operation, current, document.config);
       const previousKey = current.verseKey;
       const previousAlternates = current.alternateOffers ?? [];
       const allocator = createVerseKeyAllocator(activeKeys(document), document.retiredVerseKeys);
-      const nextPayload = withManagedAlternateKeys(patchObject(current as unknown as Record<string, unknown>, payload), current.verseKey, allocator, previousAlternates);
+      const nextPayload = withManagedAlternateKeys(patchObject(current as unknown as Record<string, unknown>, entitlementMutationPayload(payload, true)), current.verseKey, allocator, previousAlternates);
       const next = normalizeEntitlement(nextPayload, document.entitlements.indexOf(current));
       const retired = next.verseKey !== previousKey ? [previousKey] : [];
       for (const previousOffer of previousAlternates) {
@@ -523,8 +732,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       const parent = document.entitlements.find(item => item.id === text(operation.entitlementId ?? payload.entitlementId));
       const alternate = parent?.alternateOffers?.find(offer => offer.id === text(operation.alternateOfferId ?? payload.alternateOfferId ?? payload.id));
       if (!parent || !alternate) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, 'The alternate offer does not exist.', {}, 400);
+      assertIdentityPreserved(operation.type, 'alternate_offer', alternate, parent, document.config, identitySources(operation));
       const previousKey = alternate.verseKey;
-      const next = normalizeEntitlement({ ...parent, alternateOffers: [patchObject(alternate as unknown as Record<string, unknown>, payload)] }, document.entitlements.indexOf(parent)).alternateOffers?.[0];
+      const next = normalizeEntitlement({ ...parent, alternateOffers: [patchObject(alternate as unknown as Record<string, unknown>, alternateMutationPayload(payload, true))] }, document.entitlements.indexOf(parent)).alternateOffers?.[0];
       if (!next) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, 'The alternate offer could not be normalized.', {}, 400);
       if (next.verseKey !== previousKey) document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, previousKey]);
       Object.assign(alternate, next);
@@ -549,8 +759,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       const id = text(operation.bundleId ?? payload.id);
       const current = document.bundles.find(bundle => bundle.id === id);
       if (!current) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Bundle ${id ?? '(missing)'} does not exist.`, {}, 400);
+      assertIdentityPreserved(operation.type, 'bundle', current, undefined, document.config, identitySources(operation));
       const previousKey = current.verseKey;
-      const next = normalizeBundle(patchObject(current as unknown as Record<string, unknown>, payload), document.bundles.indexOf(current));
+      const next = normalizeBundle(patchObject(current as unknown as Record<string, unknown>, bundleMutationPayload(payload)), document.bundles.indexOf(current));
       if (next.verseKey !== previousKey) document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, previousKey]);
       Object.assign(current, next);
       return { affected: current, cascades };
@@ -572,8 +783,9 @@ function applyOperation(document: CatalogDocument, operation: CatalogPatchOperat
       const id = text(operation.storefrontId ?? payload.id);
       const current = document.storefrontMembership.focused.find(group => group.id === id);
       if (!current) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, `Storefront ${id ?? '(missing)'} does not exist.`, {}, 400);
+      assertIdentityPreserved(operation.type, 'storefront', current, undefined, document.config, identitySources(operation));
       const previousKey = current.verseKey;
-      const next = normalizeOfferDisplayGroup(patchObject(current as unknown as Record<string, unknown>, payload), document.storefrontMembership.focused.indexOf(current));
+      const next = normalizeOfferDisplayGroup(patchObject(current as unknown as Record<string, unknown>, storefrontMutationPayload(payload)), document.storefrontMembership.focused.indexOf(current));
       if (next.verseKey !== previousKey) document.retiredVerseKeys = normalizeRetiredVerseKeys([...document.retiredVerseKeys, previousKey]);
       Object.assign(current, next);
       return { affected: current, cascades };
@@ -694,6 +906,7 @@ export class CatalogSession {
   replaceDocument(next: CatalogDocument, expectedRevision: string): CatalogMutationResult {
     this.assertRevision(expectedRevision);
     const normalized = normalizeDocument(clone(next), this.document.config);
+    assertReplacementIdentityPreserved(this.document, normalized);
     const problems = integrity(normalized);
     if (problems.length) throw new CatalogDomainError(CATALOG_ERROR_CODES.integrity, 'The proposed catalog contains structural integrity errors.', { problems }, 400);
     this.document = normalized;

@@ -12,11 +12,20 @@ import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } fro
 import { DEFAULT_PRESETS, LEGACY_STARTER_PRESET_KEYS } from './constants/presets';
 import { generateVerseCode } from './services/verseGenerator';
 import { parseVerseCode } from './services/verseParser';
-import { sanitizeVerseIdentifier, toPascalCase, validateEntireProject } from './services/validator';
+import { toPascalCase, validateEntireProject } from './services/validator';
 import { EditorStatus, FileService, type CatalogSnapshotPayload } from './services/fileService';
 import { cleanManagedData, legacyProjectConfigDiagnostics, normalizeEntitlement, normalizeProjectConfig, parseManagedData, parseStoredArray, parseStoredStorefrontMembership } from './services/projectSchema';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from './constants/placeholderIcon';
 import { duplicateEntitlement } from './services/duplicateEntitlement';
+import {
+  buildBundleCreatePayload,
+  buildBundleUpdatePayload,
+  buildEntitlementCreatePayload,
+  buildEntitlementUpdatePayload,
+  buildStorefrontCreatePayload,
+  buildStorefrontMembershipPayload,
+  buildStorefrontUpdatePayload,
+} from './services/catalogMutationPayloads';
 import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
@@ -175,10 +184,6 @@ function allocateProjectVerseKey(
   retiredVerseKeys: string[],
 ): string {
   return createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys).allocate(name);
-}
-
-function addRetiredVerseKeys(current: string[], keys: Iterable<string>): string[] {
-  return normalizeRetiredVerseKeys([...current, ...keys]);
 }
 
 function snapshot(entitlements: EntitlementItem[], bundles: BundleOffer[], storefrontMembership: StorefrontMembership, retiredVerseKeys: string[], config: ProjectConfig): string {
@@ -837,23 +842,9 @@ export const App: React.FC = () => {
 
   const saveModalItem = async (item: EntitlementItem) => {
     const isDraft = item.id.startsWith('new-');
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
-    const draftVerseKey = isDraft ? allocator.allocate(item.name) : item.verseKey;
-    const persistedId = isDraft ? `ent-${crypto.randomUUID()}` : item.id;
-    const persistedItem = {
-      ...item,
-      id: persistedId,
-      verseKey: draftVerseKey,
-      triggers: { ...item.triggers },
-      alternateOffers: (item.alternateOffers ?? []).map(offer => {
-        const isNewAlternate = offer.id.startsWith('new-alt-');
-        const verseKey = isNewAlternate ? allocator.allocateAlternate(draftVerseKey) : offer.verseKey;
-        return { ...offer, id: isNewAlternate ? `offer-${crypto.randomUUID()}` : offer.id, verseKey };
-      }),
-    };
     const applied = await applyBridgeMutation(isDraft
-      ? { type: 'create_entitlement', data: persistedItem }
-      : { type: 'update_entitlement', entitlementId: item.id, data: persistedItem });
+      ? { type: 'create_entitlement', data: buildEntitlementCreatePayload(item) }
+      : { type: 'update_entitlement', entitlementId: item.id, data: buildEntitlementUpdatePayload(item) });
     if (applied) {
       setIsModalOpen(false);
       setEditingItem(null);
@@ -869,7 +860,7 @@ export const App: React.FC = () => {
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
     onDuplicate: (item: EntitlementItem) => {
       const copy = duplicateEntitlement(item, entitlements, bundles, crypto.randomUUID, storefrontMembership.focused);
-      void applyBridgeMutation({ type: 'create_entitlement', data: copy });
+      void applyBridgeMutation({ type: 'create_entitlement', data: buildEntitlementCreatePayload(copy) });
     },
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
   };
@@ -885,60 +876,48 @@ export const App: React.FC = () => {
     if (isDirty) setSwitchProjectConfirmationOpen(true);
     else beginProjectSwitch();
   };
-  const updateBundles = (nextBundles: BundleOffer[]) => {
+  const updateBundles = async (nextBundles: BundleOffer[]) => {
     const existingById = new Map(bundles.map(bundle => [bundle.id, bundle]));
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
-    const finalizedBundles = nextBundles.map(bundle => {
-      const isNew = !existingById.has(bundle.id);
-      const shouldAllocate = isNew && bundle.verseKey === sanitizeVerseIdentifier(bundle.name);
-      return shouldAllocate ? { ...bundle, verseKey: allocator.allocate(bundle.name) } : bundle;
-    });
-    const retired = bundles.flatMap(previous => {
-      const next = finalizedBundles.find(candidate => candidate.id === previous.id);
-      return !next || next.verseKey !== previous.verseKey ? [previous.verseKey] : [];
-    });
-    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
-    const validBundleIds = new Set(finalizedBundles.map(bundle => bundle.id));
-    setBundles(finalizedBundles);
-    const previouslyKnownIds = new Set(bundles.map(bundle => bundle.id));
-    const newlyCreatedStatic = finalizedBundles.filter(bundle => !previouslyKnownIds.has(bundle.id) && !isDynamicBundle(bundle)).map(bundle => ({ bundleId: bundle.id }));
-    setStorefrontMembership(current => ({
-      allOffers: [...current.allOffers.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)), ...newlyCreatedStatic],
-      focused: current.focused.map(group => ({ ...group, entries: group.entries.filter(entry => !entry.bundleId || validBundleIds.has(entry.bundleId)) })),
-    }));
+    const nextById = new Map(nextBundles.map(bundle => [bundle.id, bundle]));
+    for (const bundle of bundles) {
+      if (!nextById.has(bundle.id) && !await applyBridgeMutation({ type: 'delete_bundle', bundleId: bundle.id })) return;
+    }
+    for (const bundle of nextBundles) {
+      const existing = existingById.get(bundle.id);
+      const operation = existing
+        ? { type: 'update_bundle', bundleId: bundle.id, data: buildBundleUpdatePayload(bundle) }
+        : { type: 'create_bundle', data: buildBundleCreatePayload(bundle) };
+      if (!await applyBridgeMutation(operation)) return;
+    }
   };
 
   const duplicateBundle = (bundle: BundleOffer) => {
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
     const copy: BundleOffer = {
       ...bundle,
       id: `bundle-${crypto.randomUUID()}`,
-      verseKey: allocator.allocate(`${bundle.name} Copy`),
+      verseKey: bundle.verseKey,
       name: `${bundle.name} Copy`,
       items: bundle.items.map(entry => ({ ...entry })),
       restrictions: bundle.restrictions ? { ...bundle.restrictions, blockedCountryCodes: [...bundle.restrictions.blockedCountryCodes], blockedPlatformFamilies: [...bundle.restrictions.blockedPlatformFamilies] } : undefined,
     };
-    setBundles(current => [...current, copy]);
-    if (!isDynamicBundle(copy)) setStorefrontMembership(current => ({ ...current, allOffers: [...current.allOffers, { bundleId: copy.id }] }));
+    void applyBridgeMutation({ type: 'create_bundle', data: buildBundleCreatePayload(copy) });
   };
 
   const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, storefrontMembership, retiredVerseKeys);
-  const updateStorefrontMembership = (nextMembership: StorefrontMembership) => {
+  const updateStorefrontMembership = async (nextMembership: StorefrontMembership) => {
     const existingById = new Map(storefrontMembership.focused.map(group => [group.id, group]));
-    const allocator = createVerseKeyAllocator(collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), retiredVerseKeys);
-    const finalizedGroups = nextMembership.focused.map(group => {
-      const isNew = !existingById.has(group.id);
-      const shouldAllocate = isNew && group.verseKey === sanitizeVerseIdentifier(group.name);
-      if (!shouldAllocate) return group;
-      const nextKey = allocator.allocate(group.name);
-      return { ...group, verseKey: nextKey };
-    });
-    const retired = storefrontMembership.focused.flatMap(previous => {
-      const next = finalizedGroups.find(candidate => candidate.id === previous.id);
-      return !next || next.verseKey !== previous.verseKey ? [previous.verseKey] : [];
-    });
-    if (retired.length) setRetiredVerseKeys(keys => addRetiredVerseKeys(keys, retired));
-    setStorefrontMembership({ allOffers: nextMembership.allOffers, focused: finalizedGroups });
+    const nextById = new Map(nextMembership.focused.map(group => [group.id, group]));
+    for (const group of storefrontMembership.focused) {
+      if (!nextById.has(group.id) && !await applyBridgeMutation({ type: 'delete_storefront', storefrontId: group.id })) return;
+    }
+    for (const group of nextMembership.focused) {
+      const existing = existingById.get(group.id);
+      const operation = existing
+        ? { type: 'update_storefront', storefrontId: group.id, data: buildStorefrontUpdatePayload(group) }
+        : { type: 'create_storefront', data: buildStorefrontCreatePayload(group) };
+      if (!await applyBridgeMutation(operation)) return;
+    }
+    await applyBridgeMutation({ type: 'set_storefront_membership', storefrontId: 'all', data: buildStorefrontMembershipPayload(nextMembership) });
   };
 
   return (
