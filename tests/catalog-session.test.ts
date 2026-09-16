@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CatalogDomainError, CatalogSession, defaultProjectConfig } from '../src/services/catalogSession';
-import { buildBundleCreatePayload, buildEntitlementCreatePayload, buildEntitlementUpdatePayload, buildStorefrontUpdatePayload } from '../src/services/catalogMutationPayloads';
+import { buildBundleCreatePayload, buildBundleUpdatePayload, buildEntitlementCreatePayload, buildEntitlementUpdatePayload, buildStorefrontUpdatePayload } from '../src/services/catalogMutationPayloads';
 
 function session() {
   const config = defaultProjectConfig('C:/Demo/Content');
@@ -151,6 +151,72 @@ test('mutation serializers omit imported identity, hydrated artwork, and file-pi
   assert.equal('publicIdentity' in update, false);
   assert.equal('iconImageData' in update, false);
   assert.equal('iconFileName' in update, false);
+});
+
+test('update payloads explicitly clear optional runtime, restriction, and duration fields', () => {
+  const catalog = session();
+  const createdItem = catalog.mutate({
+    type: 'create_entitlement',
+    data: {
+      name: 'Runtime item',
+      dynamicOffer: { priceBehavior: 'runtime' },
+      offerRestrictions: { minimumPurchaseAge: 18, blockedCountryCodes: ['CA'], blockedPlatformFamilies: [] },
+      durationDescription: 'Lasts 7 days',
+      alternateOffers: [{ id: 'runtime-alt', name: 'Runtime alternate', dynamicOffer: { priceBehavior: 'runtime' } }],
+    },
+  }, '1');
+  const item = createdItem.snapshot.entitlements[0];
+  const updatePayload = buildEntitlementUpdatePayload({
+    ...item,
+    dynamicOffer: undefined,
+    offerRestrictions: undefined,
+    durationDescription: undefined,
+    alternateOffers: (item.alternateOffers ?? []).map(offer => ({ ...offer, dynamicOffer: undefined, restrictions: undefined, durationDescription: undefined })),
+  });
+  assert.equal(updatePayload.dynamicOffer, null);
+  assert.equal(updatePayload.offerRestrictions, null);
+  assert.equal(updatePayload.durationDescription, null);
+  assert.equal((updatePayload.alternateOffers as Array<Record<string, unknown>>)[0].dynamicOffer, null);
+  assert.equal((updatePayload.alternateOffers as Array<Record<string, unknown>>)[0].restrictions, null);
+  const clearedItem = catalog.mutate({ type: 'update_entitlement', entitlementId: item.id, data: updatePayload }, '2').snapshot.entitlements[0];
+  assert.equal(clearedItem.dynamicOffer, undefined);
+  assert.equal(clearedItem.offerRestrictions, undefined);
+  assert.equal(clearedItem.durationDescription, undefined);
+  assert.equal(clearedItem.alternateOffers?.[0].dynamicOffer, undefined);
+
+  const createdBundle = catalog.mutate({
+    type: 'create_bundle',
+    data: {
+      name: 'Runtime bundle',
+      dynamicOffer: { priceBehavior: 'runtime' },
+      restrictions: { minimumPurchaseAge: 18, blockedCountryCodes: ['US'], blockedPlatformFamilies: [] },
+      durationDescription: 'Lasts 7 days',
+      items: [{ entitlementId: item.id, quantity: 1 }],
+    },
+  }, '3');
+  const bundle = createdBundle.snapshot.bundles[0];
+  const bundlePayload = buildBundleUpdatePayload({ ...bundle, dynamicOffer: undefined, restrictions: undefined, durationDescription: undefined });
+  assert.equal(bundlePayload.dynamicOffer, null);
+  assert.equal(bundlePayload.restrictions, null);
+  assert.equal(bundlePayload.durationDescription, null);
+  const clearedBundle = catalog.mutate({ type: 'update_bundle', bundleId: bundle.id, data: bundlePayload }, '4').snapshot.bundles[0];
+  assert.equal(clearedBundle.dynamicOffer, undefined);
+  assert.equal(clearedBundle.restrictions, undefined);
+  assert.equal(clearedBundle.durationDescription, undefined);
+});
+
+test('duplicating a bundle creates a fresh record with preserved contents', () => {
+  const catalog = session();
+  const item = catalog.mutate({ type: 'create_entitlement', data: { name: 'Bundle item' } }, '1').snapshot.entitlements[0];
+  const original = catalog.mutate({ type: 'create_bundle', data: { name: 'Pack', items: [{ entitlementId: item.id, quantity: 1 }] } }, '2').snapshot.bundles[0];
+  const copyPayload = buildBundleCreatePayload({ ...original, name: 'Pack Copy', id: 'client-copy', verseKey: original.verseKey });
+  assert.equal('id' in copyPayload, false);
+  assert.equal('verseKey' in copyPayload, false);
+  const copied = catalog.mutate({ type: 'create_bundle', data: copyPayload }, '3').snapshot.bundles;
+  assert.equal(copied.length, 2);
+  assert.notEqual(copied[0].id, copied[1].id);
+  assert.notEqual(copied[0].verseKey, copied[1].verseKey);
+  assert.deepEqual(copied[1].items, original.items);
 });
 
 test('bundle and storefront updates preserve their own public identity', () => {

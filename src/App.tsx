@@ -226,24 +226,34 @@ async function hydrateProjectImages(
   };
 }
 
-function preserveTransientImages<T extends { id: string; iconImageData?: string; iconFileName?: string }>(nextItems: T[], previousItems: T[]): T[] {
+type TransientIconPreview = {
+  recordId?: string;
+  texture: string;
+  imageData: string;
+  fileName?: string;
+};
+
+function preserveTransientImages<T extends { id: string; iconTexture: string; iconImageData?: string; iconFileName?: string }>(nextItems: T[], previousItems: T[], pendingPreviews: TransientIconPreview[] = []): T[] {
   const previousById = new Map(previousItems.map(item => [item.id, item]));
+  const pendingByKey = new Map(pendingPreviews.map(preview => [`${preview.recordId ?? ''}|${preview.texture}`, preview]));
   return nextItems.map(item => {
     const previous = previousById.get(item.id);
-    return item.iconImageData || !previous?.iconImageData
+    const pending = pendingByKey.get(`${item.id}|${item.iconTexture}`) ?? pendingByKey.get(`|${item.iconTexture}`);
+    if (!item.iconImageData && pending) return { ...item, iconImageData: pending.imageData, iconFileName: pending.fileName };
+    return item.iconImageData || !previous?.iconImageData || previous.iconTexture !== item.iconTexture
       ? item
       : { ...item, iconImageData: previous.iconImageData, iconFileName: previous.iconFileName };
   });
 }
 
-function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlements: EntitlementItem[], previousBundles: BundleOffer[]): CatalogSnapshotPayload {
+function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlements: EntitlementItem[], previousBundles: BundleOffer[], pendingPreviews: TransientIconPreview[] = []): CatalogSnapshotPayload {
   const previousEntitlementsById = new Map(previousEntitlements.map(item => [item.id, item]));
-  const entitlements = preserveTransientImages(next.entitlements, previousEntitlements).map(item => {
+  const entitlements = preserveTransientImages(next.entitlements, previousEntitlements, pendingPreviews).map(item => {
     const previous = previousEntitlementsById.get(item.id);
-    if (!item.alternateOffers?.length || !previous?.alternateOffers?.length) return item;
-    return { ...item, alternateOffers: preserveTransientImages(item.alternateOffers, previous.alternateOffers) };
+    if (!item.alternateOffers?.length) return item;
+    return { ...item, alternateOffers: preserveTransientImages(item.alternateOffers, previous?.alternateOffers ?? [], pendingPreviews) };
   });
-  return { ...next, entitlements, bundles: preserveTransientImages(next.bundles, previousBundles) };
+  return { ...next, entitlements, bundles: preserveTransientImages(next.bundles, previousBundles, pendingPreviews) };
 }
 
 type AgentIntegrationIntent = 'connect' | 'migrate';
@@ -442,6 +452,14 @@ export const App: React.FC = () => {
   const appChromeRef = useRef<HTMLDivElement>(null);
   const catalogRevisionRef = useRef('1');
   const suppressCatalogSyncRef = useRef(false);
+  const pendingIconPreviewsRef = useRef<TransientIconPreview[]>([]);
+
+  const rememberTransientImages = (recordId: string | undefined, record: { iconTexture: string; iconImageData?: string; iconFileName?: string; alternateOffers?: Array<{ iconTexture: string; iconImageData?: string; iconFileName?: string }> }) => {
+    if (record.iconTexture && record.iconImageData) pendingIconPreviewsRef.current.push({ recordId, texture: record.iconTexture, imageData: record.iconImageData, fileName: record.iconFileName });
+    for (const alternate of record.alternateOffers ?? []) {
+      if (alternate.iconTexture && alternate.iconImageData) pendingIconPreviewsRef.current.push({ recordId, texture: alternate.iconTexture, imageData: alternate.iconImageData, fileName: alternate.iconFileName });
+    }
+  };
 
   const allValidationIssues = useMemo(() => {
     const issues = validateEntireProject(entitlements, bundles, config, storefrontMembership, retiredVerseKeys);
@@ -457,6 +475,15 @@ export const App: React.FC = () => {
   }, [entitlements, bundles, config, storefrontMembership, retiredVerseKeys, projectDataDiagnostics, unmanagedTargetFile]);
   const validationIssues = useMemo(() => allValidationIssues.filter(issue => issue.severity !== 'warning' || !dismissedWarningIds.includes(issue.id)), [allValidationIssues, dismissedWarningIds]);
   const dismissedWarnings = useMemo(() => allValidationIssues.filter(issue => issue.severity === 'warning' && dismissedWarningIds.includes(issue.id)), [allValidationIssues, dismissedWarningIds]);
+  const validationWarningCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const issue of validationIssues) {
+      if (issue.severity !== 'warning') continue;
+      if (issue.entitlementId) counts[issue.entitlementId] = (counts[issue.entitlementId] ?? 0) + 1;
+      if (issue.bundleId) counts[issue.bundleId] = (counts[issue.bundleId] ?? 0) + 1;
+    }
+    return counts;
+  }, [validationIssues]);
   const hasErrors = validationIssues.some(issue => issue.severity === 'error');
   const verseCode = useMemo(() => hasErrors
     ? '# Generation is blocked until the Validation report has no errors.\n'
@@ -466,8 +493,9 @@ export const App: React.FC = () => {
   const currentSnapshot = useMemo(() => snapshot(entitlements, bundles, storefrontMembership, retiredVerseKeys, config), [entitlements, bundles, storefrontMembership, retiredVerseKeys, config]);
   const isDirty = catalogReady ? catalogDirty : currentSnapshot !== lastSavedSnapshot;
 
-  const applyCatalogSnapshot = (next: CatalogSnapshotPayload) => {
-    const nextWithImages = preserveCatalogImages(next, entitlements, bundles);
+  const applyCatalogSnapshot = (next: CatalogSnapshotPayload, consumeTransientImages = false) => {
+    const nextWithImages = preserveCatalogImages(next, entitlements, bundles, pendingIconPreviewsRef.current);
+    if (consumeTransientImages) pendingIconPreviewsRef.current = [];
     suppressCatalogSyncRef.current = true;
     catalogRevisionRef.current = nextWithImages.revision;
     setCatalogRevision(nextWithImages.revision);
@@ -686,13 +714,14 @@ export const App: React.FC = () => {
   const applyBridgeMutation = async (operation: Record<string, unknown>): Promise<boolean> => {
     const result = await FileService.mutateCatalog(operation, catalogRevisionRef.current);
     if (result.success && result.catalog) {
-      applyCatalogSnapshot(result.catalog);
+      applyCatalogSnapshot(result.catalog, true);
       return true;
     }
     if (result.status === 409) {
       const remote = await FileService.getCatalogSnapshot();
       if (remote.success && remote.catalog) applyCatalogSnapshot(remote.catalog);
     }
+    pendingIconPreviewsRef.current = [];
     setStatus({ message: result.error ?? 'The shared catalog rejected this mutation.', error: true });
     return false;
   };
@@ -792,7 +821,11 @@ export const App: React.FC = () => {
     const result = await FileService.triggerVerseCompilation(config.targetVerseFileName, saved.contentHash);
     setIsCompiling(false);
     if (result.success) {
-      setStatus({ message: `Compiled ${result.fileName ?? config.targetVerseFileName} in ${result.assetMount ?? 'the verified UEFN project'} with ${result.numErrors ?? 0} errors and ${result.numWarnings ?? 0} warnings.` });
+      const errorCount = result.numErrors ?? 0;
+      const warningCount = result.numWarnings ?? 0;
+      const errorLabel = errorCount === 1 ? 'error' : 'errors';
+      const warningLabel = warningCount === 1 ? 'warning' : 'warnings';
+      setStatus({ message: `Compiled ${result.fileName ?? config.targetVerseFileName} in ${result.assetMount ?? 'the verified UEFN project'} with ${errorCount} ${errorLabel} and ${warningCount} ${warningLabel}.` });
     } else {
       setStatus({ message: result.error ?? 'Verse compilation was not verified.', error: true });
     }
@@ -842,6 +875,7 @@ export const App: React.FC = () => {
 
   const saveModalItem = async (item: EntitlementItem) => {
     const isDraft = item.id.startsWith('new-');
+    rememberTransientImages(isDraft ? undefined : item.id, item);
     const applied = await applyBridgeMutation(isDraft
       ? { type: 'create_entitlement', data: buildEntitlementCreatePayload(item) }
       : { type: 'update_entitlement', entitlementId: item.id, data: buildEntitlementUpdatePayload(item) });
@@ -856,10 +890,11 @@ export const App: React.FC = () => {
   };
 
   const listProps = {
-    entitlements, bundles, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
+    entitlements, bundles, warningCounts: validationWarningCounts, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
     onDuplicate: (item: EntitlementItem) => {
       const copy = duplicateEntitlement(item, entitlements, bundles, crypto.randomUUID, storefrontMembership.focused);
+      rememberTransientImages(undefined, copy);
       void applyBridgeMutation({ type: 'create_entitlement', data: buildEntitlementCreatePayload(copy) });
     },
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
@@ -884,6 +919,7 @@ export const App: React.FC = () => {
     }
     for (const bundle of nextBundles) {
       const existing = existingById.get(bundle.id);
+      rememberTransientImages(existing ? bundle.id : undefined, bundle);
       const operation = existing
         ? { type: 'update_bundle', bundleId: bundle.id, data: buildBundleUpdatePayload(bundle) }
         : { type: 'create_bundle', data: buildBundleCreatePayload(bundle) };
@@ -900,6 +936,7 @@ export const App: React.FC = () => {
       items: bundle.items.map(entry => ({ ...entry })),
       restrictions: bundle.restrictions ? { ...bundle.restrictions, blockedCountryCodes: [...bundle.restrictions.blockedCountryCodes], blockedPlatformFamilies: [...bundle.restrictions.blockedPlatformFamilies] } : undefined,
     };
+    rememberTransientImages(undefined, copy);
     void applyBridgeMutation({ type: 'create_bundle', data: buildBundleCreatePayload(copy) });
   };
 
@@ -929,7 +966,7 @@ export const App: React.FC = () => {
           onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
           onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
            onSwitchProject={requestProjectSwitch} isSwitchingProject={isSwitchingProject}
-           validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null}
+           validationIssues={validationIssues} isSaving={isSaving} isCompiling={isCompiling} saveStatusMessage={status?.message ?? null} onDismissStatus={() => setStatus(null)}
            saveStatusIsError={Boolean(status?.error)} serverOnline={serverOnline} hasValidationErrors={hasErrors} isDirty={isDirty} entitlementCount={entitlements.length} desktopHost={desktopHost}
             appVersion={versionInfo.version} updateState={updateState} onCheckForUpdates={checkForUpdates} agentIntegrationStatus={agentIntegrationStatus} onOpenAgentIntegration={() => openAgentIntegration()}
         />
@@ -947,12 +984,12 @@ export const App: React.FC = () => {
       <main className="flex-1 px-4 lg:px-8 py-6">
         <EditorCapabilityNotice status={editorStatus} projectName={projectDisplayName(launchContext.projectFile, config.contentFolderPath)} />
         {!catalogInitialized && entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} editorStatus={editorStatus} onCreateEntitlement={requestOfferCreation} onStartMigration={() => openAgentIntegration('migrate')} />}
-          {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
-          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
+          {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} contentFolderPath={config.contentFolderPath} editorStatus={editorStatus} warningCounts={validationWarningCounts} dismissedWarningIds={dismissedWarningIds} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
+          : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} contentFolderPath={config.contentFolderPath} editorStatus={editorStatus} warningCounts={validationWarningCounts} dismissedWarningIds={dismissedWarningIds} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
           : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div>}
       </main>
 
-      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
+      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />

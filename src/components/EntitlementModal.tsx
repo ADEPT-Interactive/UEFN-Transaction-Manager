@@ -16,7 +16,7 @@ import {
   SlidersHorizontal,
   ExternalLink
 } from 'lucide-react';
-import { AlternateOffer, EntitlementItem, OfferRestrictions } from '../types/entitlement';
+import { AlternateOffer, EntitlementItem, OfferRestrictions, ValidationIssue } from '../types/entitlement';
 import { validateEntitlement } from '../services/validator';
 import { createVerseKeyAllocator } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
@@ -40,6 +40,7 @@ interface EntitlementModalProps {
   assetFolderName: string;
   allEntitlements: EntitlementItem[];
   editorStatus: EditorStatus | null;
+  dismissedWarningIds?: string[];
   onSave: (item: EntitlementItem) => void;
   onClose: () => void;
 }
@@ -60,6 +61,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   assetFolderName,
   allEntitlements,
   editorStatus,
+  dismissedWarningIds = [],
   onSave,
   onClose,
 }) => {
@@ -169,9 +171,18 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   };
 
   const validationIssues = validateEntitlement(formData, allEntitlements);
-  const errors = validationIssues.filter(i => i.severity === 'error');
+  const visibleValidationIssues = validationIssues.filter(issue => issue.severity !== 'warning' || !dismissedWarningIds.includes(issue.id));
+  const errors = visibleValidationIssues.filter(i => i.severity === 'error');
+  const warningsFor = (field: string): ValidationIssue[] => visibleValidationIssues.filter(issue => issue.severity === 'warning' && issue.field === field);
+  const fieldClass = (base: string, field: string): string => warningsFor(field).length > 0 ? base + ' border-amber-400/70' : base;
+  const alternateField = (index: number, field: string): string => 'alternateOffers.' + index + '.' + field;
+  const InlineWarnings: React.FC<{ issues: ValidationIssue[] }> = ({ issues }) => issues.length === 0 ? null : (
+    <div className="mt-1 space-y-1 text-[11px] leading-4 text-amber-300" role="status">
+      {issues.map(issue => <p key={issue.id}>{issue.message}</p>)}
+    </div>
+  );
   const creationTabs = ['general', 'icon', 'behavior'] as const;
-  const currentStepIssues = validationIssues.filter(issue => {
+  const currentStepIssues = visibleValidationIssues.filter(issue => {
     if (!isCreating) return true;
     const field = issue.field ?? '';
     if (creationStep === 0) return ['id', 'verseKey', 'name', 'shortDescription', 'description', 'durationDescription', 'priceVBucks'].some(prefix => field === prefix || field.startsWith(`${prefix}.`));
@@ -334,8 +345,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. ⭐ VIP Pass or +10 Strength Boost"
-                  className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium"
+                  className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium', 'name')}
                 />
+                <InlineWarnings issues={warningsFor('name')} />
               </div>
 
               {/* Descriptions */}
@@ -351,15 +363,16 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                     value={formData.shortDescription}
                     onChange={(e) => setFormData(prev => ({ ...prev, shortDescription: e.target.value }))}
                     placeholder="e.g. Unlock exclusive VIP conveyors & badge!"
-                    className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
+                    className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white', 'shortDescription')}
                   />
+                  <InlineWarnings issues={warningsFor('shortDescription')} />
                 </div>
 
                 <div>
                   <label htmlFor="offer-full-description" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                      Full Description (up to {MARKETPLACE_CONSTRAINTS.descriptionMaxCharacters} characters before generated disclosures)
                   </label>
-                  <div className="utm-native-textarea-shell rounded-xl border border-slate-700 bg-slate-900">
+                  <div className={fieldClass('utm-native-textarea-shell rounded-xl border border-slate-700 bg-slate-900', 'description')}>
                     <textarea
                       id="offer-full-description"
                       rows={2}
@@ -370,10 +383,12 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                       className="utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3.5 py-2 text-xs text-white"
                     />
                   </div>
+                  <InlineWarnings issues={warningsFor('description')} />
                 </div>
                 <div>
                   <label htmlFor="offer-duration" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Duration disclosure (if time-limited)</label>
-                  <input id="offer-duration" type="text" value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white" />
+                  <input id="offer-duration" type="text" value={formData.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, durationDescription: e.target.value }))} placeholder="e.g. Lasts 7 days after purchase" className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white', 'durationDescription')} />
+                  <InlineWarnings issues={warningsFor('durationDescription')} />
                 </div>
               </div>
 
@@ -445,15 +460,19 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <div key={offer.id} className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
                     <div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">Variant {index + 1}</span><button type="button" onClick={() => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).filter(candidate => candidate.id !== offer.id) }))} className="text-xs text-rose-300">Remove</button></div>
                     <div className="grid grid-cols-2 gap-2">
-                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className="utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className={fieldClass('utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'name'))} />
+                      <InlineWarnings issues={warningsFor(alternateField(index, 'name'))} />
                       <NumericInput value={offer.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel={`Variant ${index + 1} price in V-Bucks`} onChange={value => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: value } : candidate) }))} className="w-16 text-xs" />
                       <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
                     </div>
-                    <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'shortDescription'))} />
+                    <InlineWarnings issues={warningsFor(alternateField(index, 'shortDescription'))} />
                     <div className="utm-native-textarea-shell rounded-lg border border-slate-700 bg-slate-900">
-                      <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className="utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2 py-1.5 text-xs" />
+                      <textarea aria-label={`Variant ${index + 1} full description`} rows={2} value={offer.description} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, description: e.target.value } : candidate) }))} placeholder="Full description" className={fieldClass('utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2 py-1.5 text-xs', alternateField(index, 'description'))} />
                     </div>
-                    <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className="utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                    <InlineWarnings issues={warningsFor(alternateField(index, 'description'))} />
+                    <input aria-label={`Variant ${index + 1} duration disclosure`} value={offer.durationDescription ?? ''} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, durationDescription: e.target.value } : candidate) }))} placeholder="Duration disclosure, if time-limited" className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'durationDescription'))} />
+                    <InlineWarnings issues={warningsFor(alternateField(index, 'durationDescription'))} />
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2 text-[11px] text-slate-300"><span><span className="block font-bold text-white">Price source</span><span className="text-slate-500">Choose the catalog price or project-supplied runtime price.</span></span><select aria-label={`Variant ${index + 1} price behavior`} value={offer.dynamicOffer?.priceBehavior ?? 'fixed'} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, dynamicOffer: e.target.value === 'runtime' ? { priceBehavior: 'runtime' } : undefined } : candidate) }))} className="utm-native-select rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"><option value="fixed">Fixed price</option><option value="runtime">Set by Verse at runtime</option></select></label>
                     <OfferRestrictionsEditor compact restrictions={offer.restrictions} onChange={restrictions => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, restrictions } : candidate) }))} />
                   </div>
@@ -622,8 +641,9 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                           flags: { ...prev.flags, paidRandomItemOdds: e.target.value },
                         }))}
                         placeholder="e.g. Common: 60%, Rare: 30%, Legendary: 10%"
-                        className="utm-native-field w-full bg-slate-950 border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-white"
+                        className={fieldClass('utm-native-field w-full bg-slate-950 border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-white', 'flags.paidRandomItemOdds')}
                       />
+                      <InlineWarnings issues={warningsFor('flags.paidRandomItemOdds')} />
                     </div>
                   )}
                 </div>

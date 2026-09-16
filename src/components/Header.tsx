@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FolderOpen, Pencil, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FolderOpen, Pencil, PlugZap, RefreshCw, Save, Settings, ShieldCheck, Terminal, Upload, Wrench, X } from 'lucide-react';
 import { ProjectConfig, ValidationIssue } from '../types/entitlement';
 import type { AgentActivity, AgentIntegrationStatus } from '../services/fileService';
 import { handleExternalLinkClick } from '../services/externalLink';
@@ -21,6 +21,7 @@ interface HeaderProps {
   isCompiling: boolean;
   saveStatusMessage: string | null;
   saveStatusIsError: boolean;
+  onDismissStatus: () => void;
   serverOnline: boolean;
   hasValidationErrors: boolean;
   isDirty: boolean;
@@ -37,7 +38,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   config, onSaveToDisk, onLoadFromDisk, onCompileVerse, onExportPreset, onImportPreset,
   onOpenSettings, onOpenValidator, onSwitchProject, validationIssues, isSaving, isCompiling,
-  saveStatusMessage, saveStatusIsError, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, isSwitchingProject = false, appVersion, updateState, onCheckForUpdates, agentIntegrationStatus, onOpenAgentIntegration,
+  saveStatusMessage, saveStatusIsError, onDismissStatus, serverOnline, hasValidationErrors, isDirty, entitlementCount, desktopHost = false, isSwitchingProject = false, appVersion, updateState, onCheckForUpdates, agentIntegrationStatus, onOpenAgentIntegration,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const toolsRef = React.useRef<HTMLDivElement>(null);
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isToolsOpen, setIsToolsOpen] = React.useState(false);
   const errors = validationIssues.filter(issue => issue.severity === 'error').length;
   const warnings = validationIssues.filter(issue => issue.severity === 'warning').length;
+  const warningLabel = warnings === 1 ? 'warning' : 'warnings';
   const blocked = hasValidationErrors || !serverOnline;
   const isFirstOfferStep = entitlementCount === 0 && errors === 1 && validationIssues.some(issue => issue.ruleName === 'entitlements_min');
   const agentVerified = agentIntegrationStatus?.clientConnection?.state === 'verified';
@@ -110,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex shrink-0 flex-nowrap items-center gap-2">
-          <button type="button" onClick={onOpenValidator} aria-label={errors || warnings ? 'Review validation issues' : 'No Issues'} title={errors || warnings ? 'Review UTM validation issues. This does not replace UEFN compilation or publishing checks.' : 'No UTM validation issues. This does not confirm UEFN compilation or publishing.'} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${isFirstOfferStep ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : errors ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : warnings ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}><ShieldCheck className="h-3.5 w-3.5" />{isFirstOfferStep ? 'Create an offer' : errors ? `${errors} issues to fix` : warnings ? `${warnings} warnings` : 'No Issues'}</button>
+          <button type="button" onClick={onOpenValidator} aria-label={errors || warnings ? 'Review validation issues' : 'No Issues'} title={errors || warnings ? 'Review UTM validation issues. This does not replace UEFN compilation or publishing checks.' : 'No UTM validation issues. This does not confirm UEFN compilation or publishing.'} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${isFirstOfferStep ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : errors ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : warnings ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}><ShieldCheck className="h-3.5 w-3.5" />{isFirstOfferStep ? 'Create an offer' : errors ? `${errors} issues to fix` : warnings ? `${warnings} ${warningLabel}` : 'No Issues'}</button>
           <button type="button" onClick={onSaveToDisk} disabled={isSaving || blocked} aria-label="Save project" title={hasValidationErrors ? 'Resolve the listed issues before saving.' : 'Save the manager data to this UEFN project.'} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 text-xs font-bold text-white transition hover:bg-slate-700 active:scale-[.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] disabled:opacity-40"><Save className="h-4 w-4 text-cyan-300" /></button>
            <button type="button" onClick={onCompileVerse} disabled={isCompiling || blocked} title={blocked ? 'Connect UEFN and resolve the listed issues first.' : 'Save, then run an authoritative UEFN Verse compile.'} className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-4 text-xs font-extrabold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-blue-400 active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] disabled:opacity-40"><Terminal className={`h-3.5 w-3.5 ${isCompiling ? 'animate-spin' : ''}`} />{isCompiling ? 'Compiling...' : 'Compile'}</button>
            <button type="button" onClick={onOpenAgentIntegration} title={agentVerified ? 'Agent connection verified for this project.' : agentRunning ? 'UTM MCP is running. Open Agent Integration to finish or verify your coding-agent setup.' : 'Set up a coding agent for this project.'} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-extrabold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d19] ${agentVerified ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20' : agentRunning ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20' : 'border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'}`}><PlugZap className="h-3.5 w-3.5" /><span className="hidden xl:inline">Agent</span><span className="xl:hidden">AI</span><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${agentVerified ? 'bg-emerald-300' : agentRunning ? 'bg-cyan-300' : 'bg-violet-300'}`} /></button>
@@ -136,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
         {activity.phase && <span className="text-[11px] opacity-80">· {activity.phase}</span>}
         {activity.outcome && !activityIsActive && <span className="basis-full text-[11px] opacity-75">{activity.outcome}</span>}
       </div>}
-      {saveStatusMessage && <div role="status" aria-live="polite" className={`mt-2 flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${saveStatusIsError ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'}`}>{saveStatusIsError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}{saveStatusMessage}</div>}
+      {saveStatusMessage && <div role="status" aria-live="polite" className={`mt-2 flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${saveStatusIsError ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'}`}><span className="shrink-0">{saveStatusIsError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}</span><span className="min-w-0 flex-1">{saveStatusMessage}</span><button type="button" onClick={onDismissStatus} aria-label="Dismiss status message" title="Dismiss status message" className="ml-auto rounded p-0.5 text-current/70 transition hover:bg-white/10 hover:text-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X className="h-3.5 w-3.5" /></button></div>}
     </header>
   );
 };

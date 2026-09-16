@@ -96,14 +96,14 @@ test('canonical showcase captures are complete, lossless, and free of stale imag
   const expectedDimensions: Record<string, { width: number; height: number }> = {
     'launcher.png': { width: 1100, height: 820 },
     'catalog-overview.png': { width: 1440, height: 980 },
-    'offer-editor.png': { width: 1032, height: 963 },
-    'dynamic-transactions.png': { width: 1032, height: 963 },
-    'icon-texture.png': { width: 744, height: 623 },
+    'offer-editor.png': { width: 1032, height: 964 },
+    'dynamic-transactions.png': { width: 1032, height: 964 },
+    'icon-texture.png': { width: 744, height: 810 },
     'bundles-storefronts.png': { width: 1440, height: 980 },
     'validation.png': { width: 648, height: 519 },
     'verse-integration.png': { width: 1440, height: 1000 },
-    'agent-integration.png': { width: 992, height: 955 },
-    'moderation-guidance.png': { width: 744, height: 624 },
+    'agent-integration.png': { width: 992, height: 953 },
+    'moderation-guidance.png': { width: 744, height: 810 },
   };
   for (const fileName of expectedScreenshots) {
     const dimensions = pngDimensions(path.join(screenshotRoot, fileName));

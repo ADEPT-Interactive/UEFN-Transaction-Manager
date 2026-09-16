@@ -77,6 +77,26 @@ test('Manager editors use lifecycle-stable focus, shared dirty confirmation, and
   assert.match(modalSource, /<\/div>\s*\n\s*\{\/\* Modal Footer Controls \*\//);
 });
 
+test('4.4 bundle/editor acceptance surfaces preserve icon, warning, and canonical quantity semantics', () => {
+  const appSource = read('src/App.tsx');
+  const bundleSource = read('src/components/BundleManager.tsx');
+  const modalSource = read('src/components/EntitlementModal.tsx');
+  const headerSource = read('src/components/Header.tsx');
+  const restrictionsSource = read('src/components/OfferRestrictionsEditor.tsx');
+  assert.match(bundleSource, /<ImageUploadZone/);
+  assert.match(bundleSource, /aria-label="Bundle quantity mode"/);
+  assert.match(bundleSource, /Convert to fill-to-max\?/);
+  assert.match(bundleSource, /Bundle contents preview/);
+  assert.match(bundleSource, /warningCount === 1 \? 'warning' : 'warnings'/);
+  assert.match(modalSource, /fieldClass\([^)]*'name'\)/);
+  assert.match(modalSource, /alternateField\(index, 'description'\)/);
+  assert.match(headerSource, /aria-label="Dismiss status message"/);
+  assert.match(appSource, /previous\.iconTexture !== item\.iconTexture/);
+  assert.match(appSource, /pendingIconPreviewsRef/);
+  assert.match(restrictionsSource, /htmlFor=\{minimumAgeId\}/);
+  assert.match(restrictionsSource, /id=\{minimumAgeId\}/);
+});
+
 test('4.3 creator workflow keeps keys and native assets managed while exposing concise controls', () => {
   const appSource = read('src/App.tsx');
   const modalSource = read('src/components/EntitlementModal.tsx');

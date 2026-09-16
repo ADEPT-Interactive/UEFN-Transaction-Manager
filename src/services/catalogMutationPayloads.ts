@@ -48,20 +48,21 @@ const bundleFields = [
   'durationDescription', 'dynamicOffer',
 ] as const;
 
-function alternatePayload(offer: AlternateOffer, includeId: boolean): MutationPayload {
+function alternatePayload(offer: AlternateOffer, includeId: boolean, clearOptionalFields = false): MutationPayload {
   const raw = offer as unknown as Record<string, unknown>;
   return {
     ...(includeId ? { id: offer.id } : {}),
     ...pick(raw, alternateFields),
-    ...(offer.restrictions ? { restrictions: restrictions(offer.restrictions) } : {}),
-    ...(offer.dynamicOffer ? { dynamicOffer: dynamicOffer(offer.dynamicOffer) } : {}),
+    ...(offer.restrictions ? { restrictions: restrictions(offer.restrictions) } : clearOptionalFields ? { restrictions: null } : {}),
+    ...(offer.dynamicOffer ? { dynamicOffer: dynamicOffer(offer.dynamicOffer) } : clearOptionalFields ? { dynamicOffer: null } : {}),
+    ...(clearOptionalFields && offer.durationDescription === undefined ? { durationDescription: null } : {}),
   };
 }
 
-function entitlementPayload(item: EntitlementItem, includeAlternateIds: boolean): MutationPayload {
+function entitlementPayload(item: EntitlementItem, includeAlternateIds: boolean, clearOptionalFields = false): MutationPayload {
   const raw = item as unknown as Record<string, unknown>;
   const payload: MutationPayload = {
-    ...pick(raw, entitlementFields),
+    ...pick(raw, entitlementFields.filter(field => field !== 'dynamicOffer')),
     flags: {
       paidRandomItem: item.flags.paidRandomItem,
       paidRandomItemOdds: item.flags.paidRandomItemOdds,
@@ -73,21 +74,22 @@ function entitlementPayload(item: EntitlementItem, includeAlternateIds: boolean)
       generateButtonBinding: item.triggers.generateButtonBinding,
       generateSuccessTriggerBinding: item.triggers.generateSuccessTriggerBinding,
     },
-    ...(item.offerRestrictions ? { offerRestrictions: restrictions(item.offerRestrictions) } : {}),
-    ...(item.dynamicOffer ? { dynamicOffer: dynamicOffer(item.dynamicOffer) } : {}),
+    ...(item.offerRestrictions ? { offerRestrictions: restrictions(item.offerRestrictions) } : clearOptionalFields ? { offerRestrictions: null } : {}),
+    ...(item.dynamicOffer ? { dynamicOffer: dynamicOffer(item.dynamicOffer) } : clearOptionalFields ? { dynamicOffer: null } : {}),
+    ...(clearOptionalFields && item.durationDescription === undefined ? { durationDescription: null } : {}),
   };
-  if (item.alternateOffers) payload.alternateOffers = item.alternateOffers.map(offer => alternatePayload(offer, includeAlternateIds));
+  if (item.alternateOffers) payload.alternateOffers = item.alternateOffers.map(offer => alternatePayload(offer, includeAlternateIds, clearOptionalFields));
   return payload;
 }
 
 /** Build the only fields allowed in an ordinary new-entitlement command. */
 export function buildEntitlementCreatePayload(item: EntitlementItem): MutationPayload {
-  return entitlementPayload(item, true);
+  return entitlementPayload(item, false);
 }
 
 /** Build an ordinary existing-entitlement update without public identity or UI-only fields. */
 export function buildEntitlementUpdatePayload(item: EntitlementItem): MutationPayload {
-  return entitlementPayload(item, true);
+  return entitlementPayload(item, true, true);
 }
 
 export function buildAlternateOfferCreatePayload(offer: AlternateOffer): MutationPayload {
@@ -95,7 +97,7 @@ export function buildAlternateOfferCreatePayload(offer: AlternateOffer): Mutatio
 }
 
 export function buildAlternateOfferUpdatePayload(offer: AlternateOffer): MutationPayload {
-  return alternatePayload(offer, true);
+  return alternatePayload(offer, true, true);
 }
 
 function bundleItemPayload(item: BundleOfferItem): MutationPayload {
@@ -104,12 +106,13 @@ function bundleItemPayload(item: BundleOfferItem): MutationPayload {
   ]);
 }
 
-function bundlePayload(bundle: BundleOffer): MutationPayload {
+function bundlePayload(bundle: BundleOffer, clearOptionalFields = false): MutationPayload {
   const raw = bundle as unknown as Record<string, unknown>;
   return {
     ...pick(raw, bundleFields),
-    ...(bundle.restrictions ? { restrictions: restrictions(bundle.restrictions) } : {}),
-    ...(bundle.dynamicOffer ? { dynamicOffer: dynamicOffer(bundle.dynamicOffer) } : {}),
+    ...(bundle.restrictions ? { restrictions: restrictions(bundle.restrictions) } : clearOptionalFields ? { restrictions: null } : {}),
+    ...(bundle.dynamicOffer ? { dynamicOffer: dynamicOffer(bundle.dynamicOffer) } : clearOptionalFields ? { dynamicOffer: null } : {}),
+    ...(clearOptionalFields && bundle.durationDescription === undefined ? { durationDescription: null } : {}),
     items: bundle.items.map(bundleItemPayload),
   };
 }
@@ -119,7 +122,7 @@ export function buildBundleCreatePayload(bundle: BundleOffer): MutationPayload {
 }
 
 export function buildBundleUpdatePayload(bundle: BundleOffer): MutationPayload {
-  return bundlePayload(bundle);
+  return bundlePayload(bundle, true);
 }
 
 export function buildStorefrontCreatePayload(group: OfferDisplayGroup): MutationPayload {

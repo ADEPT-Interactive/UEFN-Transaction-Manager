@@ -3,6 +3,16 @@ import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 
 export type RuntimeOfferValue = number;
 
+export type CanonicalBundleMode = 'static' | 'fill-to-max' | 'runtime' | 'invalid';
+
+export interface BundleBehavior {
+  mode: CanonicalBundleMode;
+  valid: boolean;
+  reason?: string;
+  fillToMaxEntry?: BundleOfferItem;
+  runtimeEntries: BundleOfferItem[];
+}
+
 export function dynamicPriceEnabled(value: DynamicOfferConfig | undefined): boolean {
   return value?.priceBehavior === 'runtime';
 }
@@ -12,9 +22,49 @@ export function bundleQuantityBehavior(bundle: BundleOffer, entry: BundleOfferIt
   return bundle.dynamicRemaining ? 'fill-to-max' : 'fixed';
 }
 
+/**
+ * Resolve legacy dynamicRemaining and the current per-entry representation
+ * into one semantic mode. Fill-to-max is deliberately a single-entitlement
+ * mode; mixed or multi-entry shapes remain visible as invalid instead of
+ * being silently skipped by the generator.
+ */
+export function getBundleBehavior(bundle: BundleOffer): BundleBehavior {
+  const effectiveEntries = bundle.items.map(entry => ({ entry, behavior: bundleQuantityBehavior(bundle, entry) }));
+  const fillEntries = effectiveEntries.filter(candidate => candidate.behavior === 'fill-to-max');
+  const runtimeEntries = effectiveEntries
+    .filter(candidate => candidate.behavior === 'runtime')
+    .map(candidate => candidate.entry);
+  const hasLegacyFill = bundle.dynamicRemaining === true;
+  const hasFill = hasLegacyFill || fillEntries.length > 0;
+  const hasRuntimePrice = dynamicPriceEnabled(bundle.dynamicOffer);
+
+  if (hasFill) {
+    const fillEntry = fillEntries.length === 1 ? fillEntries[0].entry : undefined;
+    const valid = !hasRuntimePrice
+      && runtimeEntries.length === 0
+      && fillEntries.length === 1
+      && bundle.items.length === 1
+      && Boolean(fillEntry?.entitlementId)
+      && !fillEntry?.bundleId
+      && fillEntry?.quantity === 1;
+    return {
+      mode: valid ? 'fill-to-max' : 'invalid',
+      valid,
+      reason: valid ? undefined : 'Fill-to-max requires exactly one entitlement entry with quantity 1 and no runtime price or runtime quantity.',
+      fillToMaxEntry: fillEntry,
+      runtimeEntries,
+    };
+  }
+
+  if (hasRuntimePrice || runtimeEntries.length > 0) {
+    return { mode: 'runtime', valid: true, runtimeEntries };
+  }
+
+  return { mode: 'static', valid: true, runtimeEntries: [] };
+}
+
 export function hasRuntimeBundleBehavior(bundle: BundleOffer): boolean {
-  return Boolean(bundle.dynamicRemaining || dynamicPriceEnabled(bundle.dynamicOffer)
-    || bundle.items.some(entry => Boolean(entry.quantityBehavior)));
+  return getBundleBehavior(bundle).mode !== 'static';
 }
 
 export function isDynamicBundle(bundle: BundleOffer): boolean {
@@ -41,6 +91,9 @@ export function validateRuntimeBundleQuantities(
   entitlements: EntitlementItem[],
   quantities: Record<string, number>,
 ): string[] {
+  const behavior = getBundleBehavior(bundle);
+  if (behavior.mode === 'invalid') return [behavior.reason ?? 'Bundle quantity behavior is invalid.'];
+  if (behavior.mode === 'fill-to-max') return [];
   const errors: string[] = [];
   let included = 0;
   for (const entry of bundle.items) {

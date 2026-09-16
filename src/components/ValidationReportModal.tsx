@@ -39,6 +39,7 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
   const errors = issues.filter(i => i.severity === 'error');
   const warnings = issues.filter(i => i.severity === 'warning');
   const infos = issues.filter(i => i.severity === 'info');
+  const warningLabel = warnings.length === 1 ? 'Warning' : 'Warnings';
   const isSettingsIssue = (issue: ValidationIssue) => Boolean(issue.field && (issue.field === 'targetVerseFileName' || issue.field in { assetFolderName: true, deviceClassName: true, infoModuleName: true, entitlementsModuleName: true, pricesModuleName: true, offersModuleName: true }));
 
   return (
@@ -83,7 +84,7 @@ export const ValidationReportModal: React.FC<ValidationReportModalProps> = ({
             </span>
             <span className="flex items-center gap-1.5 font-bold text-amber-400">
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>{warnings.length} Warnings</span>
+              <span>{warnings.length} {warningLabel}</span>
             </span>
           </div>
           {issues.length === 0 && (

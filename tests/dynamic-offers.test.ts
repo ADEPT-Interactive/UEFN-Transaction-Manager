@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cleanManagedData, parseManagedData } from '../src/services/projectSchema';
-import { bundleQuantityBehavior, validateRuntimeBundleQuantities, validateRuntimePrice } from '../src/services/dynamicOffers';
+import { bundleQuantityBehavior, getBundleBehavior, validateRuntimeBundleQuantities, validateRuntimePrice } from '../src/services/dynamicOffers';
 import { MARKETPLACE_CONSTRAINTS } from '../src/constants/marketplaceValidation';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { publicApiConfig, publicApiItems } from './public-api-fixture';
@@ -16,6 +16,33 @@ test('legacy dynamicRemaining migrates to canonical runtime behavior on save', (
   const clean = cleanManagedData(parsed.entitlements, parsed.bundles);
   assert.equal('dynamicRemaining' in clean.bundles[0], false);
   assert.equal(clean.bundles[0].items[0].quantityBehavior, 'fill-to-max');
+});
+
+test('fill-to-max is a single-entitlement mode and invalid mixed shapes remain diagnosable', () => {
+  const valid = {
+    id: 'fill', verseKey: 'fill_bundle', name: 'Fill', shortDescription: 'Fill', description: 'Fill', priceVBucks: 100,
+    iconTexture: 'EntitlementIcons.Fill',
+    items: [{ entitlementId: 'coins', quantity: 1, quantityBehavior: 'fill-to-max' as const }],
+  };
+  assert.equal(getBundleBehavior(valid).mode, 'fill-to-max');
+  assert.deepEqual(validateRuntimeBundleQuantities(valid, publicApiItems, {}), []);
+
+  const mixed = {
+    ...valid,
+    id: 'mixed',
+    verseKey: 'mixed_bundle',
+    items: [
+      { entitlementId: 'coins', quantity: 1, quantityBehavior: 'fill-to-max' as const },
+      { entitlementId: 'access', quantity: 1 },
+    ],
+  };
+  const behavior = getBundleBehavior(mixed);
+  assert.equal(behavior.mode, 'invalid');
+  assert.match(behavior.reason ?? '', /exactly one entitlement/i);
+  assert.match(validateRuntimeBundleQuantities(mixed, publicApiItems, {}).join(' '), /exactly one entitlement/i);
+  const clean = cleanManagedData(publicApiItems, [mixed]).bundles[0];
+  assert.equal(clean.items.length, 2);
+  assert.equal(clean.items[0].quantityBehavior, 'fill-to-max');
 });
 
 test('runtime bundle validation rejects invalid price and empty/oversized quantities', () => {

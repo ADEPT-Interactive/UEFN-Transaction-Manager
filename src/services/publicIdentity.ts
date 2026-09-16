@@ -6,6 +6,7 @@ import type {
   ProjectConfig,
   PublicIdentityOverrides,
 } from '../types/entitlement';
+import { isGeneratedStemSafe } from './generatedSymbols';
 import { isValidVerseIdentifier, toVerseApiStem } from './verseIdentity';
 
 export type PublicIdentityKind = 'entitlement' | 'alternate_offer' | 'bundle' | 'storefront';
@@ -90,6 +91,7 @@ export function validatePublicIdentityOverrides(
     }
     const candidate = (record[key] as string).trim();
     if (!isValidVerseIdentifier(candidate)) problems.push(`${label}.publicIdentity.${key} must be a valid non-reserved Verse identifier.`);
+    else if (!isGeneratedStemSafe(candidate) || !isGeneratedStemSafe(toVerseApiStem(candidate))) problems.push(label + '.publicIdentity.' + key + ' conflicts with a generated/native Verse symbol.');
   }
   for (const key of Object.keys(record)) {
     if (!identityOverrideKeys(kind).includes(key as keyof PublicIdentityOverrides)) {
