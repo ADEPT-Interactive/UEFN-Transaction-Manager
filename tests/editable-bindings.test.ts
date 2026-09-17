@@ -10,6 +10,7 @@ test('editable identifiers use stable stems and role-specific names', () => {
     purchaseTriggers: 'VipPass2_PurchaseTriggers',
     purchaseButtons: 'VipPass2_PurchaseButtons',
     successTriggers: 'VipPass2_SuccessTriggers',
+    ownershipConfirmedTriggers: 'VipPass2_OwnershipConfirmedTriggers',
   });
   assert.equal(storefrontEditableName('coin_store'), 'CoinStore_OpenTriggers');
   assert.equal(storefrontEditableName('AllOffersStore', 'openButtons'), 'AllOffersStore_OpenButtons');
@@ -57,6 +58,23 @@ test('editable metadata uses native categories, concise tooltips, and correct ar
   assert.match(source, /Activating an assigned Trigger device fires once after an authoritative successful Granted event for Access Pass/);
   assert.match(source, /Activating an assigned Trigger device opens the Coin Store storefront\. Use it with a deliberate player interaction/);
   assert.doesNotMatch(source, /PurchaseZones|mutator_zone_device|ZoneEntered|automatic zone prompt/i);
+});
+
+test('durable ownership-confirmed bindings are separate opt-in reconciliation outputs', () => {
+  const durable = structuredClone(publicApiItems[0]);
+  durable.triggers.generateOwnershipConfirmedTriggerBinding = true;
+  const source = generateVerseCode([durable], [], { ...publicApiConfig, generateStorefrontBinding: false }, []);
+  assert.match(source, /AccessPass_OwnershipConfirmedTriggers : \[\]trigger_device/);
+  assert.match(source, /UEM_OwnershipConfirmedTriggersCategory<localizes>:message = "Ownership Confirmed"/);
+  assert.match(source, /Ownership Confirmed trigger bindings|fires once when reconciliation confirms/);
+  const reconciliation = source.slice(source.indexOf('ReconcilePlayerEntitlements'));
+  assert.match(reconciliation, /if \(AccessPassOwnedCount > 0\):\n            for \(Trigger : AccessPass_OwnershipConfirmedTriggers\):\n                Trigger\.Trigger\(Player\)/);
+  assert.doesNotMatch(reconciliation, /AccessPassOwnedCount = 0[\s\S]{0,180}AccessPass_OwnershipConfirmedTriggers/);
+
+  const consumable = structuredClone(publicApiItems[2]);
+  consumable.triggers.generateOwnershipConfirmedTriggerBinding = true;
+  const consumableSource = generateVerseCode([consumable], [], { ...publicApiConfig, generateStorefrontBinding: false }, []);
+  assert.doesNotMatch(consumableSource, /CoinPack_OwnershipConfirmedTriggers/);
 });
 
 test('purchase bindings use deliberate interaction callbacks and canonical helpers', () => {

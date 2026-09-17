@@ -31,6 +31,7 @@ import { DraftConfirmDialog } from './DraftConfirmDialog';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON_DATA_URL } from '../constants/placeholderIcon';
 import { NumericInput } from './NumericInput';
+import { VBucksPriceControl } from './VBucksPriceControl';
 import { deriveEditorConnectionState } from '../../shared/editorState';
 
 interface EntitlementModalProps {
@@ -73,31 +74,48 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   const pendingIconDialogRef = useRef<HTMLDivElement>(null);
   const pendingIconCancelRef = useRef<HTMLButtonElement>(null);
   const imageUploadRef = useRef<ImageUploadZoneHandle>(null);
+  const alternateImageUploadRefs = useRef<Record<string, ImageUploadZoneHandle | null>>({});
   const initialFormRef = useRef<EntitlementItem | null>(item);
   const [pendingIconUpload, setPendingIconUpload] = useState(false);
+  const [pendingAlternateIconIds, setPendingAlternateIconIds] = useState<string[]>([]);
   const [pendingAction, setPendingAction] = useState<'save' | null>(null);
   const [dirtyConfirmationOpen, setDirtyConfirmationOpen] = useState(false);
 
   const isDirty = Boolean(initialFormRef.current && entitlementDraftSnapshot(formData) !== entitlementDraftSnapshot(initialFormRef.current));
 
   const requestClose = () => {
-    if (isDirty || pendingIconUpload) setDirtyConfirmationOpen(true);
+    if (isDirty || pendingIconUpload || pendingAlternateIconIds.length > 0) setDirtyConfirmationOpen(true);
     else onClose();
   };
 
   const confirmPendingIcon = async () => {
     const action = pendingAction;
     if (!action) return;
-    const confirmed: ConfirmedTextureImport | null = await imageUploadRef.current?.confirmPendingImport() ?? null;
-    if (!confirmed) return;
+    const confirmedPrimary = pendingIconUpload
+      ? await imageUploadRef.current?.confirmPendingImport() ?? null
+      : null;
+    if (pendingIconUpload && !confirmedPrimary) return;
+    const confirmedAlternates: Array<{ id: string; import: ConfirmedTextureImport }> = [];
+    for (const id of pendingAlternateIconIds) {
+      const confirmed = await alternateImageUploadRefs.current[id]?.confirmPendingImport() ?? null;
+      if (!confirmed) return;
+      confirmedAlternates.push({ id, import: confirmed });
+    }
     const nextItem = {
       ...formData,
-      iconTexture: confirmed.verseAssetPath,
-      iconImageData: confirmed.preview,
-      iconFileName: confirmed.fileName,
+      ...(confirmedPrimary ? {
+        iconTexture: confirmedPrimary.verseAssetPath,
+        iconImageData: confirmedPrimary.preview,
+        iconFileName: confirmedPrimary.fileName,
+      } : {}),
+      alternateOffers: (formData.alternateOffers ?? []).map(offer => {
+        const confirmed = confirmedAlternates.find(candidate => candidate.id === offer.id)?.import;
+        return confirmed ? { ...offer, iconTexture: confirmed.verseAssetPath, iconImageData: confirmed.preview } : offer;
+      }),
     };
     setFormData(nextItem);
     setPendingAction(null);
+    setPendingAlternateIconIds([]);
     onSave(nextItem);
   };
 
@@ -110,6 +128,8 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
       setCreationStep(0);
       setShowAdvanced(false);
       setPendingIconUpload(false);
+      setPendingAlternateIconIds([]);
+      alternateImageUploadRefs.current = {};
       setPendingAction(null);
       setDirtyConfirmationOpen(false);
     } else if (!isOpen) {
@@ -164,6 +184,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
         description: previous.description,
         priceVBucks: previous.priceVBucks,
         iconTexture: previous.iconTexture,
+        iconImageData: previous.iconImageData,
         restrictions: { ...EMPTY_RESTRICTIONS },
       };
       return { ...previous, alternateOffers: [...(previous.alternateOffers ?? []), offer] };
@@ -199,7 +220,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   const commitForm = () => {
     if (errors.length > 0) return;
-    if (pendingIconUpload) {
+    if (pendingIconUpload || pendingAlternateIconIds.length > 0) {
       setPendingAction('save');
       return;
     }
@@ -392,51 +413,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 </div>
               </div>
 
-              {/* V-Bucks Price Configuration */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label htmlFor="offer-price" className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <VBucksIcon className="h-4 w-4 text-sky-400" />
-                    <span>Price in V-Bucks ({MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to {MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} VB, increments of {MARKETPLACE_CONSTRAINTS.priceStepVBucks})</span>
-                  </label>
-                  <span className="font-mono text-base font-extrabold text-sky-400">
-                    <span className="inline-flex items-center gap-1.5" aria-label={`${formData.priceVBucks.toLocaleString()} V-Bucks`}><VBucksIcon className="h-4 w-4" />{formData.priceVBucks.toLocaleString()}</span>
-                  </span>
-                </div>
-
-                {/* Price input & slider */}
-                <div className="flex items-center gap-3">
-                  <NumericInput id="offer-price" value={formData.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel="Offer price in V-Bucks" onChange={value => setFormData(prev => ({ ...prev, priceVBucks: value }))} className="w-16" />
-                  <input
-                    aria-label="Offer price in V-Bucks"
-                    type="range"
-                    min={MARKETPLACE_CONSTRAINTS.priceMinVBucks}
-                    max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks}
-                    step={MARKETPLACE_CONSTRAINTS.priceStepVBucks}
-                    value={formData.priceVBucks}
-                    onChange={(e) => setFormData(prev => ({ ...prev, priceVBucks: parseInt(e.target.value, 10) }))}
-                    className="flex-1 accent-sky-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
-                  />
-                </div>
-
-                {/* Quick Price Buttons */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[MARKETPLACE_CONSTRAINTS.priceMinVBucks, 100, 150, 200, 400, 500, 1000, 2000, MARKETPLACE_CONSTRAINTS.priceMaxVBucks].map(amount => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => setPrice(amount)}
-                      className={`px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition-all ${
-                        formData.priceVBucks === amount
-                          ? 'bg-sky-500 text-slate-950 border-sky-400'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                      }`}
-                    >
-                      {amount}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <VBucksPriceControl id="offer-price" value={formData.priceVBucks} onChange={setPrice} />
 
               <fieldset className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.04] p-4 space-y-2">
                 <legend className="px-1 text-xs font-extrabold text-cyan-200">Price source</legend>
@@ -459,11 +436,35 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                 {(formData.alternateOffers ?? []).map((offer, index) => (
                   <div key={offer.id} className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
                     <div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">Variant {index + 1}</span><button type="button" onClick={() => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).filter(candidate => candidate.id !== offer.id) }))} className="text-xs text-rose-300">Remove</button></div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className={fieldClass('utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'name'))} />
+                    <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <input aria-label={`Variant ${index + 1} name`} value={offer.name} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, name: e.target.value } : candidate) }))} placeholder="Variant name" className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'name'))} />
+                      </div>
                       <InlineWarnings issues={warningsFor(alternateField(index, 'name'))} />
-                      <NumericInput value={offer.priceVBucks} min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} ariaLabel={`Variant ${index + 1} price in V-Bucks`} onChange={value => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: value } : candidate) }))} className="w-16 text-xs" />
-                      <input aria-label={`Variant ${index + 1} icon texture`} value={offer.iconTexture} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: e.target.value } : candidate) }))} placeholder="Icons.Variant" className="utm-native-field bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono" />
+                      <VBucksPriceControl
+                        id={`variant-${offer.id}-price`}
+                        ariaLabel={`Variant ${index + 1} price in V-Bucks`}
+                        compact
+                        value={offer.priceVBucks}
+                        onChange={value => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, priceVBucks: value } : candidate) }))}
+                      />
+                      <div data-alternate-icon-upload={offer.id}>
+                        <ImageUploadZone
+                          key={offer.id}
+                          ref={handle => { alternateImageUploadRefs.current[offer.id] = handle; }}
+                          contentFolderPath={contentFolderPath}
+                          assetFolderName={assetFolderName}
+                          assetName={offer.verseKey || `variant_${index + 1}`}
+                          ariaLabel={`Choose a PNG icon for Variant ${index + 1}`}
+                          currentTextureRef={offer.iconTexture}
+                          currentImageData={offer.iconImageData ?? (isPlaceholderIconTexture(offer.iconTexture) ? PLACEHOLDER_ICON_DATA_URL : undefined)}
+                          isPlaceholder={isPlaceholderIconTexture(offer.iconTexture)}
+                          nativeTextureImportAvailable={editorStatus?.nativeTextureImportAvailable === true}
+                          onTextureRefChange={texture => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconTexture: texture } : candidate) }))}
+                          onImageDataChange={data => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, iconImageData: data } : candidate) }))}
+                          onPendingStateChange={pending => setPendingAlternateIconIds(current => pending ? [...new Set([...current, offer.id])] : current.filter(id => id !== offer.id))}
+                        />
+                      </div>
                     </div>
                     <input aria-label={`Variant ${index + 1} short description`} value={offer.shortDescription} onChange={e => setFormData(previous => ({ ...previous, alternateOffers: (previous.alternateOffers ?? []).map(candidate => candidate.id === offer.id ? { ...candidate, shortDescription: e.target.value } : candidate) }))} placeholder="Short description" className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs', alternateField(index, 'shortDescription'))} />
                     <InlineWarnings issues={warningsFor(alternateField(index, 'shortDescription'))} />
@@ -552,7 +553,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <button
                     type="button"
                     aria-pressed={formData.itemType === 'consumable'}
-                    onClick={() => setFormData(prev => ({ ...prev, itemType: 'consumable' }))}
+                    onClick={() => setFormData(prev => ({ ...prev, itemType: 'consumable', triggers: { ...prev.triggers, generateOwnershipConfirmedTriggerBinding: false } }))}
                     className={`w-full cursor-pointer border rounded-2xl p-3.5 text-left transition-all flex flex-col justify-between ${
                       formData.itemType === 'consumable'
                         ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/10'
@@ -766,6 +767,19 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   </label>
                   <p className="mt-1 pl-6 text-[11px] text-slate-400">Output trigger. Fires once after authoritative success: Granted for durable and non-auto-consumable offers, or Consumed for auto-consume offers. Use the awaitable event when gameplay needs the quantity.</p>
                 </div>
+
+                {formData.itemType === 'durable' && <div className="space-y-1 border-t border-slate-800 pt-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.triggers.generateOwnershipConfirmedTriggerBinding === true}
+                      onChange={event => setFormData(prev => ({ ...prev, triggers: { ...prev.triggers, generateOwnershipConfirmedTriggerBinding: event.target.checked } }))}
+                      className="w-4 h-4 accent-violet-500 rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-semibold text-white">Ownership Confirmed Trigger</span>
+                  </label>
+                  <p className="mt-1 pl-6 text-[11px] text-slate-400">Join/reconciliation output. Fires once only when UTM confirms this durable offer is owned, including returning players. It never fires for zero ownership and does not replace Success Trigger.</p>
+                </div>}
               </div>
             </div>
           )}

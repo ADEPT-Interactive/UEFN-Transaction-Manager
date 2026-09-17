@@ -9,6 +9,7 @@ interface ImageUploadZoneProps {
   assetName: string;
   currentTextureRef: string;
   currentImageData?: string;
+  ariaLabel?: string;
   isPlaceholder?: boolean;
   nativeTextureImportAvailable: boolean;
   onTextureRefChange: (ref: string) => void;
@@ -74,6 +75,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
   assetName,
   currentTextureRef,
   currentImageData,
+  ariaLabel = 'Choose a PNG entitlement icon',
   isPlaceholder = false,
   nativeTextureImportAvailable,
   onTextureRefChange,
@@ -245,7 +247,7 @@ export const ImageUploadZone = forwardRef<ImageUploadZoneHandle, ImageUploadZone
       <div
         role="button"
         tabIndex={0}
-        aria-label="Choose a PNG entitlement icon"
+        aria-label={ariaLabel}
         aria-disabled={!nativeTextureImportAvailable}
         aria-describedby={!nativeTextureImportAvailable ? 'icon-import-unavailable' : undefined}
         title={!nativeTextureImportAvailable ? 'Full Python connection to UEFN is required for icon importing.' : undefined}

@@ -161,6 +161,12 @@ export function normalizeEntitlement(value: unknown, index: number): Entitlement
       // Success triggers are output bindings and default on for old catalogs
       // so adding this field remains backward compatible.
       generateSuccessTriggerBinding: booleanValue(triggers.generateSuccessTriggerBinding, true),
+      // Ownership confirmation is a separate, opt-in join/reconciliation
+      // binding. Preserve its omission for old manifests so reopening and
+      // regenerating an existing catalog does not create semantic churn.
+      ...(typeof triggers.generateOwnershipConfirmedTriggerBinding === 'boolean'
+        ? { generateOwnershipConfirmedTriggerBinding: triggers.generateOwnershipConfirmedTriggerBinding }
+        : {}),
     },
     dynamicOffer: normalizeDynamicOffer(value.dynamicOffer),
   };

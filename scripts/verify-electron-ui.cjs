@@ -17,6 +17,7 @@ const sessionToken = crypto.randomBytes(48).toString('base64url');
 const editorToken = crypto.randomBytes(48).toString('base64url');
 
 let bridgeProcess;
+let fakeEditorProcess;
 let bridgePort;
 let windowRef;
 let bridgeStdout = '';
@@ -85,6 +86,28 @@ function request(pathname, method = 'GET', body) {
   });
 }
 
+function editorRequest(pathname, method = 'GET', body) {
+  return new Promise((resolve, reject) => {
+    const requestRef = http.request({
+      host: '127.0.0.1',
+      port: bridgePort,
+      path: pathname,
+      method,
+      headers: {
+        'X-UEM-Editor-Token': editorToken,
+        ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}),
+      },
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    requestRef.once('error', reject);
+    requestRef.setTimeout(3000, () => requestRef.destroy(new Error(`Renderer test editor request timed out: ${pathname}`)));
+    requestRef.end(body);
+  });
+}
+
 async function waitForBridge() {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     if (bridgeProcess.exitCode !== null) throw new Error(`The renderer test bridge exited before becoming healthy.\nSTDOUT:\n${bridgeStdout}\nSTDERR:\n${bridgeStderr}`);
@@ -126,6 +149,24 @@ async function click(source, description) {
     target.click();
     return true;
   }`, description);
+}
+
+async function physicalClick(source, description) {
+  const point = await waitForExpression(`() => {
+    const target = (${source})();
+    if (!target) return null;
+    target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const rect = target.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }`, `${description} hit target`);
+  windowRef.show();
+  windowRef.focus();
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+  windowRef.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+  windowRef.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+  windowRef.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+  await wait(120);
 }
 
 function buttonByText(text, exact = false) {
@@ -406,6 +447,141 @@ async function assertOfferTabLayout(description, expectedCount) {
   }
 }
 
+async function assertBundlePriceControl() {
+  const report = await evaluate(`() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="bundle-dialog-title"]');
+    const control = dialog?.querySelector('[data-vbucks-price-control="true"]');
+    const input = dialog?.querySelector('#bundle-price');
+    const slider = dialog?.querySelector('#bundle-price-slider');
+    const decrease = dialog?.querySelector('button[aria-label="Decrease Bundle price in V-Bucks"]');
+    const rect = element => element ? (() => { const value = element.getBoundingClientRect(); return { left: value.left, top: value.top, right: value.right, bottom: value.bottom, width: value.width, height: value.height }; })() : null;
+    const inputRect = input?.getBoundingClientRect();
+    const centerElement = inputRect ? document.elementFromPoint(inputRect.left + inputRect.width / 2, inputRect.top + inputRect.height / 2) : null;
+    return {
+      dialog: rect(dialog),
+      control: rect(control),
+      input: rect(input),
+      decrease: rect(decrease),
+      labelFor: dialog?.querySelector('label[for="bundle-price"]')?.getAttribute('for') ?? null,
+      sliderId: slider?.id ?? null,
+      presetValues: [...(control?.querySelectorAll('button[data-vbucks-price-preset]') ?? [])].map(button => button.getAttribute('data-vbucks-price-preset')),
+      inputValue: input?.value ?? null,
+      centerElement: centerElement?.tagName ?? null,
+    };
+  }`);
+  assert.ok(report.dialog && report.control && report.input && report.decrease, `bundle price control should expose its complete geometry: ${JSON.stringify(report)}`);
+  assert.equal(report.labelFor, 'bundle-price', 'bundle price label must explicitly target the numeric input');
+  assert.equal(report.sliderId, 'bundle-price-slider', 'bundle price control must expose its range slider');
+  assert.ok(report.presetValues.includes('50') && report.presetValues.includes('5000'), `bundle price control must expose the canonical presets: ${JSON.stringify(report)}`);
+  assert.ok(report.control.width >= report.dialog.width - 90, `bundle price control should use the full editor width: ${JSON.stringify(report)}`);
+  assert.ok(report.decrease.right <= report.input.left + 1, `bundle minus hitbox must not overlap the numeric input: ${JSON.stringify(report)}`);
+  assert.equal(report.centerElement, 'INPUT', `bundle numeric input center must remain pointer-addressable: ${JSON.stringify(report)}`);
+
+  const initialValue = Number(report.inputValue);
+  await physicalClick('() => document.querySelector(\'[role="dialog"][aria-labelledby="bundle-dialog-title"] button[aria-label="Decrease Bundle price in V-Bucks"]\')', 'the bundle price minus button');
+  const decreased = await waitForExpression('() => Number(document.querySelector(\'#bundle-price\')?.value)', 'the decreased bundle price');
+  assert.equal(decreased, Math.max(50, initialValue - 50), 'bundle minus pointer click must decrement exactly one V-Bucks step');
+  await physicalClick('() => document.querySelector(\'[role="dialog"][aria-labelledby="bundle-dialog-title"] button[aria-label="Increase Bundle price in V-Bucks"]\')', 'the bundle price plus button');
+  const restored = await waitForExpression('() => Number(document.querySelector(\'#bundle-price\')?.value) === ' + JSON.stringify(initialValue), 'the restored bundle price');
+  assert.equal(restored, true, 'bundle price pointer test must restore the fixture value');
+}
+
+async function assertEntitlementDuplicate() {
+  const beforeResponse = await request('/api/catalog/snapshot');
+  assert.equal(beforeResponse.status, 200, `the duplicate acceptance should read the initial catalog: ${beforeResponse.text}`);
+  const before = JSON.parse(beforeResponse.text);
+  const target = before.catalog?.entitlements?.find(item => item.name === 'Builder Kit');
+  assert.ok(target, 'the duplicate acceptance fixture should contain Builder Kit');
+  const beforeCount = before.catalog.entitlements.length;
+  const original = JSON.parse(JSON.stringify(target));
+  const beforeIdentity = { id: original.id, verseKey: original.verseKey, publicIdentity: original.publicIdentity ?? null };
+  await evaluate(`() => {
+    window.__uemRendererTrace = [];
+    window.__uemRendererErrors = [];
+    window.addEventListener('error', event => window.__uemRendererErrors.push({ type: 'error', message: event.message }));
+    window.addEventListener('unhandledrejection', event => window.__uemRendererErrors.push({ type: 'unhandledrejection', message: String(event.reason) }));
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const requestValue = args[0];
+      const url = typeof requestValue === 'string' ? requestValue : requestValue?.url ?? '';
+      const init = args[1];
+      const entry = url.includes('/api/') ? { url, method: init?.method ?? 'GET', requestBody: init?.body ?? null } : null;
+      if (entry) window.__uemRendererTrace.push(entry);
+      const response = await originalFetch(...args);
+      if (entry) {
+        entry.status = response.status;
+        if (response.headers.get('content-type')?.includes('text/event-stream')) {
+          entry.streaming = true;
+        } else {
+          entry.responseBody = await response.clone().text();
+        }
+      }
+      return response;
+    };
+  }`);
+  await physicalClick('() => document.querySelector(\'button[aria-label="Duplicate Builder Kit"]\')', 'the entitlement Duplicate button');
+
+  let latest = before;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    await wait(100);
+    const response = await request('/api/catalog/snapshot');
+    assert.equal(response.status, 200, `the duplicate acceptance should read the updated catalog: ${response.text}`);
+    latest = JSON.parse(response.text);
+    if (latest.catalog?.entitlements?.length === beforeCount + 1) break;
+  }
+  const renderer = await evaluate(`() => ({
+    cards: [...document.querySelectorAll('article')].map(card => ({
+      name: card.querySelector('h3')?.textContent?.trim() ?? '',
+      duplicate: card.querySelector('button[aria-label^="Duplicate "]')?.getAttribute('aria-label') ?? '',
+    })),
+    status: [...document.querySelectorAll('[role="status"], [role="alert"]')].map(element => element.textContent?.trim()).filter(Boolean),
+    trace: window.__uemRendererTrace ?? [],
+    errors: window.__uemRendererErrors ?? [],
+  })`);
+  assert.equal(latest.catalog?.entitlements?.length, beforeCount + 1, 'entitlement Duplicate must create exactly one new catalog record');
+  const copies = latest.catalog.entitlements.filter(item => item.name === 'Builder Kit Copy');
+  assert.equal(copies.length, 1, 'entitlement Duplicate must create exactly one copy card');
+  const copy = copies[0];
+  assert.notEqual(copy.id, original.id, 'the duplicate must receive a fresh id');
+  assert.notEqual(copy.verseKey, original.verseKey, 'the duplicate must receive a fresh public Verse key');
+  assert.deepEqual(copy.publicIdentity ?? null, null, 'a generic duplicate must not inherit a published public identity override');
+  assert.deepEqual(latest.catalog.entitlements.find(item => item.id === original.id), original, 'the original entitlement must remain unchanged');
+  const mutationEntries = renderer.trace.filter(entry => entry.url.includes('/api/catalog/mutate') && entry.method === 'POST');
+  assert.equal(mutationEntries.length, 1, `Duplicate must make one awaited bridge mutation: ${JSON.stringify(renderer.trace)}`);
+  const mutation = JSON.parse(mutationEntries[0].requestBody);
+  assert.equal(mutation.operation?.type, 'create_entitlement');
+  assert.equal(mutation.operation?.data?.name, 'Builder Kit Copy');
+  const mutationData = mutation.operation?.data ?? {};
+  for (const identityField of ['id', 'verseKey', 'publicIdentity']) assert.equal(identityField in mutationData, false, `duplicate payload must let the bridge allocate ${identityField}`);
+  assert.equal(mutationEntries[0].status, 200, `Duplicate bridge mutation must succeed: ${mutationEntries[0].responseBody}`);
+  assert.equal(renderer.errors.length, 0, `Duplicate must not create renderer errors: ${JSON.stringify(renderer.errors)}`);
+  assert.ok(mutationEntries[0].responseBody?.includes('"catalog"'), 'the bridge mutation response must carry the returned catalog used to render the new card');
+  const copyCardCount = await waitForExpression('() => [...document.querySelectorAll(\'article h3\')].filter(element => element.textContent?.trim() === \'Builder Kit Copy\').length', 'the returned duplicate card');
+  assert.equal(copyCardCount, 1, 'the returned catalog must render exactly one new duplicate card');
+  console.log('ENTITLEMENT_DUPLICATE_ACCEPTANCE', JSON.stringify({
+    before: { count: beforeCount, identity: beforeIdentity },
+    after: { count: latest.catalog.entitlements.length, identity: { id: copy.id, verseKey: copy.verseKey, publicIdentity: copy.publicIdentity ?? null } },
+    mutation: { type: mutation.operation.type, status: mutationEntries[0].status },
+    rendererTraceCount: renderer.trace.length,
+  }));
+
+  await physicalClick('() => document.querySelector(\'button[aria-label="Delete Builder Kit Copy"]\')', 'the duplicate cleanup Delete button');
+  await waitForExpression('() => document.querySelector(\'[role="alertdialog"] button\')', 'the duplicate cleanup confirmation');
+  await physicalClick('() => [...document.querySelectorAll(\'[role="alertdialog"] button\')].find(element => element.textContent?.trim() === \'Delete offer\')', 'the duplicate cleanup confirmation action');
+  const cleanupDeadline = Date.now() + 5000;
+  while (Date.now() < cleanupDeadline) {
+    await wait(100);
+    const response = await request('/api/catalog/snapshot');
+    const cleaned = JSON.parse(response.text);
+    if (cleaned.catalog?.entitlements?.length === beforeCount) break;
+  }
+  const cleanedResponse = await request('/api/catalog/snapshot');
+  const cleaned = JSON.parse(cleanedResponse.text);
+  assert.equal(cleaned.catalog?.entitlements?.length, beforeCount, 'duplicate acceptance cleanup must remove only the temporary copy');
+  assert.deepEqual(cleaned.catalog.entitlements.find(item => item.id === original.id), original, 'duplicate cleanup must preserve the original entitlement');
+}
+
 async function assertTextFieldFocus(rootSelector, description) {
   windowRef.show();
   windowRef.focus();
@@ -441,6 +617,84 @@ async function setTextareaValue(selector, value) {
   }`);
   assert.equal(changed, true, `the ${selector} textarea should accept fixture content`);
   await wait(80);
+}
+
+async function setTextInputValue(selector, value) {
+  const changed = await evaluate(`() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    if (!input || !setter) return false;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value === ${JSON.stringify(value)};
+  }`);
+  assert.equal(changed, true, `the ${selector} input should accept fixture content`);
+  await wait(80);
+}
+
+async function uploadRendererPng(inputSelectorSource, fileName) {
+  const result = await evaluate(`() => {
+    const input = (${inputSelectorSource})();
+    if (!input || typeof DataTransfer === 'undefined') return null;
+    const encoded = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const bytes = Uint8Array.from(atob(encoded), value => value.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], ${JSON.stringify(fileName)}, { type: 'image/png' }));
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files')?.set;
+    if (setter) setter.call(input, transfer.files);
+    else Object.defineProperty(input, 'files', { configurable: true, value: transfer.files });
+    const assigned = { count: input.files?.length ?? 0, name: input.files?.[0]?.name ?? '' };
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return assigned;
+  }`);
+  assert.deepEqual(result, { count: 1, name: fileName }, 'the renderer must accept a PNG through the alternate icon file input');
+  await wait(160);
+}
+
+async function waitForRendererTextureJob(pathname, description) {
+  return waitForExpression(`() => {
+    const trace = window.__uemRendererTrace ?? [];
+    for (let index = trace.length - 1; index >= 0; index -= 1) {
+      const entry = trace[index];
+      if (entry.method !== 'POST' || entry.status !== 202 || !entry.responseBody) continue;
+      try {
+        if (new URL(entry.url, window.location.href).pathname !== ${JSON.stringify(pathname)}) continue;
+        const body = JSON.parse(entry.responseBody);
+        if (body.jobId) return body.jobId;
+      } catch {
+        // The fetch wrapper may still be recording the response body.
+      }
+    }
+    return null;
+  }`, description, 10000);
+}
+
+async function completeRendererTextureJob(jobId, assetName, sourceKind) {
+  const claimedResponse = await editorRequest('/api/texture/import/next');
+  assert.equal(claimedResponse.status, 200, `the renderer texture job should be claimable: ${claimedResponse.text}`);
+  const claimed = JSON.parse(claimedResponse.text);
+  assert.equal(claimed.job?.jobId, jobId, `the editor connector should claim the ${assetName} job exactly once`);
+  assert.equal(claimed.job?.status, 'processing');
+  if (sourceKind === 'uefn-texture') {
+    const sourcePath = path.join(runtimeProjectRoot, 'Content', 'EntitlementIcons', 'AccessPass.png');
+    fs.copyFileSync(sourcePath, claimed.job.sourcePath);
+  }
+  const completedResponse = await editorRequest(
+    `/api/texture/import/${encodeURIComponent(jobId)}/result`,
+    'POST',
+    JSON.stringify({
+      success: true,
+      destinationPath: '/Showcase/EntitlementIcons',
+      assetObjectPath: `/Showcase/EntitlementIcons/${assetName}.${assetName}`,
+    }),
+  );
+  assert.equal(completedResponse.status, 200, `the editor connector should complete the ${assetName} job: ${completedResponse.text}`);
+  const completed = JSON.parse(completedResponse.text);
+  assert.equal(completed.status, 'completed', `the ${assetName} texture job should complete: ${completedResponse.text}`);
+  const packagePath = path.join(runtimeProjectRoot, 'Content', 'EntitlementIcons', `${assetName}.uasset`);
+  fs.writeFileSync(packagePath, 'showcase fixture native asset created by the verified editor connector');
+  return completed;
 }
 
 async function assertTextareaPresentation(rootSelector = '[role="dialog"][aria-labelledby="entitlement-dialog-title"]', description = 'Offer Editor textareas', requireOverflow = true) {
@@ -592,6 +846,8 @@ async function runRendererAssertions() {
   const bodyText = await waitForExpression('() => document.body?.innerText?.includes(\'Bundle offers\') && document.body?.innerText?.includes(\'Storefront membership\')', 'the populated catalog dashboard');
   assert.equal(bodyText, true);
 
+  await assertEntitlementDuplicate();
+
   await click('() => document.querySelector(\'[aria-label="Edit Access Pass"]\')', 'the Access Pass editor');
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the entitlement editor');
   assert.match(await evaluate('() => document.body.innerText'), /increments of 50/i);
@@ -599,7 +855,7 @@ async function runRendererAssertions() {
   await assertOfferTabLayout('Offer Editor Advanced off', 3);
   await assertOfferFooterLayout('Offer Editor footer');
   await assertTextFieldFocus('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', 'Offer Editor text focus');
-  await setTextareaValue('#offer-full-description', Array.from({ length: 18 }, (_, index) => `Demo description line ${index + 1}: player-facing entitlement details remain readable inside the fixed editor.`).join('\n'));
+  await setTextareaValue('#offer-full-description', Array.from({ length: 8 }, (_, index) => `Demo line ${index + 1}: readable player-facing entitlement details.`).join('\n'));
    await assertTextareaPresentation();
   await assertSubtitleTypographyStable();
   await assertOfferTabLayout('Offer Editor Advanced on', 4);
@@ -612,6 +868,52 @@ async function runRendererAssertions() {
   await selectCountry(1, 'CA');
   await selectCountry(1, 'US');
   await selectCountry(1, 'JP');
+  const alternateId = await waitForExpression('() => document.querySelector(\'[data-alternate-icon-upload]\')?.getAttribute(\'data-alternate-icon-upload\')', 'the alternate icon editor identity');
+  const alternateSelector = `[data-alternate-icon-upload="${alternateId}"]`;
+  const alternateFileSelector = `${alternateSelector} input[type="file"]`;
+  const alternateExpressionSelector = `${alternateSelector} input[type="text"]:not([aria-label="Existing UEFN Texture2D object path"])`;
+  const alternateInitialState = await evaluate(`() => ({
+    fileInput: Boolean(document.querySelector(${JSON.stringify(alternateFileSelector)})),
+    adoptInput: Boolean(document.querySelector(${JSON.stringify(`${alternateSelector} input[aria-label="Existing UEFN Texture2D object path"]`)})),
+    adoptButton: [...(document.querySelector(${JSON.stringify(alternateSelector)})?.querySelectorAll('button') ?? [])].some(element => element.textContent?.trim() === 'Adopt'),
+    expression: document.querySelector(${JSON.stringify(alternateExpressionSelector)})?.value ?? '',
+  })`);
+  assert.equal(alternateInitialState.fileInput, true, 'alternate offers must expose the same PNG file import control as primary offers');
+  assert.equal(alternateInitialState.adoptInput, true, 'alternate offers must expose existing Texture2D adoption');
+  assert.equal(alternateInitialState.adoptButton, true, 'alternate offers must expose the existing Texture2D Adopt action');
+  assert.ok(alternateInitialState.expression, 'alternate offers must retain their Verse texture expression before import');
+
+  await uploadRendererPng(`() => document.querySelector(${JSON.stringify(alternateFileSelector)})`, 'alternate-upload.png');
+  await waitForExpression(`() => document.querySelector(${JSON.stringify(alternateSelector)})?.innerText.includes('Awaiting confirmation')`, 'the alternate pending import preview');
+  const pendingAlternateState = await evaluate(`() => ({
+    expression: document.querySelector(${JSON.stringify(alternateExpressionSelector)})?.value ?? '',
+    preview: document.querySelector(${JSON.stringify(alternateSelector)})?.querySelector('img[alt="Texture preview"]')?.getAttribute('src') ?? '',
+  })`);
+  assert.equal(pendingAlternateState.expression, alternateInitialState.expression, 'a transient alternate preview must not change the saved Verse texture expression');
+  assert.match(pendingAlternateState.preview, /^data:image\//, 'the alternate upload must render an immediate transient preview');
+  await physicalClick(`() => [...(document.querySelector(${JSON.stringify(alternateSelector)})?.querySelectorAll('button') ?? [])].find(element => element.textContent?.trim() === 'Cancel')`, 'the alternate pending import Cancel action');
+  await waitForExpression(`() => !document.querySelector(${JSON.stringify(alternateSelector)})?.innerText.includes('Awaiting confirmation')`, 'the alternate transient import cancellation');
+  const cancelledAlternateExpression = await evaluate(`() => document.querySelector(${JSON.stringify(alternateExpressionSelector)})?.value ?? ''`);
+  assert.equal(cancelledAlternateExpression, alternateInitialState.expression, 'cancelling a transient alternate preview must preserve the original expression');
+
+  await uploadRendererPng(`() => document.querySelector(${JSON.stringify(alternateFileSelector)})`, 'alternate-upload.png');
+  await waitForExpression(`() => document.querySelector(${JSON.stringify(alternateSelector)})?.innerText.includes('Awaiting confirmation')`, 'the alternate confirmed-import preview');
+  await physicalClick(`() => [...(document.querySelector(${JSON.stringify(alternateSelector)})?.querySelectorAll('button') ?? [])].find(element => element.textContent?.trim() === 'Confirm & import into UEFN')`, 'the alternate Confirm and import action');
+  const alternateImportJob = await waitForRendererTextureJob('/api/texture/import', 'the alternate PNG import job');
+  await completeRendererTextureJob(alternateImportJob, 'access_pass_alternate_1', 'local-image');
+  await waitForExpression(`() => {
+    const text = document.querySelector(${JSON.stringify(alternateSelector)})?.innerText ?? '';
+    return text.includes('In Content Browser') && !text.includes('Awaiting confirmation');
+  }`, 'the completed alternate PNG import');
+  const importedAlternateState = await evaluate(`() => ({
+    expression: document.querySelector(${JSON.stringify(alternateExpressionSelector)})?.value ?? '',
+    preview: document.querySelector(${JSON.stringify(alternateSelector)})?.querySelector('img[alt="Texture preview"]')?.getAttribute('src') ?? '',
+    status: document.querySelector(${JSON.stringify(alternateSelector)})?.innerText ?? '',
+  })`);
+  assert.equal(importedAlternateState.expression, 'EntitlementIcons.access_pass_alternate_1', 'completed alternate import must adopt the generated Verse texture expression');
+  assert.match(importedAlternateState.preview, /^data:image\//, 'completed alternate import must retain its preview');
+  assert.match(importedAlternateState.status, /In Content Browser/);
+
   const offerFlags = await selectedFlagReport();
   assert.equal(offerFlags.length, 6, 'normal and alternate restrictions should retain CA, US, and JP');
   assertFlagReports(offerFlags, 'normal and alternate restrictions');
@@ -622,11 +924,40 @@ async function runRendererAssertions() {
   await assertViewportMatrix('[role="dialog"][aria-labelledby="entitlement-dialog-title"]', '#offer-editor-panel', 'the entitlement editor');
   await assertOfferFooterLayout('Offer Editor footer after body scrolling');
   await assertStableOfferTabs();
-  await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the entitlement editor close action');
-  await discardDialogChanges();
+  await physicalClick('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"] button[type="submit"]\')', 'the Access Pass Save Offer action');
+  await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the saved Access Pass editor');
+  await physicalClick('() => document.querySelector(\'button[aria-label="Save project"]\')', 'the project save action after alternate import');
+  await waitForExpression('() => [...document.querySelectorAll(\'[role="status"]\')].some(element => (element.textContent ?? \'\').includes(\'Saved \') && (element.textContent ?? \'\').includes(\'managed_transactions.verse\'))', 'the project save confirmation for the alternate icon');
+  await physicalClick('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Tools\')', 'the project Tools menu');
+  await physicalClick(buttonByText('Reload from project', true), 'the project reload action after alternate save');
+  await wait(150);
+  const reloadNeedsConfirmation = await evaluate(`() => Boolean([...document.querySelectorAll('[role="alertdialog"] button')].find(element => element.textContent?.trim() === 'Discard changes and reload'))`);
+  if (reloadNeedsConfirmation) await physicalClick(buttonByText('Discard changes and reload', true), 'the project reload discard confirmation');
+  await waitForExpression('() => [...document.querySelectorAll(\'[role="status"]\')].some(element => (element.textContent ?? \'\').includes(\'Loaded 5 entitlements and 3 bundles\'))', 'the project reload confirmation');
+  await click('() => document.querySelector(\'[aria-label="Edit Access Pass"]\')', 'the reloaded Access Pass editor');
+  await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the reloaded entitlement editor');
+  await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Advanced\')', 'the reloaded advanced controls');
+  await waitForExpression(`() => document.querySelector(${JSON.stringify(alternateSelector)})`, 'the reloaded alternate icon editor');
+  const reloadedAlternateState = await evaluate(`() => ({
+    expression: document.querySelector(${JSON.stringify(alternateExpressionSelector)})?.value ?? '',
+    preview: document.querySelector(${JSON.stringify(alternateSelector)})?.querySelector('img[alt="Texture preview"]')?.getAttribute('src') ?? '',
+    status: document.querySelector(${JSON.stringify(alternateSelector)})?.innerText ?? '',
+  })`);
+  assert.equal(reloadedAlternateState.expression, 'EntitlementIcons.access_pass_alternate_1', 'saved alternate imports must persist their Verse expression through reload');
+  assert.match(reloadedAlternateState.preview, /^data:image\//, 'saved alternate imports must reload their persisted preview');
+  assert.match(reloadedAlternateState.status, /In Content Browser/);
+  const alternateAdoptionInput = `${alternateSelector} input[aria-label="Existing UEFN Texture2D object path"]`;
+  await setTextInputValue(alternateAdoptionInput, '/Showcase/LegacyShopIcons/Vip.Vip');
+  await physicalClick(`() => [...(document.querySelector(${JSON.stringify(alternateSelector)})?.querySelectorAll('button') ?? [])].find(element => element.textContent?.trim() === 'Adopt')`, 'the alternate existing Texture2D Adopt action');
+  const alternateAdoptionJob = await waitForRendererTextureJob('/api/texture/adopt', 'the alternate Texture2D adoption job');
+  await completeRendererTextureJob(alternateAdoptionJob, 'access_pass_alternate_1', 'uefn-texture');
+  await waitForExpression(`() => document.querySelector(${JSON.stringify(alternateSelector)})?.innerText.includes('Adopted /Showcase/LegacyShopIcons/Vip.Vip')`, 'the completed alternate Texture2D adoption');
+  await physicalClick('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the reloaded entitlement editor close action');
+  await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\') && !document.querySelector(\'[role="alertdialog"]\')', 'the reloaded entitlement editor to close');
 
   await click('() => document.querySelector(\'[aria-label="Edit Starter Bundle"]\')', 'the Starter Bundle editor');
   await waitForExpression('() => document.querySelector(\'[role="dialog"][aria-labelledby="bundle-dialog-title"]\')', 'the bundle editor');
+  await assertBundlePriceControl();
   await selectCountry(0, 'CA');
   await selectCountry(0, 'US');
   await selectCountry(0, 'JP');
@@ -726,6 +1057,7 @@ async function cleanup() {
     ]);
     if (bridgeProcess.exitCode === null) bridgeProcess.kill();
   }
+  if (fakeEditorProcess && fakeEditorProcess.exitCode === null) fakeEditorProcess.kill();
   fs.rmSync(runtimeProjectRoot, { recursive: true, force: true });
 }
 
@@ -736,6 +1068,14 @@ async function main() {
   if (!fs.existsSync(showcaseProjectFile)) throw new Error(`The deterministic showcase fixture was not created at ${showcaseProjectFile}.`);
 
   bridgePort = await reservePort();
+  // This is a disposable connector identity for renderer-only acceptance. It
+  // is deliberately not a UEFN process and never opens or manipulates an
+  // editor session.
+  fakeEditorProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 600000)'], {
+    windowsHide: true,
+    stdio: 'ignore',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
   bridgeProcess = spawn(electronPath, [serverPath], {
     cwd: applicationRoot,
     windowsHide: true,
@@ -749,9 +1089,10 @@ async function main() {
       UEM_CONTENT_ROOT: path.join(runtimeProjectRoot, 'Content'),
       UEM_ASSET_MOUNT: '/Showcase',
       UEM_PROJECT_FILE: showcaseProjectFile,
+      LOCALAPPDATA: path.join(runtimeProjectRoot, 'LocalAppData'),
       UEM_PROJECT_PYTHON_ENABLED: '1',
       UEM_AUTO_CONNECTOR_INSTALLED: '0',
-      UEM_UEFN_PROCESS_ID: '0',
+      UEM_UEFN_PROCESS_ID: String(fakeEditorProcess.pid),
       UEM_TEST_MODE: '1',
       UEM_TEST_NO_GLOBAL_UEFN_PROBE: '1',
       UEM_IDLE_TIMEOUT_MS: '600000',
@@ -760,6 +1101,18 @@ async function main() {
   bridgeProcess.stdout.on('data', data => { bridgeStdout = `${bridgeStdout}${data}`.slice(-12000); });
   bridgeProcess.stderr.on('data', data => { bridgeStderr = `${bridgeStderr}${data}`.slice(-12000); });
   await waitForBridge();
+  const editorSession = await editorRequest('/api/editor/session', 'POST', JSON.stringify({
+    contentRoot: path.join(runtimeProjectRoot, 'Content'),
+    assetMount: '/Showcase',
+    projectFile: showcaseProjectFile,
+    projectReady: true,
+    processId: fakeEditorProcess.pid,
+    readinessReason: 'renderer-acceptance-fixture',
+  }));
+  assert.equal(editorSession.status, 200, `the renderer acceptance connector session should be accepted: ${editorSession.text}`);
+  const editorStatus = JSON.parse((await request('/api/editor/status')).text);
+  assert.equal(editorStatus.freshExactConnector, true, `the renderer acceptance connector must be exact and fresh: ${JSON.stringify(editorStatus)}`);
+  assert.equal(editorStatus.editorConnected, true, `the renderer acceptance connector must be ready: ${JSON.stringify(editorStatus)}`);
 
   windowRef = new BrowserWindow({
     show: false,

@@ -16,7 +16,7 @@ import { PlaceholderIcon } from './PlaceholderIcon';
 interface EntitlementCardProps {
   item: EntitlementItem;
   onEdit: (item: EntitlementItem) => void;
-  onDuplicate: (item: EntitlementItem) => void;
+  onDuplicate: (item: EntitlementItem) => void | Promise<void>;
   onDelete: (id: string) => void;
   warningCount?: number;
 }

@@ -81,6 +81,9 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).purchaseTriggers : undefined,
       purchaseButtons: item.triggers.generateButtonBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).purchaseButtons : undefined,
       successTriggers: item.triggers.generateSuccessTriggerBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).successTriggers : undefined,
+      ownershipConfirmedTriggers: item.itemType === 'durable' && item.triggers.generateOwnershipConfirmedTriggerBinding
+        ? entitlementEditableNames(item.verseKey, identity.apiStem).ownershipConfirmedTriggers
+        : undefined,
     },
     runtimeOptionsType: dynamic ? runtimeOptionsType : undefined,
     runtimeOptionsFields: dynamic ? ['PriceVBucks'] : undefined,
@@ -199,7 +202,7 @@ export function describeIntegrationContract(
     },
     requiredImports: [
       '/Fortnite.com/Devices',
-      '/Fortnite.com/Marketplace',
+      '/UnrealEngine.com/Marketplace',
       '/Fortnite.com/Playspaces',
       '/UnrealEngine.com/Temporary/Diagnostics',
       '/Verse.org/Assets',
@@ -213,6 +216,7 @@ export function describeIntegrationContract(
       'The Consumed event is emitted only for the matched portion of an authoritative negative entitlement delta correlated to a generated Consume helper intent; Removed is not proof of explicit consumption.',
       'Immediate-use legacy transactions must be mapped to consumable autoConsume and their gameplay consequence must wait for the Consumed event.',
       'Reconciliation establishes initial truth; generated delta events keep current truth current.',
+      'Ownership Confirmed trigger bindings are separate opt-in durable reconciliation outputs: they fire once per player only when the reconciled owned count is greater than zero, never for zero ownership, and never replace purchase Success Triggers.',
       'For every gameplay-affecting durable with mirrored project state, initialize from reconciliation and maintain a persistent Await<Stem>GrantedEvent path for same-session acquisition; a join-only cache is incomplete.',
       'When ownership loss is supported and relevant, use the generated Await<Stem>RemovedEvent path; do not invent removal semantics.',
       'Do not treat durable Granted as a consumable use boundary or consumable Consumed as a durable ownership boundary.',
@@ -245,6 +249,7 @@ function entitlementBindingContract(item: EntitlementItem, config: ProjectConfig
     ...(item.triggers.generateTriggerBinding ? { purchaseTriggers: names.purchaseTriggers } : {}),
     ...(item.triggers.generateButtonBinding ? { purchaseButtons: names.purchaseButtons } : {}),
     ...(item.triggers.generateSuccessTriggerBinding ? { successTriggers: names.successTriggers } : {}),
+    ...(item.itemType === 'durable' && item.triggers.generateOwnershipConfirmedTriggerBinding ? { ownershipConfirmedTriggers: names.ownershipConfirmedTriggers } : {}),
   };
 }
 

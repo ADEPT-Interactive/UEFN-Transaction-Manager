@@ -83,6 +83,38 @@ test('project opening is distinct from a completed exact project open', () => {
   assert.equal(completed.openedProject, second);
 });
 
+test('42.20 lifecycle wording is parsed without weakening the connector gate', () => {
+  const project = 'D:/UEFN Projects/Example Project/Example Project.uefnproject';
+  const lifecycle = parseUefnProjectLifecycleLog([
+    'LogInit: Running DelayedAutoRegister Phase StartOfEnginePreInit',
+    `LogValkyrie: Opening project '${project}'`,
+  ].join('\n'));
+  assert.equal(lifecycle.projectOpening, true);
+  assert.equal(lifecycle.openingProject, project);
+  assert.equal(deriveEditorConnectionState({
+    uefnRunning: true,
+    projectOpening: true,
+    exactProjectOpen: true,
+    differentProjectOpen: false,
+    pythonEnabled: true,
+    connectorAlive: true,
+    projectReady: true,
+    editorConnected: true,
+    freshExactConnector: true,
+  }), 'connected');
+  assert.equal(deriveEditorConnectionState({
+    uefnRunning: true,
+    projectOpening: true,
+    exactProjectOpen: true,
+    differentProjectOpen: false,
+    pythonEnabled: true,
+    connectorAlive: true,
+    projectReady: true,
+    editorConnected: true,
+    freshExactConnector: false,
+  }), 'project-opening');
+});
+
 test('exact identity and Python readiness are separate connection facts', () => {
   assert.equal(deriveEditorConnectionState({ uefnRunning: true, projectOpening: false, exactProjectOpen: true, differentProjectOpen: false, pythonEnabled: false, connectorAlive: false, projectReady: false, editorConnected: false }), 'python-required');
   assert.equal(deriveEditorConnectionState({ uefnRunning: true, projectOpening: false, exactProjectOpen: true, differentProjectOpen: false, pythonEnabled: true, connectorAlive: false, projectReady: false, editorConnected: false }), 'connector-waiting');

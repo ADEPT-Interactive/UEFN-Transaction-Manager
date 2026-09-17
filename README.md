@@ -3,7 +3,7 @@
   <h1>UEFN Transaction Manager</h1>
   <p><strong>A visual tool for building and managing Fortnite in-island transactions in UEFN.</strong></p>
   <p>
-    <img alt="Version 4.4.0" src="https://img.shields.io/badge/version-4.4.0-24c7dd?style=flat-square">
+    <img alt="Version 4.4.1" src="https://img.shields.io/badge/version-4.4.1-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="https://discord.gg/playadept"><img alt="ADEPT Discord" src="https://img.shields.io/discord/790712680482603038?label=Discord&logo=discord&logoColor=white&color=5865F2&style=flat-square"></a>
@@ -32,6 +32,7 @@ UEFN Transaction Manager is a visual Windows app for building Fortnite in-island
 - Use runtime prices and quantities calculated by your own Verse while UTM validates the final values and generates the integration surface.
 - Import supported artwork or adopt existing UEFN `Texture2D` assets into the managed icon workflow.
 - Generate the managed Verse device, purchase helpers, ownership queries, grants, consumption helpers, and state notifications.
+- Optionally expose a durable `Ownership Confirmed` trigger for join-time access effects; it fires only when reconciliation confirms ownership, while purchase `Success Triggers` retain their existing semantics.
 - Review local validation and advisory moderation guidance before compiling and testing in UEFN.
 
 ## Built for creators. Ready for coding agents.

@@ -17,6 +17,8 @@ export interface EditorStateFacts {
   connectorAlive: boolean;
   projectReady: boolean;
   editorConnected: boolean;
+  /** Fresh connector identity/readiness proof may outrank stale opening text. */
+  freshExactConnector?: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface EditorStateFacts {
 export function deriveEditorConnectionState(facts: EditorStateFacts): EditorConnectionState {
   if (!facts.uefnRunning) return 'uefn-closed';
   if (facts.differentProjectOpen) return 'different-project';
-  if (facts.projectOpening) return 'project-opening';
+  if (facts.projectOpening && !facts.freshExactConnector) return 'project-opening';
   if (!facts.exactProjectOpen) return 'uefn-running-project-unknown';
   if (!facts.pythonEnabled) return 'python-required';
   if (!facts.connectorAlive) return 'connector-waiting';

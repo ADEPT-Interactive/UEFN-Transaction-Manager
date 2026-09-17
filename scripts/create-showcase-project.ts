@@ -55,5 +55,10 @@ await fs.writeFile(path.join(contentRoot, config.targetVerseFileName), generateV
 for (const [assetName, sourceName] of Object.entries(iconSources)) {
   const source = await fs.readFile(path.join('docs', 'showcase', 'icons', sourceName));
   await sharp(source).png().resize(256, 256, { fit: 'contain' }).toFile(path.join(iconRoot, `${assetName}.png`));
+  // The renderer fixture never opens these files in UEFN, but the bridge's
+  // save preflight must still see the exact native package beside every
+  // generated Texture2D reference. A small sentinel is sufficient for that
+  // filesystem contract; native package validity belongs to UEFN acceptance.
+  await fs.writeFile(path.join(iconRoot, `${assetName}.uasset`), 'showcase fixture native asset');
 }
 console.log(path.join(root, 'Creator Commerce Demo.uefnproject'));

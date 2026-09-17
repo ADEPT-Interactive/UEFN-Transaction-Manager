@@ -48,6 +48,7 @@ For every migrated durable entitlement whose ownership affects gameplay, UI, acc
 - During player initialization, wait for or otherwise use the generated reconciliation path (`Await<Stem>ReconciledEvent()` and the authoritative `Has<Stem>`/`Get<Stem>Count` helpers) to initialize the project-owned mirror or cache.
 - For the lifetime of the integration, maintain a persistent listener loop for `Await<Stem>GrantedEvent()`. A same-session durable acquisition must update the external gameplay state immediately, without reconnecting or rerunning player initialization.
 - If ownership loss/revocation is actually supported by the current generated contract and relevant to the project, maintain the corresponding `Await<Stem>RemovedEvent()` path. Do not invent removal APIs or semantics.
+- A creator may opt a durable into the separate `Ownership Confirmed` trigger binding. UTM fires it once for that player only when reconciliation reports an owned count greater than zero; it is silent for zero ownership and remains distinct from purchase/grant `Success Triggers`. Keep advanced ownership behavior in Verse and preserve the existing `Reconciled`, `Granted`, and `Removed` APIs.
 
 Reconciliation is state establishment, not a subscription. A join-only flag or cached project flag populated only during player join is incomplete integration. A durable migration is not semantically proven until both initial ownership propagation and live ownership propagation are structurally verified.
 

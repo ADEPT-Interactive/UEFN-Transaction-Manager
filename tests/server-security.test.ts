@@ -322,6 +322,7 @@ test('standalone bridge fails closed without an explicit editor project-readines
       uefnRunning: true,
       projectOpening: false,
       connectorAlive: false,
+      freshExactConnector: false,
       editorConnected: false,
       projectActive: true,
       exactProjectOpen: true,

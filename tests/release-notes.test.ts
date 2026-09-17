@@ -7,7 +7,7 @@ const root = path.resolve(import.meta.dirname, '..');
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 test('every published release has checked-in version-specific notes', () => {
-  const versions = ['4.3.2', '4.3.3', '4.3.4', '4.3.5', '4.3.6', '4.3.7', '4.4.0'];
+  const versions = ['4.3.2', '4.3.3', '4.3.4', '4.3.5', '4.3.6', '4.3.7', '4.4.0', '4.4.1'];
   const notes = versions.map(version => {
     const content = read(`release-notes/${version}.md`).trim();
     assert.ok(content, `${version} release notes must not be empty`);
@@ -18,7 +18,7 @@ test('every published release has checked-in version-specific notes', () => {
   assert.equal(new Set(notes).size, notes.length, '4.3.x release notes must not be copied generic text');
 
   const currentVersion = JSON.parse(read('version.json')).version as string;
-  assert.equal(currentVersion, '4.4.0');
+  assert.equal(currentVersion, '4.4.1');
   assert.ok(fs.existsSync(path.join(root, `release-notes/${currentVersion}.md`)));
 });
 

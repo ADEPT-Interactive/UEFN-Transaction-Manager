@@ -268,7 +268,7 @@ function entitlementMutationPayload(value: unknown, includeAlternateIds: boolean
     ...(source.flags !== undefined ? { flags: pickMutationFields(record(source.flags), ['paidRandomItem', 'paidRandomItemOdds', 'paidArea', 'consequentialToGameplay']) } : {}),
     ...(source.offerRestrictions !== undefined ? { offerRestrictions: mutationRestrictions(source.offerRestrictions) } : {}),
     ...(source.dynamicOffer !== undefined ? { dynamicOffer: mutationDynamicOffer(source.dynamicOffer) } : {}),
-    ...(source.triggers !== undefined ? { triggers: pickMutationFields(record(source.triggers), ['generateTriggerBinding', 'generateButtonBinding', 'generateSuccessTriggerBinding']) } : {}),
+    ...(source.triggers !== undefined ? { triggers: pickMutationFields(record(source.triggers), ['generateTriggerBinding', 'generateButtonBinding', 'generateSuccessTriggerBinding', 'generateOwnershipConfirmedTriggerBinding']) } : {}),
     ...(Array.isArray(source.alternateOffers)
       ? { alternateOffers: source.alternateOffers.map(value => alternateMutationPayload(value, includeAlternateIds)) }
       : {}),

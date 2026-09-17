@@ -11,6 +11,7 @@ import { DraftConfirmDialog } from './DraftConfirmDialog';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { bundleDraftSnapshot } from '../services/draftSnapshots';
 import { NumericInput } from './NumericInput';
+import { VBucksPriceControl } from './VBucksPriceControl';
 import { bundleQuantityBehavior, getBundleBehavior } from '../services/dynamicOffers';
 import { EditorStatus } from '../services/fileService';
 import { ConfirmedTextureImport, ImageUploadZone, ImageUploadZoneHandle } from './ImageUploadZone';
@@ -26,7 +27,7 @@ interface BundleManagerProps {
   dismissedWarningIds?: string[];
   allocateVerseKey: (name: string) => string;
   onChange: (bundles: BundleOffer[]) => void;
-  onDuplicate: (bundle: BundleOffer) => void;
+  onDuplicate: (bundle: BundleOffer) => void | Promise<void>;
 }
 
 const emptyBundle = (assetFolder: string, verseKey: string): BundleOffer => ({
@@ -364,10 +365,10 @@ const BundleEditorModal: React.FC<{
                 <span className={fieldClass('utm-native-textarea-shell mt-1 block rounded-lg border bg-slate-950 border-slate-700', 'description')}><textarea aria-label="Bundle full description" value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} className="utm-native-field block w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3 py-2" /></span>
                 <InlineWarnings issues={warningsFor('description')} />
               </label>
-              <label className="text-xs text-slate-300">Price in V-Bucks
-                <span className="mt-1 flex items-center gap-2"><VBucksIcon className="h-4 w-4 text-sky-400" /><NumericInput ariaLabel="Bundle price in V-Bucks" min={MARKETPLACE_CONSTRAINTS.priceMinVBucks} max={MARKETPLACE_CONSTRAINTS.priceMaxVBucks} step={MARKETPLACE_CONSTRAINTS.priceStepVBucks} value={form.priceVBucks} onChange={value => setForm({ ...form, priceVBucks: value })} className="w-16" /></span>
-              </label>
-              <div className="text-xs text-slate-300">
+              <div className="sm:col-span-2">
+                <VBucksPriceControl id="bundle-price" ariaLabel="Bundle price in V-Bucks" value={form.priceVBucks} onChange={value => setForm({ ...form, priceVBucks: value })} />
+              </div>
+              <div data-bundle-icon-editor="true" className="sm:col-span-2 text-xs text-slate-300">
                 <p className="font-medium">Bundle icon</p>
                 <div className="mt-1">
                   <ImageUploadZone

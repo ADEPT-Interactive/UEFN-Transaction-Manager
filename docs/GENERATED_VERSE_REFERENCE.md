@@ -101,6 +101,8 @@ WatchAccess()<suspends>:void =
 
 The generated device provides matching `Await<StableKeyStem>RemovedEvent()` and `Await<StableKeyStem>ReconciledEvent()` functions. Consumable entitlements additionally provide `Await<StableKeyStem>ConsumedEvent()`. Each returns the generated `(player, int)` notification value. A grant represents a positive entitlement delta, a removal represents a negative delta, reconciliation reports the current count, including zero, and `Consumed` represents only the portion of an authoritative negative delta correlated to a still-pending generated consume intent. Refunds, corrections, and unrelated removals remain `Removed` only.
 
+For durable entitlements, the editor can also expose `<StableKeyStem>_OwnershipConfirmedTriggers`. This separate optional trigger is fired once for that player after reconciliation only when the owned count is greater than zero. It never fires for zero ownership and is not a replacement for `Success Triggers`; creators should keep advanced ownership reconciliation and gameplay in Verse with the existing awaitable APIs.
+
 For an immediate-use legacy purchase, configure the entitlement as a consumable with `autoConsume` enabled and apply the gameplay consequence from `Consumed`, not from `Granted` or a generic `Removed` delta:
 
 ```verse

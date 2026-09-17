@@ -24,7 +24,7 @@ interface EntitlementListProps {
   onAddNew: () => void;
   onAddPreset: (presetIndex: number) => void;
   onEdit: (item: EntitlementItem) => void;
-  onDuplicate: (item: EntitlementItem) => void;
+  onDuplicate: (item: EntitlementItem) => void | Promise<void>;
   onDelete: (id: string) => void;
   warningCounts?: Record<string, number>;
   creationRequest?: number;

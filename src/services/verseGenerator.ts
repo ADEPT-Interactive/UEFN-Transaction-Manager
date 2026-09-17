@@ -3,7 +3,7 @@ import { cleanManagedData, normalizeBundle, normalizeEntitlement, normalizeOffer
 import { MANIFEST_BEGIN, MANIFEST_END } from './verseParser';
 import { toVerseApiStem } from './verseIdentity';
 import { derivePublicIdentity } from './publicIdentity';
-import { generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
+import { generatedOfferDescription, isValidMarketplacePrice, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { legacyStorefrontMembership, resolveStorefrontEntry } from './storefrontMembership';
 import { bundleQuantityBehavior, dynamicPriceEnabled, getBundleBehavior, isDynamicBundle } from './dynamicOffers';
 import { GeneratedSymbolRegistry } from './generatedSymbols';
@@ -65,7 +65,7 @@ type EditableDescriptor = {
   displayName: string;
   propertyName: string;
   type: string;
-  role: 'purchaseTriggers' | 'purchaseButtons' | 'successTriggers' | 'openTriggers' | 'openButtons';
+  role: 'purchaseTriggers' | 'purchaseButtons' | 'successTriggers' | 'ownershipConfirmedTriggers' | 'openTriggers' | 'openButtons';
   tooltip: string;
   rootCategory: 'entitlements' | 'storefronts';
 };
@@ -111,6 +111,15 @@ function editableDescriptors(
       tooltip: `Activating an assigned Trigger device fires once after an authoritative successful ${item.itemType === 'consumable' && item.autoConsume ? 'Consumed' : 'Granted'} event for ${item.name || item.verseKey}. The event quantity is available through the awaitable Verse API.`,
       rootCategory: 'entitlements',
     });
+    if (item.itemType === 'durable' && item.triggers.generateOwnershipConfirmedTriggerBinding) descriptors.push({
+      key: descriptorKey,
+      displayName: item.name || item.verseKey,
+      propertyName: names.ownershipConfirmedTriggers,
+      type: '[]trigger_device',
+      role: 'ownershipConfirmedTriggers',
+      tooltip: `Activating an assigned Trigger device fires once when reconciliation confirms that ${item.name || item.verseKey} is owned on player join. It is intended for durable access effects and does not represent a new purchase.`,
+      rootCategory: 'entitlements',
+    });
   }
   if (config.generateStorefrontBinding) descriptors.push({
     key: 'AllOffersStore',
@@ -145,6 +154,7 @@ function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
     successTriggers: EDITABLE_METADATA_SYMBOLS.successTriggersCategory,
+    ownershipConfirmedTriggers: EDITABLE_METADATA_SYMBOLS.ownershipConfirmedTriggersCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
@@ -152,6 +162,7 @@ function editableMetadataLines(descriptors: EditableDescriptor[]): string[] {
     purchaseTriggers: EDITABLE_CATEGORY_LABELS.purchaseTriggers,
     purchaseButtons: EDITABLE_CATEGORY_LABELS.purchaseButtons,
     successTriggers: EDITABLE_CATEGORY_LABELS.successTriggers,
+    ownershipConfirmedTriggers: EDITABLE_CATEGORY_LABELS.ownershipConfirmedTriggers,
     openTriggers: EDITABLE_CATEGORY_LABELS.openTriggers,
     openButtons: EDITABLE_CATEGORY_LABELS.openButtons,
   };
@@ -181,6 +192,7 @@ function editableAttributeLines(descriptor: EditableDescriptor): string[] {
     purchaseTriggers: EDITABLE_METADATA_SYMBOLS.purchaseTriggersCategory,
     purchaseButtons: EDITABLE_METADATA_SYMBOLS.purchaseButtonsCategory,
     successTriggers: EDITABLE_METADATA_SYMBOLS.successTriggersCategory,
+    ownershipConfirmedTriggers: EDITABLE_METADATA_SYMBOLS.ownershipConfirmedTriggersCategory,
     openTriggers: EDITABLE_METADATA_SYMBOLS.openTriggersCategory,
     openButtons: EDITABLE_METADATA_SYMBOLS.openButtonsCategory,
   };
@@ -305,9 +317,9 @@ function runtimePriceChoices(): string {
   return balancedOr(choices);
 }
 
-function runtimePriceValidationLines(functionName: string): string[] {
+function sharedRuntimePriceValidationLines(): string[] {
   return [
-    `    ${functionName}(PriceVBucks:float)<transacts>:logic =`,
+    '    IsValidRuntimePrice<public>(PriceVBucks:float)<transacts>:logic =',
     `        if (${runtimePriceChoices()}):`,
     '            return true',
     '        false',
@@ -327,9 +339,8 @@ function directRuntimeOfferLines(
     `    ${optionType}<public> := struct:`,
     '        PriceVBucks:float',
     '',
-    ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
     `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
-    `        if (IsValid${pascal}RuntimePrice(Options.PriceVBucks) = false):`,
+    '        if (IsValidRuntimePrice(Options.PriceVBucks) = false):',
     '            return false',
     `        option{${offersModule}.${offerStem}_dynamic_offer{Price := MakePriceVBucks(Options.PriceVBucks)}}`,
     '',
@@ -448,10 +459,7 @@ function assertRenderableConfiguration(entitlements: EntitlementItem[], bundles:
     if (item.itemType !== 'durable' && item.itemType !== 'consumable') {
       throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an unsupported entitlement type. Fix it in Validation.`);
     }
-    if (!Number.isInteger(item.priceVBucks)
-      || item.priceVBucks < MARKETPLACE_CONSTRAINTS.priceMinVBucks
-      || item.priceVBucks > MARKETPLACE_CONSTRAINTS.priceMaxVBucks
-      || item.priceVBucks % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) {
+    if (!isValidMarketplacePrice(item.priceVBucks)) {
       throw new Error(`Cannot generate Verse: ${item.name || item.verseKey} has an invalid V-Bucks price. Fix it in Validation.`);
     }
     if (item.itemType === 'durable' && (item.maxCount !== 1 || item.autoConsume)) {
@@ -587,7 +595,7 @@ export function generateVerseCode(
     '',
     manifestLines(entitlements, bundles, storefrontMembership, retiredVerseKeys, config),
     'using { /Fortnite.com/Devices }',
-    'using { /Fortnite.com/Marketplace }',
+    'using { /UnrealEngine.com/Marketplace }',
     'using { /Fortnite.com/Playspaces }',
     'using { /UnrealEngine.com/Temporary/Diagnostics }',
     'using { /Verse.org/Assets }',
@@ -650,6 +658,9 @@ export function generateVerseCode(
   push('');
 
   push(`${offersModule}<public> := module:`, `    using { ${infoModule} }`, `    using { ${entModule} }`, `    using { ${priceModule} }`, '');
+  const hasRuntimePrice = entitlements.some(item => dynamicPriceEnabled(item.dynamicOffer) || (item.alternateOffers ?? []).some(offer => dynamicPriceEnabled(offer.dynamicOffer)))
+    || bundles.some(bundle => dynamicPriceEnabled(bundle.dynamicOffer));
+  if (hasRuntimePrice) push(...sharedRuntimePriceValidationLines());
   for (const item of entitlements) {
     const identity = derivePublicIdentity(item, config, 'entitlement');
     push(offerClass(identity.offerStem!, identity.paths.metadata!, identity.entitlementStem!, priceModule, identity.priceStem!, item.iconTexture, item.offerRestrictions));
@@ -715,9 +726,8 @@ export function generateVerseCode(
     }
     const runtimePriceLines = dynamicPriceEnabled(bundle.dynamicOffer)
       ? [
-          ...runtimePriceValidationLines(`IsValid${pascal}RuntimePrice`),
           `    Make${pascal}DynamicOffer<public>(Options:${optionType})<transacts>:?offer =`,
-          `        if (IsValid${pascal}RuntimePrice(Options.PriceVBucks) = false):`,
+          '        if (IsValidRuntimePrice(Options.PriceVBucks) = false):',
           '            return false',
         ]
       : [
@@ -1386,8 +1396,17 @@ export function generateVerseCode(
       );
     }
     for (const item of entitlements) {
-      const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
+      const identity = derivePublicIdentity(item, config, 'entitlement');
+      const pascal = identity.apiStem;
       push(`        ${pascal}_ReconciledSignal.Signal((Player, ${pascal}OwnedCount))`);
+      if (item.itemType === 'durable' && item.triggers.generateOwnershipConfirmedTriggerBinding) {
+        const names = entitlementEditableNames(item.verseKey, identity.apiStem);
+        push(
+          `        if (${pascal}OwnedCount > 0):`,
+          `            for (Trigger : ${names.ownershipConfirmedTriggers}):`,
+          '                Trigger.Trigger(Player)',
+        );
+      }
     }
   }
   push('        LogDebug("Reconciliation completed for player.")', '');

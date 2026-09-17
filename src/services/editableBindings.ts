@@ -6,6 +6,7 @@ export interface EntitlementEditableNames {
   purchaseTriggers: string;
   purchaseButtons: string;
   successTriggers: string;
+  ownershipConfirmedTriggers: string;
 }
 
 export const ALL_OFFERS_STORE_STEM = 'AllOffersStore';
@@ -16,6 +17,7 @@ export function entitlementEditableNames(verseKey: string, publicStem?: string):
     purchaseTriggers: `${stem}_PurchaseTriggers`,
     purchaseButtons: `${stem}_PurchaseButtons`,
     successTriggers: `${stem}_SuccessTriggers`,
+    ownershipConfirmedTriggers: `${stem}_OwnershipConfirmedTriggers`,
   };
 }
 
@@ -35,6 +37,7 @@ export const EDITABLE_METADATA_SYMBOLS = {
   purchaseTriggersCategory: 'UEM_PurchaseTriggersCategory',
   purchaseButtonsCategory: 'UEM_PurchaseButtonsCategory',
   successTriggersCategory: 'UEM_SuccessTriggersCategory',
+  ownershipConfirmedTriggersCategory: 'UEM_OwnershipConfirmedTriggersCategory',
   openTriggersCategory: 'UEM_OpenTriggersCategory',
   openButtonsCategory: 'UEM_OpenButtonsCategory',
 } as const;
@@ -46,6 +49,7 @@ export const EDITABLE_CATEGORY_LABELS = {
   purchaseTriggers: 'Purchase Triggers',
   purchaseButtons: 'Purchase Buttons',
   successTriggers: 'Success Triggers',
+  ownershipConfirmedTriggers: 'Ownership Confirmed',
   openTriggers: 'Open Triggers',
   openButtons: 'Open Buttons',
 } as const;
