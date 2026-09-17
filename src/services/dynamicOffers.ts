@@ -1,5 +1,5 @@
 import { BundleOffer, BundleOfferItem, BundleQuantityBehavior, DynamicOfferConfig, EntitlementItem } from '../types/entitlement';
-import { MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
+import { isValidMarketplacePrice, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 
 export type RuntimeOfferValue = number;
 
@@ -72,11 +72,11 @@ export function isDynamicBundle(bundle: BundleOffer): boolean {
 }
 
 export function validateRuntimePrice(value: RuntimeOfferValue): string | undefined {
-  if (!Number.isSafeInteger(value)) return 'Price must be a whole number of V-Bucks.';
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isSafeInteger(value)) return 'Price must be a whole number of V-Bucks.';
   if (value < MARKETPLACE_CONSTRAINTS.priceMinVBucks || value > MARKETPLACE_CONSTRAINTS.priceMaxVBucks) {
     return `Price must be between ${MARKETPLACE_CONSTRAINTS.priceMinVBucks} and ${MARKETPLACE_CONSTRAINTS.priceMaxVBucks} V-Bucks.`;
   }
-  if (value % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) return `Price must use increments of ${MARKETPLACE_CONSTRAINTS.priceStepVBucks} V-Bucks.`;
+  if (!isValidMarketplacePrice(value)) return `Price must use increments of ${MARKETPLACE_CONSTRAINTS.priceStepVBucks} V-Bucks.`;
   return undefined;
 }
 

@@ -1,6 +1,6 @@
 # Agent Integration
 
-UEFN Transaction Manager 4.4.0 works alongside Unreal MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through Unreal MCP. Your project Verse remains responsible for gameplay and business logic.
+UEFN Transaction Manager 4.4.1 works alongside Unreal MCP in a coding-agent workflow. Your agent can manage transactions through UTM MCP and work with the project through Unreal MCP. Your project Verse remains responsible for gameplay and business logic.
 
 ## Before you connect
 
@@ -66,7 +66,7 @@ The agent must prepare and review a required source-to-proposed semantic parity 
 
 Call `validate_migration_parity` before the dry run. Reconciliation establishes initial truth; generated delta events keep current truth current. Immediate-use legacy patterns must map to consumable `autoConsume`; their gameplay consequence must await the generated `Consumed` event, which fires only when the generated consume helper's pending intent is matched to an authoritative negative entitlement delta. Do not use `Granted` or generic `Removed` as a substitute. For a durable mirror, require both pre-owned join initialization and persistent same-session `Granted` propagation; use the actual `Removed` API only when supported and relevant.
 
-The generated public API is explicit about the boundary: `Await<Stem>ReconciledEvent()` reports the current count established by the generated join-time reconciliation, `Has<Stem>`/`Get<Stem>Count` query authoritative ownership, `Await<Stem>GrantedEvent()` reports a positive delta, and `Await<Stem>RemovedEvent()` reports a negative delta. Reconciliation is not a subscription. Structural same-session propagation can be verified by the agent with static or synthetic evidence, but a real purchase prompt -> Marketplace entitlement -> generated event -> gameplay effect remains owner-only acceptance.
+The generated public API is explicit about the boundary: `Await<Stem>ReconciledEvent()` reports the current count established by the generated join-time reconciliation, `Has<Stem>`/`Get<Stem>Count` query authoritative ownership, `Await<Stem>GrantedEvent()` reports a positive delta, and `Await<Stem>RemovedEvent()` reports a negative delta. Reconciliation is not a subscription. A durable may additionally opt into the separate `<Stem>_OwnershipConfirmedTriggers` editor binding; it fires once only when that player's reconciled owned count is greater than zero and never replaces the purchase `Success Triggers` binding. Structural same-session propagation can be verified by the agent with static or synthetic evidence, but a real purchase prompt -> Marketplace entitlement -> generated event -> gameplay effect remains owner-only acceptance.
 
 ## Responsibilities and limits
 

@@ -1,7 +1,7 @@
 import { AlternateOffer, BundleOffer, EntitlementItem, OfferDisplayEntry, OfferDisplayGroup, OfferRestrictions, ProjectConfig, StorefrontMembership, ValidationIssue } from '../types/entitlement';
 import { COUNTRY_CODE_OPTIONS, EPIC_PLATFORM_FAMILIES } from '../constants/offerRestrictions';
 import { MODERATION_RULE_GROUPS } from '../constants/moderationRules';
-import { characterCount, generatedOfferDescription, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
+import { characterCount, generatedOfferDescription, isValidMarketplacePrice, MARKETPLACE_CONSTRAINTS } from '../constants/marketplaceValidation';
 import { isValidVerseIdentifier, sanitizeVerseIdentifier as canonicalSanitizeVerseIdentifier, toVerseApiStem } from './verseIdentity';
 import { GENERATED_NATIVE_RESERVED_SYMBOLS, GeneratedSymbolRegistry, isGeneratedStemSafe } from './generatedSymbols';
 import { entitlementEditableNames, storefrontEditableName } from './editableBindings';
@@ -53,10 +53,7 @@ function validatePrice(
   value: number,
   bundleId?: string,
 ): ValidationIssue[] {
-  if (!Number.isInteger(value)
-    || value < MARKETPLACE_CONSTRAINTS.priceMinVBucks
-    || value > MARKETPLACE_CONSTRAINTS.priceMaxVBucks
-    || value % MARKETPLACE_CONSTRAINTS.priceStepVBucks !== 0) {
+  if (!isValidMarketplacePrice(value)) {
     return [issue(
       `${ownerId}-price`, 'error',
       `${label} price must be an integer from ${MARKETPLACE_CONSTRAINTS.priceMinVBucks.toLocaleString()} to ${MARKETPLACE_CONSTRAINTS.priceMaxVBucks.toLocaleString()} V-Bucks in exact increments of ${MARKETPLACE_CONSTRAINTS.priceStepVBucks}. Current value: ${String(value)}.`,
@@ -683,6 +680,7 @@ export function validateEntireProject(
     if (item.triggers.generateTriggerBinding) registerMember(editableNames.purchaseTriggers, item, 'triggers');
     if (item.triggers.generateButtonBinding) registerMember(editableNames.purchaseButtons, item, 'triggers');
     if (item.triggers.generateSuccessTriggerBinding) registerMember(editableNames.successTriggers, item, 'triggers');
+    if (item.itemType === 'durable' && item.triggers.generateOwnershipConfirmedTriggerBinding) registerMember(editableNames.ownershipConfirmedTriggers, item, 'triggers');
   });
   if (config?.generateStorefrontBinding) {
     registerGeneratedMember(storefrontEditableName('AllOffersStore', 'openButtons'), 'config');

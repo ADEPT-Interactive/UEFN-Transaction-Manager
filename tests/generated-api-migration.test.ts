@@ -58,6 +58,25 @@ test('generated files reopen into the same canonical API without compatibility s
   assert.doesNotMatch(source, /PromptBuy|ShowStorefront|OpenStorefront|OwnershipVerifiedEvent|QuantityDecreasedEvent|PurchaseEvent/);
 });
 
+test('42.20 Marketplace import migration loads old managed files and changes no catalog or public identity semantics', () => {
+  const current = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const legacy = current.replaceAll('/UnrealEngine.com/Marketplace', '/Fortnite.com/Marketplace');
+  const currentParsed = parseVerseCode(current);
+  assert.match(legacy, /using \{ \/Fortnite\.com\/Marketplace \}/);
+  const parsed = parseVerseCode(legacy);
+  assert.equal(parsed.managed, true);
+  assert.equal(parsed.error, undefined);
+  assert.deepEqual(parsed.entitlements, currentParsed.entitlements);
+  assert.deepEqual(parsed.bundles, currentParsed.bundles);
+  assert.deepEqual(parsed.storefrontMembership, currentParsed.storefrontMembership);
+  const regenerated = generateVerseCode(parsed.entitlements, parsed.bundles, publicApiConfig, parsed.storefrontMembership, parsed.retiredVerseKeys);
+  assert.match(regenerated, /using \{ \/UnrealEngine\.com\/Marketplace \}/);
+  assert.doesNotMatch(regenerated, /using \{ \/Fortnite\.com\/Marketplace \}/);
+  assert.deepEqual(parseVerseCode(regenerated).entitlements, parsed.entitlements);
+  assert.deepEqual(parseVerseCode(regenerated).bundles, parsed.bundles);
+  assert.deepEqual(parseVerseCode(regenerated).storefrontMembership, parsed.storefrontMembership);
+});
+
 test('valid historical stable keys and retired keys remain intact across supported schemas', () => {
   for (const schemaVersion of [2, 3, 4] as const) {
     const legacyItem = structuredClone(publicApiItems[0]);

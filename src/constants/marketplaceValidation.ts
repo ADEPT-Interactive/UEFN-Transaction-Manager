@@ -20,6 +20,15 @@ export const MARKETPLACE_CONSTRAINTS = {
   maxDistinctEntitlementIdentifiersPerOffer: 100,
 } as const;
 
+/** The canonical exact Marketplace V-Bucks price predicate. */
+export function isValidMarketplacePrice(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= MARKETPLACE_CONSTRAINTS.priceMinVBucks
+    && value <= MARKETPLACE_CONSTRAINTS.priceMaxVBucks
+    && value % MARKETPLACE_CONSTRAINTS.priceStepVBucks === 0;
+}
+
 export function characterCount(value: string): number {
   return Array.from(value).length;
 }

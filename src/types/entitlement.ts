@@ -72,6 +72,8 @@ export interface EntitlementItem {
     generateTriggerBinding: boolean;
     generateButtonBinding: boolean;
     generateSuccessTriggerBinding: boolean;
+    /** Fires once on reconciliation when this durable entitlement is owned. */
+    generateOwnershipConfirmedTriggerBinding?: boolean;
   };
 }
 

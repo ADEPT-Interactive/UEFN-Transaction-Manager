@@ -1,4 +1,4 @@
-UEFN TRANSACTION MANAGER 4.4.0
+UEFN TRANSACTION MANAGER 4.4.1
 
 GET STARTED
 
@@ -19,6 +19,8 @@ CREATOR WORKFLOW
 Create entitlements, offers, bundles, and storefronts, then use Save and Compile to write managed_transactions.verse and compile it in UEFN. Find the generated managed_transactions_device in UEFN's Content Browser, place one instance in your island, and connect it to your own gameplay systems. Do not edit the managed file by hand.
 
 Use the generated purchase helpers, ownership/count queries, grants, consumption helpers, and Await-based state notifications from your project Verse. Keep rewards, eligibility, progression, saved state, UI, and game-specific calculations in your own Verse. Test purchases, cancellations, refunds, consumption, saved state, and rejoin behavior in a real UEFN session before publishing.
+
+Durable offers can also expose an optional Ownership Confirmed trigger for join-time access effects. It fires only when reconciliation confirms a positive owned count; purchase Success Triggers keep their existing purchase/grant meaning.
 
 AGENT INTEGRATION
 

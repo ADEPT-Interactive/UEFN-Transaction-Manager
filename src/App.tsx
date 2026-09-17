@@ -216,12 +216,20 @@ async function hydrateProjectImages(
     const image = getImage(item.iconTexture);
     return image ? { ...item, iconImageData: image.imageData, iconFileName: `${image.assetName}.png` } : item;
   };
-  const hydratedEntitlements = entitlements.map(applyImage);
+  const hydratedEntitlements = entitlements.map(item => ({
+    ...applyImage(item),
+    ...(item.alternateOffers ? { alternateOffers: item.alternateOffers.map(applyImage) } : {}),
+  }));
   const hydratedBundles = bundles.map(applyImage);
+  const alternateLoadedCount = hydratedEntitlements.reduce((count, item, index) => {
+    const previousById = new Map((entitlements[index]?.alternateOffers ?? []).map(offer => [offer.id, offer]));
+    return count + (item.alternateOffers ?? []).filter(offer => offer.iconImageData !== previousById.get(offer.id)?.iconImageData).length;
+  }, 0);
   return {
     entitlements: hydratedEntitlements,
     bundles: hydratedBundles,
     loadedCount: hydratedEntitlements.filter((item, index) => item.iconImageData !== entitlements[index].iconImageData).length
+      + alternateLoadedCount
       + hydratedBundles.filter((item, index) => item.iconImageData !== bundles[index].iconImageData).length,
   };
 }
@@ -712,18 +720,24 @@ export const App: React.FC = () => {
   });
 
   const applyBridgeMutation = async (operation: Record<string, unknown>): Promise<boolean> => {
-    const result = await FileService.mutateCatalog(operation, catalogRevisionRef.current);
-    if (result.success && result.catalog) {
-      applyCatalogSnapshot(result.catalog, true);
-      return true;
+    try {
+      const result = await FileService.mutateCatalog(operation, catalogRevisionRef.current);
+      if (result.success && result.catalog) {
+        applyCatalogSnapshot(result.catalog, true);
+        return true;
+      }
+      if (result.status === 409) {
+        const remote = await FileService.getCatalogSnapshot();
+        if (remote.success && remote.catalog) applyCatalogSnapshot(remote.catalog);
+      }
+      pendingIconPreviewsRef.current = [];
+      setStatus({ message: result.error ?? 'The shared catalog rejected this mutation.', error: true });
+      return false;
+    } catch (error) {
+      pendingIconPreviewsRef.current = [];
+      setStatus({ message: error instanceof Error ? error.message : 'The shared catalog mutation failed.', error: true });
+      return false;
     }
-    if (result.status === 409) {
-      const remote = await FileService.getCatalogSnapshot();
-      if (remote.success && remote.catalog) applyCatalogSnapshot(remote.catalog);
-    }
-    pendingIconPreviewsRef.current = [];
-    setStatus({ message: result.error ?? 'The shared catalog rejected this mutation.', error: true });
-    return false;
   };
 
   const saveToDisk = async (): Promise<{ contentHash: string } | undefined> => {
@@ -892,10 +906,17 @@ export const App: React.FC = () => {
   const listProps = {
     entitlements, bundles, warningCounts: validationWarningCounts, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
-    onDuplicate: (item: EntitlementItem) => {
-      const copy = duplicateEntitlement(item, entitlements, bundles, crypto.randomUUID, storefrontMembership.focused);
-      rememberTransientImages(undefined, copy);
-      void applyBridgeMutation({ type: 'create_entitlement', data: buildEntitlementCreatePayload(copy) });
+    onDuplicate: async (item: EntitlementItem) => {
+      try {
+        // Preserve Web Crypto's receiver. Passing crypto.randomUUID as a bare
+        // callback throws Illegal invocation in Chromium before the bridge call.
+        const copy = duplicateEntitlement(item, entitlements, bundles, () => crypto.randomUUID(), storefrontMembership.focused);
+        rememberTransientImages(undefined, copy);
+        await applyBridgeMutation({ type: 'create_entitlement', data: buildEntitlementCreatePayload(copy) });
+      } catch (error) {
+        pendingIconPreviewsRef.current = [];
+        setStatus({ message: error instanceof Error ? error.message : 'The entitlement could not be duplicated.', error: true });
+      }
     },
     onDelete: (id: string) => setPendingDelete(entitlements.find(item => item.id === id) ?? null),
   };
@@ -927,7 +948,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const duplicateBundle = (bundle: BundleOffer) => {
+  const duplicateBundle = async (bundle: BundleOffer) => {
     const copy: BundleOffer = {
       ...bundle,
       id: `bundle-${crypto.randomUUID()}`,
@@ -937,7 +958,7 @@ export const App: React.FC = () => {
       restrictions: bundle.restrictions ? { ...bundle.restrictions, blockedCountryCodes: [...bundle.restrictions.blockedCountryCodes], blockedPlatformFamilies: [...bundle.restrictions.blockedPlatformFamilies] } : undefined,
     };
     rememberTransientImages(undefined, copy);
-    void applyBridgeMutation({ type: 'create_bundle', data: buildBundleCreatePayload(copy) });
+    await applyBridgeMutation({ type: 'create_bundle', data: buildBundleCreatePayload(copy) });
   };
 
   const allocateNewVerseKey = (name: string) => allocateProjectVerseKey(name, entitlements, bundles, storefrontMembership, retiredVerseKeys);

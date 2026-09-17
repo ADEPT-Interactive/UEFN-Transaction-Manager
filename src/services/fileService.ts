@@ -193,6 +193,7 @@ export interface EditorStatus {
   openProjectFile?: string;
   openingProjectFile?: string;
   connectorAlive?: boolean;
+  freshExactConnector?: boolean;
   projectReady?: boolean;
   readinessReason?: string;
   heartbeatAgeMs?: number;

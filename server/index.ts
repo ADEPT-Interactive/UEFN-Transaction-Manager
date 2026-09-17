@@ -198,7 +198,7 @@ function connectorHeartbeatIsFresh(now = Date.now()): boolean {
 }
 
 function editorSessionIsFresh(): boolean {
-  return Boolean(editorSession?.projectReady && connectorHeartbeatIsFresh() && selectedProjectIsActiveInUefn());
+  return Boolean(editorSession?.projectReady && freshExactConnectorIdentity() && selectedProjectIsActiveInUefn());
 }
 
 function emptyUefnProjectLifecycle(): UefnProjectLifecycle {
@@ -262,8 +262,8 @@ function processIdIsRunning(processId: number): boolean {
 
 function uefnIsRunning(): boolean {
   if (connectorHeartbeatIsFresh()) return true;
-  if (isolateGlobalUefnProbe) return false;
   if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
+  if (isolateGlobalUefnProbe) return false;
   const now = Date.now();
   if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
   let running = false;
@@ -294,6 +294,20 @@ function pathsEqual(first: string | undefined, second: string | undefined): bool
   }
 }
 
+/**
+ * A connector report is identity evidence only when its heartbeat is fresh,
+ * its PID is still running, and every configured project identity component
+ * matches this bridge. A stale or partial report never overrides lifecycle
+ * uncertainty.
+ */
+function freshExactConnectorIdentity(): boolean {
+  if (!editorSession || !connectorHeartbeatIsFresh()) return false;
+  if (launchedUefnProcessId > 0 && editorSession.processId !== launchedUefnProcessId) return false;
+  if (!pathsEqual(editorSession.contentRoot, contentRoot) || editorSession.assetMount !== configuredAssetMount) return false;
+  if (configuredProjectFile && (!editorSession.projectFile || !pathsEqual(editorSession.projectFile, configuredProjectFile))) return false;
+  return true;
+}
+
 function projectPythonIsEnabled(): boolean {
   if (!configuredProjectFile) return initialProjectPythonEnabled;
   try {
@@ -311,17 +325,21 @@ function projectPythonIsEnabled(): boolean {
 function selectedProjectIsActiveInUefn(): boolean {
   if (!uefnIsRunning()) return false;
   const lifecycle = latestUefnProjectLifecycle();
-  if (lifecycle.projectOpening || lifecycle.closedPosition > lifecycle.openedPosition) return false;
+  const connectorExact = freshExactConnectorIdentity();
+  // A fresh exact connector report is stronger than a stale parser-only
+  // opening/closed marker. It is still subordinate to an explicit wrong
+  // completed project record below.
+  if (lifecycle.openedProject) {
+    return configuredProjectFile ? pathsEqual(lifecycle.openedProject, configuredProjectFile) : connectorExact;
+  }
+  if (lifecycle.projectOpening || lifecycle.closedPosition > lifecycle.openedPosition) return connectorExact;
   if (configuredProjectFile) {
-    if (lifecycle.openedProject) return pathsEqual(lifecycle.openedProject, configuredProjectFile);
-    return Boolean(editorSession?.projectFile && pathsEqual(editorSession.projectFile, configuredProjectFile));
+    return connectorExact;
   }
   // A standalone bridge without a descriptor still has an exact identity
   // when the authenticated connector reports the configured Content root and
   // asset mount. This is identity evidence, not readiness evidence.
-  return Boolean(editorSession
-    && pathsEqual(editorSession.contentRoot, contentRoot)
-    && editorSession.assetMount === configuredAssetMount);
+  return connectorExact;
 }
 
 function currentEditorState(): {
@@ -333,6 +351,7 @@ function currentEditorState(): {
   openProjectFile?: string;
   openingProjectFile?: string;
   connectorAlive: boolean;
+  freshExactConnector: boolean;
   projectReady: boolean;
   editorConnected: boolean;
   pythonEnabled: boolean;
@@ -340,34 +359,42 @@ function currentEditorState(): {
 } {
   const lifecycle = latestUefnProjectLifecycle();
   const connectorAlive = connectorHeartbeatIsFresh();
-  const projectReady = Boolean(connectorAlive && editorSession?.projectReady);
+  const exactConnectorIdentity = freshExactConnectorIdentity();
+  const freshExactConnector = Boolean(exactConnectorIdentity && editorSession?.projectReady === true);
+  const projectReady = Boolean(freshExactConnector && editorSession?.projectReady);
   const uefnRunning = uefnIsRunning();
   const openProjectFile = uefnRunning ? lifecycle.openedProject : undefined;
   const openingProjectFile = uefnRunning ? lifecycle.openingProject : undefined;
-  const exactProjectOpen = uefnRunning && selectedProjectIsActiveInUefn();
-  const differentProjectOpen = Boolean(uefnRunning && (openProjectFile || openingProjectFile)
-    && !pathsEqual(openProjectFile ?? openingProjectFile, configuredProjectFile));
+  const wrongCompletedProject = Boolean(openProjectFile && configuredProjectFile && !pathsEqual(openProjectFile, configuredProjectFile));
+  const exactProjectOpen = Boolean(uefnRunning && !wrongCompletedProject && (exactConnectorIdentity || selectedProjectIsActiveInUefn()));
+  const differentProjectOpen = Boolean(uefnRunning && (
+    (openProjectFile && configuredProjectFile && !pathsEqual(openProjectFile, configuredProjectFile))
+    || (!freshExactConnector && openingProjectFile && configuredProjectFile && !pathsEqual(openingProjectFile, configuredProjectFile))
+  ));
+  const projectOpening = Boolean(uefnRunning && lifecycle.projectOpening && !freshExactConnector);
   const pythonEnabled = projectPythonIsEnabled();
   const editorConnected = Boolean(exactProjectOpen && pythonEnabled && connectorAlive && projectReady);
   const connectionState = deriveEditorConnectionState({
     uefnRunning,
-    projectOpening: Boolean(uefnRunning && lifecycle.projectOpening),
+    projectOpening,
     exactProjectOpen,
     differentProjectOpen,
     pythonEnabled,
     connectorAlive,
+    freshExactConnector,
     projectReady,
     editorConnected,
   });
   return {
     connectionState,
     uefnRunning,
-    projectOpening: Boolean(uefnRunning && lifecycle.projectOpening),
+    projectOpening,
     exactProjectOpen,
     differentProjectOpen,
     openProjectFile,
     openingProjectFile,
     connectorAlive,
+    freshExactConnector,
     projectReady,
     editorConnected,
     pythonEnabled,
@@ -862,8 +889,11 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
     if (path.normalize(reportedRoot).toLowerCase() !== path.normalize(contentRoot).toLowerCase() || req.body.assetMount !== configuredAssetMount) {
       return res.status(409).json({ success: false, error: 'The active UEFN editor project does not match this manager session.' });
     }
-    if (typeof req.body.projectFile === 'string' && configuredProjectFile && !pathsEqual(req.body.projectFile, configuredProjectFile)) {
+    if (configuredProjectFile && (typeof req.body.projectFile !== 'string' || !pathsEqual(req.body.projectFile, configuredProjectFile))) {
       return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
+    }
+    if (launchedUefnProcessId > 0 && req.body.processId !== launchedUefnProcessId) {
+      return res.status(409).json({ success: false, error: 'The reporting UEFN editor process does not match this manager session.' });
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
     const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
@@ -883,6 +913,7 @@ app.get('/api/editor/status', (_req, res) => {
     uefnRunning: state.uefnRunning,
     projectOpening: state.projectOpening,
     connectorAlive: state.connectorAlive,
+    freshExactConnector: state.freshExactConnector,
     editorConnected: state.editorConnected,
     projectActive: state.exactProjectOpen,
     exactProjectOpen: state.exactProjectOpen,

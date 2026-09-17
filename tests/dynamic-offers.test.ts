@@ -58,6 +58,15 @@ test('runtime bundle validation rejects invalid price and empty/oversized quanti
   assert.deepEqual(validateRuntimeBundleQuantities(bundle, publicApiItems, { coins: 5 }), []);
 });
 
+test('runtime price validation covers every hostile boundary and non-finite input', () => {
+  const expectedValid = new Set([50, 100, 150, 4950, 5000]);
+  for (const value of [0, 49, 50, 51, 99, 100, 150, 275, 4950, 5000, 5001, 5050, 49.5, 50.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const error = validateRuntimePrice(value);
+    if (expectedValid.has(value)) assert.equal(error, undefined, `expected ${value} to be valid`);
+    else assert.ok(error, `expected ${String(value)} to be rejected`);
+  }
+});
+
 test('generated runtime bundles expose a stable options type, factory, and purchase helper', () => {
   const source = generateVerseCode(publicApiItems, [{
     id: 'runtime', verseKey: 'runtime_bundle', name: 'Runtime Bundle', shortDescription: 'Runtime bundle', description: 'A runtime bundle.', priceVBucks: 500,
@@ -75,7 +84,7 @@ test('generated runtime bundles expose a stable options type, factory, and purch
   assert.doesNotMatch(source, /runtime_bundle_offer<public> := class\(bundle_offer\):/);
 });
 
-test('runtime direct offers expose typed pricing for primary and alternate variants', () => {
+test('runtime direct offers use one exact shared validator for primary and alternate variants', () => {
   const source = generateVerseCode([{
     ...publicApiItems[0],
     dynamicOffer: { priceBehavior: 'runtime' },
@@ -90,8 +99,9 @@ test('runtime direct offers expose typed pricing for primary and alternate varia
   assert.match(source, /OpenAccessPassPurchase<public>\(Player:player, Options:Phase4PublicApiOffers\.AccessPassRuntimeOptions\):void/);
   assert.match(source, /CoinsAltRuntimeOptions<public> := struct:/);
   assert.match(source, /OpenCoinsAltPurchase<public>\(Player:player, Options:Phase4PublicApiOffers\.CoinsAltRuntimeOptions\):void/);
-  const validationMatch = source.match(/IsValidAccessPassRuntimePrice\(PriceVBucks:float\)<transacts>:logic =([\s\S]*?)\n\s+false\n/);
-  assert.ok(validationMatch, 'runtime price validation function should be generated');
+  const validationMatches = [...source.matchAll(/IsValidRuntimePrice<public>\(PriceVBucks:float\)<transacts>:logic =([\s\S]*?)\n\s+false\n/g)];
+  assert.equal(validationMatches.length, 1, 'runtime price validation should be emitted exactly once per generated catalog');
+  const validationMatch = validationMatches[0];
   const allowedValues = [...validationMatch[1].matchAll(/PriceVBucks = (\d+)\.0/g)].map(match => Number(match[1]));
   assert.equal(allowedValues.length, 100);
   assert.equal(allowedValues[0], MARKETPLACE_CONSTRAINTS.priceMinVBucks);
@@ -105,7 +115,8 @@ test('runtime direct offers expose typed pricing for primary and alternate varia
   }
   assert.ok(maxDepth <= 8, `balanced runtime price expression should stay shallow (got ${maxDepth})`);
   assert.doesNotMatch(source, /\bvar\s+RuntimePrice\b|\bRuntimePrice<override>/);
-  assert.match(source, /if \(IsValidAccessPassRuntimePrice\(Options\.PriceVBucks\) = false\):/);
+  assert.match(source, /if \(IsValidRuntimePrice\(Options\.PriceVBucks\) = false\):/);
+  assert.doesNotMatch(source, /IsValid[A-Za-z0-9]+RuntimePrice/);
 });
 
 test('runtime bundle generation preserves quantity-only and fill-to-max behavior', () => {

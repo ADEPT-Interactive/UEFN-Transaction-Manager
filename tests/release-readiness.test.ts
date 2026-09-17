@@ -112,7 +112,7 @@ async function startBridge(options: { pythonEnabled: boolean; openedProject?: 's
     try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
     await sleep(50);
   }
-  const connectEditor = (projectReady = true) => request('/api/editor/session', { method: 'POST', headers: { 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot, assetMount: '/ReadinessProject', projectReady, processId: fakeUefn.pid }) });
+  const connectEditor = (projectReady = true) => request('/api/editor/session', { method: 'POST', headers: { 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot, assetMount: '/ReadinessProject', projectFile, projectReady, processId: fakeUefn.pid }) });
   return {
     root, contentRoot, projectFile, token, editorToken, base, fakeUefn, server, request, connectEditor,
     setPythonEnabled: (enabled: boolean) => fs.writeFileSync(projectFile, JSON.stringify({ fileVersion: 15, title: 'Readiness Project', plugins: [{ name: 'ReadinessProject', bIsRoot: true }], bEnablePythonForProject: enabled })),
