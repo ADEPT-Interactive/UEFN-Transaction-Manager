@@ -1,0 +1,35 @@
+name: Prune obsolete UTM update files
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Current published stable version (major.minor.patch)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: utm-stable-r2-publication
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Verify current payload and prune obsolete R2 files
+        env:
+          VERSION: ${{ inputs.version }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          ADEPT_UPDATES_R2_ACCESS_KEY_ID: ${{ secrets.ADEPT_UPDATES_R2_ACCESS_KEY_ID }}
+          ADEPT_UPDATES_R2_SECRET_ACCESS_KEY: ${{ secrets.ADEPT_UPDATES_R2_SECRET_ACCESS_KEY }}
+        run: node scripts/publish-updates.mjs prune --version "$VERSION" --apply true

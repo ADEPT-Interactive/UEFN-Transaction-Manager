@@ -40,7 +40,7 @@ uem/stable/portable-latest.json
 uem/stable/UEFN-Transaction-Manager-4.4.1-Portable.zip
 ```
 
-The stable R2 origin will contain only the active 4.4.1 payload and feed objects listed above after guarded promotion. `latest.yml` and `portable-latest.json` are the two mutable pointers; the referenced 4.4.1 artifacts are immutable for this release. Git history and the public 4.4.0, 4.3.7, 4.3.6, 4.3.5, and 4.3.2 releases retain prior acceptance baselines; older public artifacts are not otherwise part of the supported distribution.
+After verified promotion, automatic retention removes recognized older release objects from `uem/stable/`, keeping the active payload and feed objects listed above. Newer staged versions and unrecognized keys are preserved. `latest.yml` and `portable-latest.json` are the two mutable pointers; their referenced artifacts remain immutable. Git history and retained GitHub releases provide historical acceptance baselines and manual recovery downloads.
 
 ### Build and installer contract
 
@@ -65,11 +65,31 @@ The endpoint is intentionally anonymous public-read. It has no Cloudflare Access
 
 ## Publication order
 
-`scripts/publish-updates.mjs` provides the auditable `stage`, `verify`, `promote`, and test-prefix cleanup operations. A release stages and verifies the versioned installer, blockmap, immutable manifest, portable ZIP, and portable-latest.json through the public custom domain. It never uploads `latest.yml` during staging.
+`scripts/publish-updates.mjs` provides the auditable `stage`, `verify`, `promote`, `prune`, and test-prefix cleanup operations. A release stages and verifies the versioned installer, blockmap, immutable manifest, portable ZIP, and portable-latest.json through the public custom domain. It never uploads `latest.yml` during staging.
 
 Promotion is a separate `release.published` workflow. It checks the release tag, stable/non-prerelease state, public R2 objects, the GitHub human installer alias, byte identity, manifest references, HTTPS availability, unknown-object 404 behavior, and installer range support. It copies the immutable manifest to `latest.yml` only as the final publication step, then requires `no-store, no-cache, must-revalidate` on the mutable feed.
 
 Immutable objects use long-lived immutable cache metadata. `latest.yml` is no-cache. No broad CORS policy is required because Electron Updater is not browser JavaScript.
+
+### Automatic R2 retention
+
+After both promoted feeds pass public byte and cache-policy verification, promotion automatically prunes older versioned installers, blockmaps, portable ZIPs, and immutable manifests. Cleanup is restricted to `adept-software-updates` and the exact `uem/stable/` boundary. Numeric stable-version comparison preserves the current release and newer staged versions. Other products, beta/test prefixes, aliases, and unrecognized keys are untouched.
+
+Before deletion, cleanup reads both mutable feeds directly from R2 and requires them to match the verified release, confirms all five current immutable objects exist, and completes the paginated inventory. It rechecks origin feeds before each batch of at most 1,000 deletions and fails the workflow on API or per-object errors. Staging and promotion share a GitHub Actions concurrency group with cancellation disabled. Run standalone cleanup only while no release publication is running; external/manual R2 writers are not covered by the workflow lock.
+
+Preview or retry cleanup of an already published release with the same R2 credentials:
+
+```powershell
+node scripts/publish-updates.mjs prune --version 4.4.1
+# Execute the same verified plan:
+node scripts/publish-updates.mjs prune --version 4.4.1 --apply true
+```
+
+The command verifies the public current-release payload before planning and defaults to a dry run. Logs include selected keys, object count, and bytes reclaimable. Successful publication retains approximately one release's payload in R2, plus any newer drafts. Failed drafts newer than the public release are intentionally preserved for separate review.
+
+To run the same verified cleanup with the existing GitHub Actions credentials, dispatch `prune-updates.yml` with `version` set to the current published version. This manual workflow shares the publication concurrency group and executes `prune --apply true`; it does not republish or rebuild the release.
+
+An older installer can still update directly to the latest installer; Electron Updater falls back to a full download when its old blockmap is unavailable. A client that already fetched the previous feed may need to check for updates again if its old target was pruned before download. Rollback requires restaging and verifying the historical payload from its retained GitHub release/build before promoting it again. Cleanup never deletes GitHub releases. If cleanup fails, the verified current feeds remain published; fix the permission/API failure and rerun `prune`.
 
 Use `uem/test/<unique-run-id>/` for isolated updater tests. Never put fake versions in stable and never promote a test manifest. Test cleanup is restricted by the helper to `uem/test/` prefixes.
 

@@ -122,6 +122,14 @@ test('release workflows separate draft human release assets from final R2 promot
   assert.match(promotion, /types: \[published\]/);
   assert.match(promotion, /publish-updates\.mjs promote/);
   assert.match(promotion, /UEFN-Transaction-Manager-Installer\.exe/);
+  const cleanup = read('.github/workflows/prune-updates.yml');
+  assert.match(cleanup, /workflow_dispatch:/);
+  assert.match(cleanup, /publish-updates\.mjs prune --version "\$VERSION" --apply true/);
+  assert.match(cleanup, /VERSION: \$\{\{ inputs\.version \}\}/);
+  for (const workflow of [release, promotion, cleanup]) {
+    assert.match(workflow, /group: utm-stable-r2-publication/);
+    assert.match(workflow, /cancel-in-progress: false/);
+  }
 });
 
 test('portable updater is marker-driven, uses separate metadata, and cannot fall through to NSIS', () => {
