@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: utm-stable-r2-publication
+  cancel-in-progress: false
+
 jobs:
   promote:
     if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
@@ -19,7 +23,7 @@ jobs:
           node-version: 22.12.0
           cache: npm
       - run: npm ci
-      - name: Verify and promote immutable manifest last
+      - name: Verify, promote feeds, and prune obsolete R2 update files
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           ADEPT_UPDATES_R2_ACCESS_KEY_ID: ${{ secrets.ADEPT_UPDATES_R2_ACCESS_KEY_ID }}

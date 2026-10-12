@@ -1,20 +1,22 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { S3Client, PutObjectCommand, CopyObjectCommand, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { pruneUpdates, releaseObjectNames } from './update-retention.mjs';
 
 const DEFAULT_BUCKET = 'adept-software-updates';
 const DEFAULT_PREFIX = 'uem/stable';
 const DEFAULT_PUBLIC_URL = 'https://updates.adeptinteractive.net/';
 
 function usage() {
-  console.error('Usage: node scripts/publish-updates.mjs <stage|verify|promote|delete-prefix> --version <version> [options]');
+  console.error('Usage: node scripts/publish-updates.mjs <stage|verify|promote|prune|delete-prefix> --version <version> [options]\nprune previews deletions by default; --apply true executes the verified cleanup.');
   process.exit(2);
 }
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  if (!command || !['stage', 'verify', 'promote', 'delete-prefix'].includes(command)) usage();
+  if (!command || !['stage', 'verify', 'promote', 'prune', 'delete-prefix'].includes(command)) usage();
   const args = { command, bucket: DEFAULT_BUCKET, prefix: DEFAULT_PREFIX, publicUrl: DEFAULT_PUBLIC_URL, releaseDirectory: 'release' };
   for (let index = 0; index < rest.length; index += 1) {
     const key = rest[index];
@@ -23,6 +25,8 @@ function parseArgs(argv) {
     args[name] = rest[++index];
   }
   if (!args.version && command !== 'delete-prefix') usage();
+  if (command !== 'delete-prefix') releaseObjectNames(args.version);
+  if (args.apply !== undefined && !['true', 'false'].includes(args.apply)) usage();
   return args;
 }
 
@@ -137,7 +141,7 @@ async function verifyVersioned(args, entries) {
   return results;
 }
 
-async function promote(args, entries) {
+export async function promote(args, entries, s3 = client()) {
   await verifyVersioned(args, entries);
   const installer = entries.find(entry => entry.name.endsWith('.exe'));
   if (args.githubInstallerUrl) {
@@ -151,7 +155,6 @@ async function promote(args, entries) {
   const portableSourceKey = objectKey(args.prefix, `manifests/portable-${args.version}.json`);
   const latestKey = objectKey(args.prefix, 'latest.yml');
   const portableLatestKey = objectKey(args.prefix, 'portable-latest.json');
-  const s3 = client();
   await s3.send(new CopyObjectCommand({
     Bucket: args.bucket,
     CopySource: `${args.bucket}/${sourceKey}`,
@@ -178,6 +181,10 @@ async function promote(args, entries) {
   const portableCacheControl = portableLatest.head.headers.get('cache-control') ?? '';
   if (!/no-store|no-cache|must-revalidate/i.test(portableCacheControl)) throw new Error(`portable-latest.json is missing no-cache policy: ${portableCacheControl}`);
   console.log(`Verified portable-latest.json mutable cache policy: ${portableCacheControl}`);
+  await pruneUpdates(s3, args, {
+    'latest.yml': entries.find(entry => entry.name === `manifests/${args.version}.yml`).body,
+    'portable-latest.json': entries.find(entry => entry.name === `manifests/portable-${args.version}.json`).body,
+  }, { dryRun: false });
 }
 
 async function deletePrefix(args) {
@@ -195,16 +202,26 @@ async function deletePrefix(args) {
   } while (continuationToken);
 }
 
-const args = parseArgs(process.argv.slice(2));
-if (args.command === 'delete-prefix') await deletePrefix(args);
-else {
-  const entries = args.command === 'stage' ? await releaseFiles(args) : await remoteVersionedFiles(args);
-  if (args.command === 'stage') {
-    await putVersioned(client(), args, entries);
-    await verifyVersioned(args, entries);
-  } else if (args.command === 'verify') {
-    await verifyVersioned(args, entries);
-  } else if (args.command === 'promote') {
-    await promote(args, entries);
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.command === 'delete-prefix') await deletePrefix(args);
+  else {
+    const entries = args.command === 'stage' ? await releaseFiles(args) : await remoteVersionedFiles(args);
+    if (args.command === 'stage') {
+      await putVersioned(client(), args, entries);
+      await verifyVersioned(args, entries);
+    } else if (args.command === 'verify') {
+      await verifyVersioned(args, entries);
+    } else if (args.command === 'promote') {
+      await promote(args, entries);
+    } else if (args.command === 'prune') {
+      await verifyVersioned(args, entries);
+      await pruneUpdates(client(), args, {
+        'latest.yml': entries.find(entry => entry.name === `manifests/${args.version}.yml`).body,
+        'portable-latest.json': entries.find(entry => entry.name === `manifests/portable-${args.version}.json`).body,
+      }, { dryRun: args.apply !== 'true' });
+    }
   }
 }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await main();
