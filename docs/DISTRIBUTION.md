@@ -87,6 +87,8 @@ node scripts/publish-updates.mjs prune --version 4.4.1 --apply true
 
 The command verifies the public current-release payload before planning and defaults to a dry run. Logs include selected keys, object count, and bytes reclaimable. Successful publication retains approximately one release's payload in R2, plus any newer drafts. Failed drafts newer than the public release are intentionally preserved for separate review.
 
+To run the same verified cleanup with the existing GitHub Actions credentials, dispatch `prune-updates.yml` with `version` set to the current published version. This manual workflow shares the publication concurrency group and executes `prune --apply true`; it does not republish or rebuild the release.
+
 An older installer can still update directly to the latest installer; Electron Updater falls back to a full download when its old blockmap is unavailable. A client that already fetched the previous feed may need to check for updates again if its old target was pruned before download. Rollback requires restaging and verifying the historical payload from its retained GitHub release/build before promoting it again. Cleanup never deletes GitHub releases. If cleanup fails, the verified current feeds remain published; fix the permission/API failure and rerun `prune`.
 
 Use `uem/test/<unique-run-id>/` for isolated updater tests. Never put fake versions in stable and never promote a test manifest. Test cleanup is restricted by the helper to `uem/test/` prefixes.
