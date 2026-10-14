@@ -3,7 +3,7 @@
 UTM catalog objects describe transaction plumbing, not gameplay meaning.
 
 - A durable entitlement represents persistent ownership and normally has a count cap of one.
-- A consumable entitlement represents a quantity that project Verse may consume. A successful generated `Consume<Stem>` changes the authoritative Marketplace quantity and emits that item’s `Consumed` notification after native `ConsumeEntitlement` succeeds. Grant/Consume operation status is not the same as gameplay ownership state.
+- A consumable entitlement represents a quantity that project Verse may consume. The generated `Consume<Stem>` helper queues an intent before invoking native `ConsumeEntitlement`. An operation result alone is not proof of an authoritative quantity change: its `Consumed` event fires only when a matching negative entitlement delta arrives while that intent remains pending. An unmatched, expired, or failed consume does not emit `Consumed`.
 - An alternate offer is another purchase path for an existing entitlement. It is not automatically a new owned product.
 - A bundle describes transaction contents. Nested references and quantities must remain within UTM validation rules.
 - A storefront is a composed list of concrete offers. Membership is not ownership.
