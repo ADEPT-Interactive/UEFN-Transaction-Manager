@@ -2,6 +2,11 @@ name: CI
 
 on:
   push:
+    # Keep all branch pushes; a tags-ignore filter alone would disable them.
+    branches:
+      - '**'
+    tags-ignore:
+      - 'archive/**'
   pull_request:
 
 permissions:
