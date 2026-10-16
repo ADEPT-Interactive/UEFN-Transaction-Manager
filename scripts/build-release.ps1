@@ -17,6 +17,9 @@ if ($appVersion -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za
 }
 $installerFileName = "UEFN-Transaction-Manager-Setup-$appVersion.exe"
 $portableFileName = "UEFN-Transaction-Manager-$appVersion-Portable.zip"
+# Electron Builder uses the first prerelease identifier as the update channel.
+$updateChannel = if ($appVersion -match '^\d+\.\d+\.\d+-([0-9A-Za-z-]+)') { $Matches[1] } else { "latest" }
+$metadataFileName = "$updateChannel.yml"
 $releaseRoot = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { [IO.Path]::GetFullPath($ReleaseDirectory) } else { Join-Path $toolRoot $ReleaseDirectory }
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("uem-electron-release-" + [guid]::NewGuid().ToString("N"))
 $stagingApp = Join-Path $stagingRoot "app"
@@ -160,7 +163,7 @@ try {
     Invoke-NativeChecked -FilePath $builder -ArgumentList @("--projectDir", $stagingApp, "--config", $builderConfigPath, "--win", "--x64", "--publish", "never") -Description "Building the x64 NSIS installer"
     $builtInstaller = Join-Path $builderOutput $installerFileName
     $builtPortable = Join-Path $builderOutput $portableFileName
-    $builtMetadata = Join-Path $builderOutput "latest.yml"
+    $builtMetadata = Join-Path $builderOutput $metadataFileName
     $builtBlockmap = Join-Path $builderOutput "$installerFileName.blockmap"
     $portableRoot = Join-Path $stagingRoot "portable\UEFN Transaction Manager"
     New-Item -ItemType Directory -Path (Split-Path -Parent $portableRoot) -Force | Out-Null
@@ -180,8 +183,8 @@ try {
     }
     $metadataText = Get-Content -LiteralPath $builtMetadata -Raw
     $metadataTextNormalized = [Uri]::UnescapeDataString($metadataText)
-    if ($metadataTextNormalized -notmatch [regex]::Escape($installerFileName)) { Write-Host $metadataText; throw "latest.yml does not reference $installerFileName." }
-    if ($metadataTextNormalized -notmatch "version: $([regex]::Escape($appVersion))") { throw "latest.yml does not declare version $appVersion." }
+    if ($metadataTextNormalized -notmatch [regex]::Escape($installerFileName)) { Write-Host $metadataText; throw "$metadataFileName does not reference $installerFileName." }
+    if ($metadataTextNormalized -notmatch "version: $([regex]::Escape($appVersion))") { throw "$metadataFileName does not declare version $appVersion." }
 
     New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
     Get-ChildItem -LiteralPath $releaseRoot -File -Force | Remove-Item -Force
@@ -219,7 +222,7 @@ try {
     Set-Content -LiteralPath (Join-Path $releaseRoot "UEFN Transaction Manager.contents.tsv") -Value $inventory -Encoding UTF8
     Write-Host "`nNSIS installer created: $(Join-Path $releaseRoot $installerFileName)" -ForegroundColor Green
     Write-Host "Portable secondary artifact created: $(Join-Path $releaseRoot $portableFileName)"
-    Write-Host "Update metadata: $(Join-Path $releaseRoot 'latest.yml')"
+    Write-Host "Update metadata: $(Join-Path $releaseRoot $metadataFileName)"
     Write-Host "SHA-256: $versionedInstallerHash"
 }
 finally {

@@ -16,14 +16,15 @@ $expectedSourceRevision = (& git -C $toolRoot rev-parse HEAD).Trim()
 if ($expectedSourceRevision -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve the expected source revision for the packaged release." }
 if (-not $ArchivePath) { $ArchivePath = "release\UEFN-Transaction-Manager-$expectedVersion-Portable.zip" }
 if (-not $InstallerPath) { $InstallerPath = "release\UEFN-Transaction-Manager-Setup-$expectedVersion.exe" }
-$installer = (Resolve-Path -LiteralPath (Join-Path $toolRoot $InstallerPath)).Path
-$archive = (Resolve-Path -LiteralPath (Join-Path $toolRoot $ArchivePath)).Path
+$installer = (Resolve-Path -LiteralPath $(if ([IO.Path]::IsPathRooted($InstallerPath)) { $InstallerPath } else { Join-Path $toolRoot $InstallerPath })).Path
+$archive = (Resolve-Path -LiteralPath $(if ([IO.Path]::IsPathRooted($ArchivePath)) { $ArchivePath } else { Join-Path $toolRoot $ArchivePath })).Path
 $releaseRoot = Split-Path -Parent $installer
 $expectedInstallerName = "UEFN-Transaction-Manager-Setup-$expectedVersion.exe"
 $expectedPortableName = "UEFN-Transaction-Manager-$expectedVersion-Portable.zip"
 $humanInstallerPath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Installer.exe"
 $humanPortablePath = Join-Path $releaseRoot "UEFN-Transaction-Manager-Portable.zip"
-$metadataPath = Join-Path $releaseRoot "latest.yml"
+$updateChannel = if ($expectedVersion -match '^\d+\.\d+\.\d+-([0-9A-Za-z-]+)') { $Matches[1] } else { "latest" }
+$metadataPath = Join-Path $releaseRoot "$updateChannel.yml"
 $portableManifestPath = Join-Path $releaseRoot "portable-latest.json"
 $blockmapPath = Join-Path $releaseRoot "$expectedInstallerName.blockmap"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
@@ -64,7 +65,7 @@ $installerMachine = Get-PeMachine -Path $installer
 if ($installerMachine -notin @(0x14C, 0x8664)) { throw "The NSIS installer has an unsupported PE architecture: 0x$('{0:X4}' -f $installerMachine)." }
 foreach ($metadataFile in @($metadataPath, $portableManifestPath, $blockmapPath, $checksumPath)) { if (-not (Test-Path -LiteralPath $metadataFile -PathType Leaf)) { throw "Required release metadata is missing: $metadataFile" } }
 $metadataText = Get-Content -LiteralPath $metadataPath -Raw
-if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadataText -notmatch "version: $([regex]::Escape($expectedVersion))") { throw "latest.yml does not match the installer name and version." }
+if ($metadataText -notmatch [regex]::Escape($expectedInstallerName) -or $metadataText -notmatch "version: $([regex]::Escape($expectedVersion))") { throw "$updateChannel.yml does not match the installer name and version." }
 $portableManifest = Get-Content -LiteralPath $portableManifestPath -Raw | ConvertFrom-Json
 if ($portableManifest.version -ne $expectedVersion -or $portableManifest.sourceRevision -ne $expectedSourceRevision -or $portableManifest.filename -ne $expectedPortableName -or $portableManifest.path -ne $expectedPortableName) { throw "portable-latest.json does not match the portable archive name, version, and source revision." }
 $checksumText = Get-Content -LiteralPath $checksumPath -Raw
@@ -76,7 +77,7 @@ $portableHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLo
 if ($portableManifest.sha256 -ne $portableHash -or [int64]$portableManifest.size -ne (Get-Item -LiteralPath $archive).Length) { throw "portable-latest.json does not match the portable archive hash or size." }
 if ((Get-FileHash -LiteralPath $humanPortablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $portableHash) { throw "Human portable alias is not byte-identical to the versioned portable archive." }
 Write-Host "Verified byte-identical human installer and portable aliases."
-Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, latest.yml, blockmap, and installer SHA-256 metadata." -f $installerMachine)
+Write-Host ("Verified installer bootstrap PE architecture 0x{0:X4}, $updateChannel.yml, blockmap, and installer SHA-256 metadata." -f $installerMachine)
 
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 try {
