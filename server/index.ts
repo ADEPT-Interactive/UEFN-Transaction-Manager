@@ -232,6 +232,20 @@ function processIdIsRunning(processId: number): boolean {
   const now = Date.now();
   const cached = processProbeCache.get(processId);
   if (cached && now - cached.checkedAt < PROCESS_PROBE_CACHE_MS) return cached.running;
+  // Node's signal-zero probe uses the native process API without spawning
+  // tasklist on every status request. Parallel editor/status requests can
+  // otherwise exhaust tasklist's timeout and briefly report a live editor dead.
+  try {
+    process.kill(processId, 0);
+    processProbeCache.set(processId, { checkedAt: now, running: true, lastSuccessfulProbeAt: now });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH' || process.platform !== 'win32') {
+      processProbeCache.set(processId, { checkedAt: now, running: false, lastSuccessfulProbeAt: now });
+      return false;
+    }
+    // Protected Windows processes may need the read-only tasklist fallback.
+  }
   if (process.platform === 'win32') {
     try {
       const output = childProcess.execFileSync(
@@ -251,19 +265,12 @@ function processIdIsRunning(processId: number): boolean {
       return running;
     }
   }
-  try {
-    process.kill(processId, 0);
-    processProbeCache.set(processId, { checkedAt: now, running: true, lastSuccessfulProbeAt: now });
-    return true;
-  } catch {
-    processProbeCache.set(processId, { checkedAt: now, running: false, lastSuccessfulProbeAt: now });
-    return false;
-  }
+  return false;
 }
 
 function uefnIsRunning(): boolean {
   if (connectorHeartbeatIsFresh()) return true;
-  if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
+  if (expectedEditorProcessId > 0 && processIdIsRunning(expectedEditorProcessId)) return true;
   if (isolateGlobalUefnProbe) return false;
   const now = Date.now();
   if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
