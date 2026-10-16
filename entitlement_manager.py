@@ -14,6 +14,7 @@ SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
 # bounded, but allow the real editor job to finish before the connector fails.
 BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
 EDITOR_HEARTBEAT_INTERVAL_SECONDS = 2.0
+EDITOR_TICK_MAX_AGE_SECONDS = 8.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -333,7 +334,7 @@ def import_texture_job(job, normalize_adopted_texture=None):
     }
 
 
-def _editor_project_readiness(unreal, expected_project_file=None, expected_asset_mount=None):
+def _editor_project_readiness(unreal, expected_project_file=None, expected_asset_mount=None, expected_content_dir=None):
     """Return a fail-closed readiness result with a diagnostic reason."""
     if not expected_project_file:
         return {"ready": False, "reason": "expected-project-missing"}
@@ -344,10 +345,20 @@ def _editor_project_readiness(unreal, expected_project_file=None, expected_asset
         project_dir = getattr(paths, "project_dir", None) if paths else None
         if callable(project_file_path):
             current_project = os.path.normcase(os.path.realpath(str(project_file_path())))
-            if current_project != expected_project:
+            # UEFN's Unreal host reports FortniteGame.uproject, not the island
+            # descriptor. In that case require the exact mounted plugin root.
+            host_project = current_project.lower().endswith('.uproject')
+            if current_project != expected_project and not (host_project and expected_content_dir and expected_asset_mount):
                 return {"ready": False, "reason": "project-path-mismatch"}
         elif not callable(project_dir):
             return {"ready": False, "reason": "project-path-unavailable"}
+
+        if expected_content_dir:
+            plugins = getattr(unreal, "PluginBlueprintLibrary", None)
+            get_content = getattr(plugins, "get_plugin_content_dir", None)
+            actual_content = _normalize_existing_dir(unreal, get_content(str(expected_asset_mount).strip('/'))) if callable(get_content) else ""
+            if not actual_content or os.path.normcase(os.path.realpath(actual_content)) != os.path.normcase(os.path.realpath(expected_content_dir)):
+                return {"ready": False, "reason": "project-content-mismatch"}
 
         editor_level_library = getattr(unreal, "EditorLevelLibrary", None)
         get_editor_world = getattr(editor_level_library, "get_editor_world", None) if editor_level_library else None
@@ -420,17 +431,19 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
         "readiness_reason": "initializing",
         "last_project_ready": None,
         "last_readiness_reason": None,
+        "last_editor_tick": None,
     }
     handle_holder = {"value": None}
 
     def report_editor_session():
         if not content_dir or not asset_mount:
             return
+        tick_fresh = state["last_editor_tick"] is not None and time.monotonic() - state["last_editor_tick"] <= EDITOR_TICK_MAX_AGE_SECONDS
         identity_report = {
             "contentRoot": content_dir,
             "assetMount": asset_mount,
-            "projectReady": state["project_ready"],
-            "readinessReason": state["readiness_reason"],
+            "projectReady": state["project_ready"] and tick_fresh,
+            "readinessReason": state["readiness_reason"] if tick_fresh else "editor-tick-stale",
             "processId": os.getpid(),
         }
         if project_file:
@@ -485,7 +498,8 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
 
     def on_editor_tick(delta_seconds):
         del delta_seconds
-        readiness = _editor_project_readiness(unreal, project_file, asset_mount)
+        readiness = _editor_project_readiness(unreal, project_file, asset_mount, content_dir)
+        state["last_editor_tick"] = time.monotonic()
         next_project_ready = bool(readiness["ready"])
         next_readiness_reason = readiness["reason"]
         if state["last_project_ready"] is None or state["last_project_ready"] != next_project_ready or state["last_readiness_reason"] != next_readiness_reason:

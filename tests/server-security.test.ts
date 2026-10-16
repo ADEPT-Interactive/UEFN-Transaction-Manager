@@ -114,14 +114,18 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const matchingEditorIdentity = await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', projectReady: true, processId: process.pid }) });
     assert.equal(matchingEditorIdentity.status, 200);
     const statusWithEditorIdentity = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
-    const editorStateWithIdentity = await statusWithEditorIdentity.json() as { editorConnected: boolean; projectActive: boolean };
+    const editorStateWithIdentity = await statusWithEditorIdentity.json() as { editorConnected: boolean; projectActive: boolean; bootstrapState: string; bootstrapMessage: string };
     assert.equal(editorStateWithIdentity.projectActive, true);
     assert.equal(editorStateWithIdentity.editorConnected, true);
+    assert.equal(editorStateWithIdentity.bootstrapState, 'connected');
+    assert.match(editorStateWithIdentity.bootstrapMessage, /handshake is verified/);
     await new Promise(resolve => setTimeout(resolve, 8100));
     const staleEditorStatus = await fetch(`${base}/api/editor/status`, { headers: { 'X-UEM-Token': token } });
-    const staleEditorState = await staleEditorStatus.json() as { editorConnected: boolean; projectActive: boolean };
+    const staleEditorState = await staleEditorStatus.json() as { editorConnected: boolean; projectActive: boolean; bootstrapState: string; bootstrapMessage: string };
     assert.equal(staleEditorState.projectActive, false);
     assert.equal(staleEditorState.editorConnected, false);
+    assert.equal(staleEditorState.bootstrapState, 'not-needed');
+    assert.match(staleEditorState.bootstrapMessage, /ready again/);
     assert.equal((await (await fetch(`${base}/api/editor/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Editor-Token': editorToken }, body: JSON.stringify({ contentRoot: root, assetMount: '/SecurityTest', projectReady: true, processId: process.pid }) })).json()).success, true);
 
     leaseController = new AbortController();

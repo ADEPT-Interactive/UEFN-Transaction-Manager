@@ -24,7 +24,13 @@ export class BootstrapPolicy {
   }
 
   observe(input: { now: number; project?: BootstrapProjectIdentity; connectorAlive: boolean; editorConnected: boolean }): BootstrapDecision {
-    if (input.editorConnected) return { kind: 'connected', reason: 'editor-connected', ...(this.identity ? { identity: this.identity } : {}) };
+    if (input.editorConnected) {
+      // A recovered connection gets a fresh bounded retry budget if it drops
+      // again without changing the editor PID or project.
+      this.attemptNumber = 0;
+      this.nextRetryAt = 0;
+      return { kind: 'connected', reason: 'editor-connected', ...(this.identity ? { identity: this.identity } : {}) };
+    }
 
     if (!input.project) {
       const identityCleared = Boolean(this.identity);

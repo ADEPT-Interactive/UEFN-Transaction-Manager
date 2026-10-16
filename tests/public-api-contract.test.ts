@@ -97,6 +97,8 @@ test('canonical helper signatures and event ownership are stable', () => {
 
 test('custom notification signals remain private and use native Await semantics', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  assert.match(source, /using \{ \/UnrealEngine\.com\/Marketplace \}/);
+  assert.doesNotMatch(source, /using \{ \/Fortnite\.com\/Marketplace \}/);
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
     assert.match(source, new RegExp(`${stem}_GrantedSignal:event\\(tuple\\(player, int\\)\\)`));
     assert.match(source, new RegExp(`Await${stem}GrantedEvent<public>\\(\\)<suspends>:tuple\\(player, int\\) = ${stem}_GrantedSignal\\.Await\\(\\)`));

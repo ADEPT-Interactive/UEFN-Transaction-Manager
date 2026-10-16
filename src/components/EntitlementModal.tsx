@@ -499,7 +499,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         ? 'The linked project is still opening in UEFN. Keep it open while Transaction Manager waits for the identity and readiness checks to settle.'
                         : connectionState === 'different-project' || connectionState === 'uefn-running-project-unknown'
                         ? 'Open the project linked to this Transaction Manager window in UEFN. Icon importing is available only for that active project.'
-                        : 'Python is enabled, but the full connector is not attached yet. Use UEFN Tools → Execute Python Script to run Content/Python/init_unreal.py. No restart is needed, and future launches will use the installed helper automatically.'}</p>
+                        : 'Python is enabled, but the connector is not attached yet. Keep UTM open while it connects. If automatic connection fails, use UEFN Tools → Execute Python Script to run uefn_auto_connector.py from your UTM installation, then retry. No editor restart is needed.'}</p>
                 </div>}
                 <ImageUploadZone
                   key={item.id}

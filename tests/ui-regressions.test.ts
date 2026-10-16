@@ -159,8 +159,9 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(discoverySource, /bEnablePythonForProject/);
   assert.match(bridgeSource, /UEM_PROJECT_FILE/);
   assert.match(bridgeSource, /active-session\.json/);
-  assert.match(bridgeSource, /UEM_AUTO_CONNECTOR_BEGIN/);
-  assert.match(bridgeSource, /uefn_auto_connector\.py/);
+  assert.match(bridgeSource, /connectorBootstrapCommand\(appRoot\)/);
+  assert.doesNotMatch(bridgeSource, /UEM_AUTO_CONNECTOR_BEGIN|init_unreal\.py/);
+  assert.match(read('electron/connectorBootstrap.ts'), /uefn_auto_connector\.py/);
   assert.match(bridgeSource, /UEM_AUTO_CONNECTOR_INSTALLED/);
   assert.match(read('uefn_auto_connector.py'), /_session_matches_this_project/);
   assert.match(read('entitlement_manager.py'), /attach_to_standalone_session/);
@@ -174,7 +175,7 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(discoverySource, /latestStartup/);
   assert.match(serverSource, /latestStartup/);
   assert.match(bridgeSource, /bootstrapOpenEditor/);
-  assert.match(bridgeSource, /import uefn_auto_connector; uefn_auto_connector\.install\(\)/);
+  assert.match(read('electron/connectorBootstrap.ts'), /return `py "\$\{script\}"`/);
   assert.doesNotMatch(bridgeSource, /py import uefn_auto_connector/);
   assert.match(bridgeSource, /connectorAlive/);
   assert.match(bridgeSource, /method=uefn-python-console/);

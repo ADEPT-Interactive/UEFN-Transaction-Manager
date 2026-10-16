@@ -1,4 +1,4 @@
-"""Project-installed Transaction Manager connector loaded automatically by UEFN Python tooling."""
+"""Application-owned connector; run in UEFN without installing project Python files."""
 
 import importlib.util
 import json
@@ -12,6 +12,7 @@ try:
 except ImportError:
     unreal = None
 
+CONNECTOR_RUNTIME_VERSION = 2
 
 STATE_PATH = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
@@ -65,7 +66,8 @@ def install():
         return False
     previous_thread = getattr(unreal, "_uem_auto_connector_thread", None)
     previous_handle = getattr(unreal, "_uem_auto_connector_tick_handle", None)
-    if previous_thread is not None and previous_thread.is_alive() and previous_handle is not None:
+    if (previous_thread is not None and previous_thread.is_alive() and previous_handle is not None
+            and getattr(unreal, "_uem_auto_connector_runtime_version", None) == CONNECTOR_RUNTIME_VERSION):
         unreal.log("[TransactionManager] Automatic standalone connector is already monitoring; retained the existing worker.")
         return True
     previous_stop = getattr(unreal, "_uem_auto_connector_stop_event", None)
@@ -88,7 +90,13 @@ def install():
             if state is None:
                 continue
             signature = (state.get("desktopProcessId"), state.get("port"), state.get("editorToken"))
-            if signature == attached_signature["value"]:
+            bridge_stop = getattr(unreal, "_uem_texture_import_stop_event", None)
+            bridge_worker = getattr(unreal, "_uem_texture_import_worker", None)
+            heartbeat_worker = getattr(unreal, "_uem_texture_heartbeat_worker", None)
+            bridge_alive = (bridge_stop is not None and not bridge_stop.is_set()
+                            and bridge_worker is not None and bridge_worker.is_alive()
+                            and heartbeat_worker is not None and heartbeat_worker.is_alive())
+            if signature == attached_signature["value"] and bridge_alive:
                 continue
             with pending_lock:
                 pending["state"] = state
@@ -123,5 +131,10 @@ def install():
     unreal._uem_auto_connector_thread = worker
     unreal._uem_auto_connector_tick_callback = tick
     unreal._uem_auto_connector_tick_handle = handle
+    unreal._uem_auto_connector_runtime_version = CONNECTOR_RUNTIME_VERSION
     unreal.log("[TransactionManager] Automatic standalone connector is monitoring for Transaction Manager sessions.")
     return True
+
+
+if __name__ == "__main__":
+    install()

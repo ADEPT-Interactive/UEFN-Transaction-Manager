@@ -906,7 +906,15 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
 
 app.get('/api/editor/status', (_req, res) => {
   const state = currentEditorState();
-  if (state.editorConnected) bootstrapState = 'connected';
+  if (state.editorConnected) {
+    bootstrapState = 'connected';
+    bootstrapMessage = 'The application connector handshake is verified for the linked project.';
+    bootstrapDetails = { ...bootstrapDetails, handshakeConfirmed: true };
+  } else if (bootstrapState === 'connected') {
+    bootstrapState = autoConnectorInstalled ? 'waiting' : 'not-needed';
+    bootstrapMessage = 'Waiting for the linked project connector to become ready again.';
+    bootstrapDetails = { ...bootstrapDetails, handshakeConfirmed: false };
+  }
   res.json({
     success: true,
     connectionState: state.connectionState,
@@ -1051,7 +1059,7 @@ app.post('/api/texture/import', upload.single('image'), async (req, res) => {
           : editorState.connectionState === 'connector-waiting'
             ? autoConnectorInstalled
               ? 'The automatic native-import connector is not attached. Keep this Transaction Manager window open while the project connector starts.'
-              : 'Transaction Manager could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
+              : 'Transaction Manager could not find its application connector. Repair the UTM installation, then relink the project.'
             : `Native texture import is unavailable until the linked UEFN project is ready. ${catalogReadinessMessage(editorState.connectionState)}`,
       });
     }

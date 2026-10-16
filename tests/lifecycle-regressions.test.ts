@@ -3,13 +3,58 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import http from 'node:http';
 import { BootstrapPolicy } from '../electron/bootstrapPolicy.js';
+import { connectorBootstrapCommand } from '../electron/connectorBootstrap.js';
+import { tryDuckyBootstrap } from '../electron/duckyBootstrap.js';
 import { isExpectedNavigationAbort, SerializedAsyncOperation } from '../electron/navigation.js';
 import { createProjectBackup, projectBackupDirectory } from '../shared/projectBackups.js';
 import { isConnectorHeartbeatFresh, isProjectReadinessFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle.js';
 import { deriveEditorConnectionState } from '../shared/editorState.js';
 
 const read = (filePath: string) => fs.readFileSync(path.join(process.cwd(), filePath), 'utf8');
+
+test('optional Ducky attachment validates live identity before loading application code', async () => {
+  let health = { status: 'ok', commands: ['execute_python'], tick_age_sec: 0.1, busy: false };
+  const commands: Array<{ command: string; params: { code: string } }> = [];
+  let stderr = '';
+  const server = http.createServer(async (request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    if (request.method === 'GET') { response.end(JSON.stringify(health)); return; }
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    commands.push(JSON.parse(body));
+    response.end(JSON.stringify({ success: true, result: { result: { attached: !stderr }, stderr } }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as import('node:net').AddressInfo).port;
+  const source = { scriptPath: path.resolve("UTM app's", 'uefn_auto_connector.py'), contentRoot: path.resolve('project', 'Content'), assetMount: '/Commerce/' };
+  try {
+    assert.equal(await tryDuckyBootstrap(source, 42, undefined, port), true);
+    assert.equal(commands[0].command, 'execute_python');
+    const code = commands[0].params.code;
+    assert.match(code, /assert os\.getpid\(\) == 42/);
+    assert.match(code, /get_project_root_asset_directory/);
+    assert.match(code, /get_plugin_content_dir\("Commerce"\)/);
+    assert.ok(code.indexOf('UTM project Content root mismatch') < code.indexOf('runpy.run_path('));
+    assert.match(code, /run_name='utm_connector_bootstrap'/);
+    for (const change of [{ busy: true }, { tick_age_sec: 20 }, { commands: [] }]) {
+      const previous = health;
+      health = { ...health, ...change };
+      assert.equal(await tryDuckyBootstrap(source, 42, undefined, port), false);
+      health = previous;
+    }
+    assert.equal(commands.length, 1);
+    stderr = 'UTM project Content root mismatch';
+    assert.equal(await tryDuckyBootstrap(source, 42, undefined, port), false);
+    const aborted = new AbortController();
+    aborted.abort();
+    assert.equal(await tryDuckyBootstrap(source, 42, aborted.signal, port), false);
+    assert.equal(commands.length, 2);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
 
 test('stable connector heartbeat keeps a ready project connected', () => {
   const report = { projectReady: true, reportedAt: 10_000, processId: 42 };
@@ -134,10 +179,41 @@ test('already-open matching project receives a deterministic bootstrap attempt a
   if (attempt.kind === 'attempt') assert.equal(attempt.attemptNumber, 1);
 });
 
-test('known-invalid py import bootstrap command is not emitted', () => {
+test('bootstrap uses the application script even when project Python is rewritten or quarantined', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "utm bootstrap's-"));
+  try {
+    fs.writeFileSync(path.join(root, 'uefn_auto_connector.py'), '# application connector');
+    const projectPython = path.join(root, 'project', 'Content', 'Python');
+    fs.mkdirSync(projectPython, { recursive: true });
+    const init = path.join(projectPython, 'init_unreal.py');
+    fs.writeFileSync(init, '# Ducky managed init\n');
+    const expected = `py "${path.join(root, 'uefn_auto_connector.py').replaceAll('\\', '/')}"`;
+    assert.equal(connectorBootstrapCommand(root), expected);
+    fs.writeFileSync(init, '# Ducky refresh replaced all startup text\n');
+    assert.equal(connectorBootstrapCommand(root), expected);
+    assert.equal(fs.readFileSync(init, 'utf8'), '# Ducky refresh replaced all startup text\n');
+    assert.deepEqual(fs.readdirSync(projectPython), ['init_unreal.py']);
+    fs.rmSync(path.join(root, 'uefn_auto_connector.py'));
+    assert.equal(connectorBootstrapCommand(root), undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
   const bridge = read('electron/bridgeSession.ts');
-  assert.match(bridge, /import uefn_auto_connector; uefn_auto_connector\.install\(\)/);
+  assert.match(bridge, /connectorBootstrapCommand\(appRoot\)/);
+  assert.doesNotMatch(bridge, /init_unreal\.py|copyFileSync|UEM_AUTO_CONNECTOR_BEGIN/);
   assert.doesNotMatch(bridge, /py import uefn_auto_connector/);
+});
+
+test('successful recovery restores a bounded retry budget for the same project and PID', () => {
+  const policy = new BootstrapPolicy();
+  const project = { projectFile: 'C:/Projects/Commerce.uefnproject', processId: 42 };
+  policy.observe({ now: 0, project, connectorAlive: false, editorConnected: false });
+  for (const now of [4_000, 6_000, 11_000]) assert.equal(policy.observe({ now, project, connectorAlive: false, editorConnected: false }).kind, 'attempt');
+  assert.equal(policy.observe({ now: 16_000, project, connectorAlive: false, editorConnected: false }).kind, 'exhausted');
+  assert.equal(policy.observe({ now: 17_000, project, connectorAlive: true, editorConnected: true }).kind, 'connected');
+  const recovery = policy.observe({ now: 26_000, project, connectorAlive: false, editorConnected: false });
+  assert.equal(recovery.kind, 'attempt');
+  if (recovery.kind === 'attempt') assert.equal(recovery.attemptNumber, 1);
 });
 
 test('bootstrap retries are bounded for one project and PID identity', () => {

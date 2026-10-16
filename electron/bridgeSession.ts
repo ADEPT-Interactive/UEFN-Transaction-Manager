@@ -8,62 +8,11 @@ import path from 'node:path';
 import type { ProjectCandidate } from './contracts.js';
 import { projectIsOpen } from './projectDiscovery.js';
 import { sendUefnConnectorCommand } from './nativeWindows.js';
-import { createProjectBackup } from '../shared/projectBackups.js';
+import { connectorBootstrapCommand } from './connectorBootstrap.js';
+import { tryDuckyBootstrap, type DuckyBootstrapSource } from './duckyBootstrap.js';
 import { BootstrapPolicy } from './bootstrapPolicy.js';
 
 export type DiagnosticWriter = (message: string) => void;
-
-interface ConnectorInstallResult {
-  installed: boolean;
-  addedThisLaunch: boolean;
-}
-
-function installAutomaticConnector(appRoot: string, project: ProjectCandidate): ConnectorInstallResult {
-  const source = path.join(appRoot, 'uefn_auto_connector.py');
-  if (!fs.existsSync(source)) return { installed: false, addedThisLaunch: false };
-  const pythonDirectory = path.join(project.contentDirectory, 'Python');
-  fs.mkdirSync(pythonDirectory, { recursive: true });
-  fs.copyFileSync(source, path.join(pythonDirectory, 'uefn_auto_connector.py'));
-
-  const beginMarker = '# UEM_AUTO_CONNECTOR_BEGIN';
-  const endMarker = '# UEM_AUTO_CONNECTOR_END';
-  const initPath = path.join(pythonDirectory, 'init_unreal.py');
-  const existing = fs.existsSync(initPath) ? fs.readFileSync(initPath, 'utf8') : '';
-  const alreadyInstalled = existing.includes(beginMarker) && existing.includes(endMarker);
-  if (!alreadyInstalled) {
-    if (fs.existsSync(initPath)) {
-      createProjectBackup(initPath, project.contentDirectory, project.projectFile);
-    }
-    const managedBlock = [
-      beginMarker,
-      'try:',
-      '    import uefn_auto_connector as _uem_auto_connector',
-      '    _uem_auto_connector.install()',
-      'except Exception as _uem_auto_connector_error:',
-      '    import unreal as _uem_unreal',
-      '    _uem_unreal.log_warning(f"[TransactionManager] Automatic connector startup failed: {_uem_auto_connector_error}")',
-      endMarker,
-      '',
-    ].join(os.EOL);
-    const next = `${existing.trimEnd()}${existing.length === 0 ? '' : `${os.EOL}${os.EOL}`}${managedBlock}`;
-    const temporary = `${initPath}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, next, { encoding: 'utf8', flag: 'wx' });
-    if (!fs.existsSync(initPath)) fs.renameSync(temporary, initPath);
-    else {
-      const replaced = `${initPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.replaced`;
-      fs.renameSync(initPath, replaced);
-      try {
-        fs.renameSync(temporary, initPath);
-        fs.rmSync(replaced);
-      } catch (error) {
-        if (!fs.existsSync(initPath) && fs.existsSync(replaced)) fs.renameSync(replaced, initPath);
-        fs.rmSync(temporary, { force: true });
-        throw error;
-      }
-    }
-  }
-  return { installed: true, addedThisLaunch: !alreadyInstalled };
-}
 
 async function reserveLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -213,12 +162,7 @@ export class BridgeSession {
   static async start(appRoot: string, project: ProjectCandidate, writeDiagnostic: DiagnosticWriter, showcaseMode = false): Promise<BridgeSession> {
     const serverPath = path.join(appRoot, 'dist', 'server.cjs');
     if (!fs.existsSync(serverPath)) throw new Error(`The manager bridge build is missing: ${serverPath}`);
-    let connector: ConnectorInstallResult = { installed: false, addedThisLaunch: false };
-    try {
-      connector = installAutomaticConnector(appRoot, project);
-    } catch (error) {
-      writeDiagnostic(`Automatic UEFN connector installation failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-    }
+    const bootstrapCommand = connectorBootstrapCommand(appRoot);
     const openProject = projectIsOpen(project.projectFile, writeDiagnostic);
     const port = await reserveLoopbackPort();
     const sessionToken = crypto.randomBytes(48).toString('base64url');
@@ -238,7 +182,7 @@ export class BridgeSession {
       UEM_ASSET_MOUNT: `/${project.assetMount}`,
       UEM_PROJECT_FILE: project.projectFile,
       UEM_PROJECT_PYTHON_ENABLED: project.pythonEnabled ? '1' : '0',
-      UEM_AUTO_CONNECTOR_INSTALLED: connector.installed ? '1' : '0',
+      UEM_AUTO_CONNECTOR_INSTALLED: bootstrapCommand ? '1' : '0',
       UEM_UEFN_PROCESS_ID: String(openProject?.processId ?? 0),
       UEM_IDLE_TIMEOUT_MS: '120000',
     };
@@ -283,7 +227,7 @@ export class BridgeSession {
       statePath = writeActiveSession(port, editorToken, project, connectorScript);
       const session = new BridgeSession(child, port, sessionToken, editorToken, statePath, logPath, writeDiagnostic, `http://127.0.0.1:${port}/#${fragment}`);
       writeDiagnostic(`Bridge started: pid=${child.pid ?? 0}, port=${port}, project=${path.basename(project.projectFile)}`);
-      if (connector.installed) session.watchForEditorBootstrap(project.projectFile, openProject?.windowTitle);
+      if (bootstrapCommand) session.watchForEditorBootstrap(project.projectFile, bootstrapCommand, { scriptPath: path.join(appRoot, 'uefn_auto_connector.py'), contentRoot: project.contentDirectory, assetMount: project.assetMount }, openProject?.windowTitle);
       return session;
     } catch (error) {
       if (statePath) fs.rmSync(statePath, { force: true });
@@ -296,7 +240,7 @@ export class BridgeSession {
     return !this.stopped && generation === this.lifecycleGeneration;
   }
 
-  private watchForEditorBootstrap(projectFile: string, initialWindowTitle?: string): void {
+  private watchForEditorBootstrap(projectFile: string, bootstrapCommand: string, bootstrapSource: DuckyBootstrapSource, initialWindowTitle?: string): void {
     const check = async () => {
       const generation = this.lifecycleGeneration;
       if (!this.isCurrent(generation) || this.editorBootstrapCheckInFlight || this.editorBootstrapAttemptInFlight) return;
@@ -359,7 +303,7 @@ export class BridgeSession {
         if (decision.kind !== 'attempt' || !this.isCurrent(generation)) return;
         this.writeDiagnostic(`Automatic UEFN connector found the linked project: project=${projectFile}, pid=${openProject.processId}; bootstrap attempt ${decision.attemptNumber}/${decision.maxAttempts}, reason=${decision.reason}, method=uefn-python-console, nextRetryAt=${new Date(decision.nextRetryAt).toISOString()}.`);
         this.editorBootstrapAttemptInFlight = true;
-        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber, generation);
+        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber, generation, bootstrapCommand, bootstrapSource);
       } catch (error) {
         if (this.isCurrent(generation)) this.writeDiagnostic(`Automatic UEFN connector readiness check did not complete: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
@@ -375,7 +319,8 @@ export class BridgeSession {
     void check();
   }
 
-  private async bootstrapOpenEditor(windowTitle: string | undefined, intendedProject: string, uefnProcessId: number, attemptNumber: number, generation: number) {
+  private async bootstrapOpenEditor(windowTitle: string | undefined, intendedProject: string, uefnProcessId: number, attemptNumber: number, generation: number, command: string, bootstrapSource: DuckyBootstrapSource) {
+    let method = 'ducky-listener';
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         throwIfStopped(() => !this.isCurrent(generation));
@@ -385,37 +330,41 @@ export class BridgeSession {
         await waitWithCancellation(500, this.requestController.signal, () => !this.isCurrent(generation));
       }
       throwIfStopped(() => !this.isCurrent(generation));
-      const command = 'import uefn_auto_connector; uefn_auto_connector.install()';
-      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'attempting', message: `Sending supported Python console command to UEFN pid=${uefnProcessId}.`, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', command }), this.requestController.signal);
+      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'attempting', message: `Attaching the application connector to UEFN pid=${uefnProcessId}.`, attemptNumber, intendedProject, uefnProcessId, method }), this.requestController.signal);
       throwIfStopped(() => !this.isCurrent(generation));
-      const sent = await sendUefnConnectorCommand(windowTitle, command, this.requestController.signal);
+      let sent = await tryDuckyBootstrap(bootstrapSource, uefnProcessId, this.requestController.signal);
+      throwIfStopped(() => !this.isCurrent(generation));
+      if (!sent) {
+        method = 'uefn-python-console';
+        sent = await sendUefnConnectorCommand(windowTitle, command, this.requestController.signal);
+      }
       throwIfStopped(() => !this.isCurrent(generation));
       if (!sent) {
         const message = `The verified UEFN window could not accept the supported automatic connector command for pid=${uefnProcessId}.`;
         this.writeDiagnostic(`Automatic UEFN connector bootstrap attempt ${attemptNumber} failed before command delivery: ${message}`);
-        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: false }), this.requestController.signal);
+        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method, commandAccepted: false }), this.requestController.signal);
         return;
       }
-      this.writeDiagnostic(`Automatic UEFN connector bootstrap command delivered: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}, method=uefn-python-console.`);
+      this.writeDiagnostic(`Automatic UEFN connector bootstrap command delivered: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}, method=${method}.`);
       for (let attempt = 0; attempt < 16; attempt += 1) {
         await waitWithCancellation(500, this.requestController.signal, () => !this.isCurrent(generation));
         const status = await request(this.port, '/api/editor/status', this.sessionToken, 'GET', undefined, this.requestController.signal);
         throwIfStopped(() => !this.isCurrent(generation));
         if (status.status === 200 && /"editorConnected"\s*:\s*true/i.test(status.text)) {
           this.writeDiagnostic(`Automatic UEFN connector bootstrap handshake confirmed: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}.`);
-          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'connected', message: 'Supported Python console command produced a verified connector handshake.', attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: true }), this.requestController.signal);
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'connected', message: 'Application connector attachment produced a verified handshake.', attemptNumber, intendedProject, uefnProcessId, method, commandAccepted: true, handshakeConfirmed: true }), this.requestController.signal);
           return;
         }
         if (status.status === 200 && /"connectorAlive"\s*:\s*true/i.test(status.text)) {
           const message = 'The connector heartbeat is alive; UTM is waiting for the verified project-readiness assertion.';
           this.writeDiagnostic(`Automatic UEFN connector bootstrap command accepted without immediate readiness: attempt=${attemptNumber}, project=${intendedProject}, pid=${uefnProcessId}.`);
-          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'waiting', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: false }), this.requestController.signal);
+          await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'waiting', message, attemptNumber, intendedProject, uefnProcessId, method, commandAccepted: true, handshakeConfirmed: false }), this.requestController.signal);
           return;
         }
       }
       const message = `UEFN did not confirm the connector handshake after supported command attempt ${attemptNumber}.`;
       this.writeDiagnostic(`Automatic UEFN connector bootstrap attempt ${attemptNumber} failed after command delivery: ${message}`);
-      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method: 'uefn-python-console', commandAccepted: true, handshakeConfirmed: false }), this.requestController.signal);
+      await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber, intendedProject, uefnProcessId, method, commandAccepted: true, handshakeConfirmed: false }), this.requestController.signal);
     } catch (error) {
       if (this.isCurrent(generation)) this.writeDiagnostic(`Automatic UEFN connector bootstrap did not complete: ${error instanceof Error ? error.message : String(error)}`);
     }
