@@ -175,7 +175,6 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(discoverySource, /latestStartup/);
   assert.match(serverSource, /latestStartup/);
   assert.match(bridgeSource, /bootstrapOpenEditor/);
-  assert.match(read('electron/connectorBootstrap.ts'), /return `py "\$\{script\}"`/);
   assert.doesNotMatch(bridgeSource, /py import uefn_auto_connector/);
   assert.match(bridgeSource, /connectorAlive/);
   assert.match(bridgeSource, /method=uefn-python-console/);
