@@ -95,3 +95,10 @@ The global Verse API action replaces Need Help. Entitlement cards also open Func
 The real Electron renderer acceptance exercises item shortcuts, callback and await views, searching exact event names, empty search, actual Windows clipboard contents, and independent dialog scrolling at 1280×720 and 150% zoom. Connection acceptance controls only the disposable renderer's status response and exercises pending retry → UEFN closed → late response, visible busy feedback → Python disabled, and automatic notification expiry. The compact bar is checked below 52 CSS pixels while collapsed. Native Windows visual review confirmed the catalog, functions, and event views.
 
 The updated generated matrix and copied callback examples were compiled in the disposable UEM_Demo project on UEFN 42.40. BuildAll returned zero diagnostics. The original managed source was restored in finally and also returned zero diagnostics. The source generator's runtime implementation is unchanged by this UI refresh. No Fortnite session was launched.
+
+
+## 4.5.0-preview.4 desktop clipboard correction
+
+Preview.3's new Copy buttons used navigator.clipboard directly, while the standalone host denies browser permission requests. The renderer acceptance had used a permissive BrowserWindow without the production preload, masking this failure. Copies now use a write-only preload/IPC action backed by Electron's native clipboard. The handler validates the existing trusted top-level sender and accepts only bounded strings; browser permissions remain denied, and clipboard reading is not exposed. The shared helper also serves generated Verse and Agent Integration, with the existing browser/DOM fallback retained for web and older hosts. Generated Verse only reports success after a completed write.
+
+The renderer acceptance now loads the production preload, denies browser permissions, verifies that browser clipboard access raises NotAllowedError, and checks actual Windows clipboard contents after function, callback-example, and generated-source copying. Its reconnect fixture uses IPC rather than replacing the immutable preload object.

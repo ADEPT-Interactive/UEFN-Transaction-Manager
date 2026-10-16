@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 const applicationRoot = path.resolve(process.env.UEM_UI_APP_ROOT ?? repositoryRoot);
@@ -22,6 +22,9 @@ let bridgePort;
 let windowRef;
 let bridgeStdout = '';
 let bridgeStderr = '';
+let reconnectFixture = () => Promise.resolve({ success: false, error: 'No reconnect fixture configured.' });
+let resolvePendingRetry;
+let clipboardWriteCount = 0;
 
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -1032,6 +1035,11 @@ async function runRendererAssertions() {
 
 
 async function verifyVerseApiBrowser() {
+  const browserCopyError = await evaluate(`async () => {
+    try { await navigator.clipboard.writeText('permission-policy-probe'); return null; }
+    catch (error) { return error.name; }
+  }`);
+  assert.equal(browserCopyError, 'NotAllowedError', 'production browser clipboard permission must stay denied');
   const first = await evaluate(`() => {
     const button = document.querySelector('button[aria-label^="View Verse API for "]');
     return { label: button?.getAttribute('aria-label'), name: button?.closest('article')?.querySelector('h3')?.innerText };
@@ -1041,6 +1049,10 @@ async function verifyVerseApiBrowser() {
   await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Verse API\'', 'the API browser');
   assert.equal(await evaluate('() => document.querySelector(\'[data-api-item] h3\')?.innerText'), first.name, 'Functions must open the clicked entitlement');
   const current = await evaluate('() => document.querySelector(\'[data-api-item]\')?.dataset.apiItem');
+  const functionText = await evaluate('() => document.querySelector(\'[data-api-item] section code\')?.innerText');
+  await physicalClick('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')', 'copying a function call');
+  await waitForExpression('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')?.innerText.includes(\'Copied\')', 'the function copy result');
+  assert.equal(clipboard.readText(), functionText, 'the function button must write its exact call');
   await click(buttonByText('Events', true), 'the event reference');
   assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Subscribe\')'));
   await click(buttonByText('Await functions', true), 'the awaitable event reference');
@@ -1075,6 +1087,14 @@ async function verifyVerseApiBrowser() {
   await click(buttonByText('Verse API', true), 'the global Verse API action');
   await waitForExpression('() => document.querySelector(\'[data-api-item]\')', 'the default functions reference');
   await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing the reference');
+  assert.ok(clipboardWriteCount >= 2, 'the real preload must deliver native clipboard writes');
+  await click(buttonByText('Verse', true), 'the generated Verse workspace');
+  const source = await evaluate(`() => [...document.querySelectorAll('[aria-label="Generated Verse source"] .whitespace-pre')].map(line => line.textContent === ' ' ? '' : line.textContent).join(String.fromCharCode(10))`);
+  assert.ok(source.length > 1000, 'the generated source should be present');
+  await physicalClick(buttonByText('Copy Code', true), 'copying the complete generated Verse');
+  await waitForExpression('() => [...document.querySelectorAll(\'button\')].some(button => button.innerText.trim() === \'Copied!\')', 'the generated source copy result');
+  assert.equal(clipboard.readText().replaceAll('\r\n', '\n'), source, 'generated Verse must copy the complete source before reporting success');
+  await click(buttonByText('Catalog', true), 'returning to the catalog');
   console.log('VERSE_API_BROWSER_ACCEPTANCE', JSON.stringify({ directItemShortcut: true, eventSearch: true, callbackClipboard: true, emptySearch: true, constrainedZoomScroll: true }));
 }
 
@@ -1083,11 +1103,10 @@ async function verifyConnectionFeedback() {
   // stays untouched; only this disposable renderer's status response is controlled.
   await evaluate(`() => {
     window.__originalStatusFetch = window.fetch;
-    window.__originalDesktop = window.uemDesktop;
     window.__connectionTestStatus = { success: true, connectionState: 'connector-waiting', uefnRunning: true, projectActive: true, exactProjectOpen: true, pythonEnabled: true, editorConnected: false, connectorAlive: false, projectReady: false, autoConnectorInstalled: true, bootstrapState: 'waiting', readinessReason: 'connector-heartbeat-stale', processId: 12345 };
     window.fetch = (...args) => String(args[0]).endsWith('/api/editor/status') ? Promise.resolve(new Response(JSON.stringify(window.__connectionTestStatus), { headers: { 'Content-Type': 'application/json' } })) : window.__originalStatusFetch(...args);
-    window.uemDesktop = { editor: { reconnect: () => new Promise(resolve => { window.__resolveTestRetry = resolve; }) } };
   }`);
+  reconnectFixture = () => new Promise(resolve => { resolvePendingRetry = resolve; });
   const bar = '[aria-label="UEFN editor connection"]';
   const retry = '() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Retry connection\')';
   const busyText = 'Connection attachment is already in progress. Try again shortly.';
@@ -1095,13 +1114,14 @@ async function verifyConnectionFeedback() {
   assert.ok(await evaluate(`() => document.querySelector('${bar}').getBoundingClientRect().height <= 52`), 'collapsed connection bar should fit in one compact row');
   await click(`() => document.querySelector('${bar} button[aria-expanded]')`, 'connection details');
   await click(retry, 'a pending retry');
-  await waitForExpression('() => typeof window.__resolveTestRetry === \'function\'', 'the pending reconnect request');
+  assert.equal(typeof resolvePendingRetry, 'function', 'the reconnect fixture should be pending');
   await evaluate("() => { window.__connectionTestStatus.connectionState = 'uefn-closed'; }");
   await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'uefn-closed'`, 'UEFN closing during retry');
-  await evaluate(`() => { window.__resolveTestRetry({ success: false, error: ${JSON.stringify(busyText)} }); }`);
+  resolvePendingRetry({ success: false, error: busyText });
   await wait(100);
   assert.equal(await evaluate(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`), false, 'a late response must not contaminate the new connection state');
-  await evaluate(`() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; window.uemDesktop.editor.reconnect = async () => ({ success: false, error: ${JSON.stringify(busyText)} }); }`);
+  reconnectFixture = async () => ({ success: false, error: busyText });
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; }");
   await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'the next retryable state');
   await click(retry, 'an already-running retry');
   await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the immediate retry result');
@@ -1113,7 +1133,7 @@ async function verifyConnectionFeedback() {
   await click(retry, 'a temporary retry notification');
   await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the temporary notification');
   await waitForExpression(`() => !document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'retry notification expiry', 8000);
-  await evaluate(`() => { window.fetch = window.__originalStatusFetch; window.uemDesktop = window.__originalDesktop; delete window.__originalStatusFetch; delete window.__originalDesktop; delete window.__connectionTestStatus; delete window.__resolveTestRetry; }`);
+  await evaluate(`() => { window.fetch = window.__originalStatusFetch; delete window.__originalStatusFetch; delete window.__connectionTestStatus; }`);
   console.log('CONNECTION_FEEDBACK_ACCEPTANCE', JSON.stringify({ compactBar: true, lateResponseDiscarded: true, stateTransitionClears: true, notificationExpires: true }));
 }
 
@@ -1198,7 +1218,20 @@ async function main() {
     width: 1440,
     height: 900,
     backgroundColor: '#080c14',
-    webPreferences: { contextIsolation: true, sandbox: true },
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(applicationRoot, 'dist-electron', 'preload.cjs') },
+  });
+  // The standalone host denies browser permissions. Keep the real preload and
+  // native clipboard transport here so a permissive harness cannot mask failures.
+  windowRef.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  windowRef.webContents.session.setPermissionCheckHandler(() => false);
+  ipcMain.handle('uem:update:get-state', () => ({ status: 'idle', currentVersion: 'renderer-test' }));
+  ipcMain.handle('uem:editor:reconnect', () => reconnectFixture());
+  ipcMain.handle('uem:clipboard:write-text', (event, text) => {
+    assert.equal(event.sender, windowRef.webContents);
+    assert.equal(event.senderFrame, event.sender.mainFrame);
+    if (typeof text !== 'string' || text.length > 8 * 1024 * 1024) throw new Error('Invalid clipboard text.');
+    clipboard.writeText(text);
+    clipboardWriteCount += 1;
   });
   const contentRoot = path.join(runtimeProjectRoot, 'Content');
   const fragment = new URLSearchParams({

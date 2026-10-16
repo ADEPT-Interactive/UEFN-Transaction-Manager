@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronRight, Copy, FolderOpen, PlugZap, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import type { AgentIntegrationSetupResult, AgentIntegrationStatus } from '../services/fileService';
+import { copyText } from '../services/clipboard';
 import { NumericInput } from './NumericInput';
 
 type SupportedAgent = 'codex' | 'claude' | 'cursor';
@@ -43,31 +44,6 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
     return () => { document.body.style.overflow = previousOverflow; };
   }, [isOpen]);
   if (!isOpen) return null;
-
-  const copyText = async (text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await Promise.race([
-          navigator.clipboard.writeText(text),
-          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Clipboard access timed out.')), 1500)),
-        ]);
-        return;
-      }
-    } catch {
-      // Electron builds can expose a clipboard promise that never resolves. Fall back to the DOM path.
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const copied = document.execCommand('copy');
-    textarea.remove();
-    if (!copied) throw new Error('Clipboard access is unavailable.');
-  };
 
   const showMessage = (next: string, error = false) => {
     setMessage(next);

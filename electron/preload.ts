@@ -5,6 +5,9 @@ const windowActions = new Set<WindowAction>(['request-state', 'drag', 'minimize'
 
 contextBridge.exposeInMainWorld('uemDesktop', Object.freeze({
   isDesktop: true,
+  clipboard: Object.freeze({
+    writeText: (text: string): Promise<void> => ipcRenderer.invoke('uem:clipboard:write-text', text),
+  }),
   editor: Object.freeze({
     reconnect: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:editor:reconnect'),
   }),
