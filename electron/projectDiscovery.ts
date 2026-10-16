@@ -7,6 +7,7 @@ import path from 'node:path';
 import koffi from 'koffi';
 import type { ProjectCandidate, ProjectSource } from './contracts.js';
 import { parseUefnProjectLifecycleLog } from '../shared/editorLifecycle.js';
+import { projectPythonIsEnabled } from '../shared/pythonEnablement.js';
 
 const TITLE_PATTERN = /"title"\s*:\s*"([^"]+)"/i;
 const ROOT_PLUGIN_PATTERN = /\{[^{}]*"name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"[^{}]*"bIsRoot"\s*:\s*true[^{}]*\}/is;
@@ -282,7 +283,8 @@ export function readProject(
     const canonicalContent = fs.realpathSync.native(contentDirectory);
     const active = Boolean(isActive && uefnProcess);
     const utmInitialized = fs.existsSync(path.join(canonicalContent, 'managed_transactions.verse'));
-    const firstRunBlocker = !utmInitialized ? active ? (!PYTHON_ENABLED_PATTERN.test(descriptor) ? 'python' : undefined) : 'open-in-uefn' : undefined;
+    const pythonEnabled = projectPythonIsEnabled(projectFile, PYTHON_ENABLED_PATTERN.test(descriptor));
+    const firstRunBlocker = !utmInitialized ? active ? (!pythonEnabled ? 'python' : undefined) : 'open-in-uefn' : undefined;
     return {
       id: crypto.createHash('sha256').update(projectFile.toLowerCase()).digest('hex'),
       projectFile,
@@ -292,7 +294,7 @@ export function readProject(
       source: active ? 'active' : source,
       sourceLabel: sourceLabel(source, active),
       isActive: active,
-      pythonEnabled: PYTHON_ENABLED_PATTERN.test(descriptor),
+      pythonEnabled,
       utmInitialized,
       firstRunBlocker,
       lastModifiedUtc: fs.statSync(projectFile).mtime.toISOString(),

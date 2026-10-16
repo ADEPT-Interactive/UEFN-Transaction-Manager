@@ -284,7 +284,7 @@ function readinessMessage(state: EditorConnectionState, projectName?: string): s
     case 'connected': return null;
     case 'different-project': return 'First catalog creation is blocked until the exact project linked to this window is open in UEFN.';
     case 'project-opening': return `${projectName ? `${projectName} is` : 'The linked project is'} still opening in UEFN. UTM will update automatically when the project identity is confirmed.`;
-    case 'python-required': return 'Enable Python Editor Scripting in this project before creating its first managed catalog. UTM detects the change without a restart.';
+    case 'python-required': return 'Enable Python Editor Scripting in Project Settings and Tools → Enable Python for your user. UTM connects when the runtime is ready.';
     case 'connector-waiting': return 'The authenticated UEFN connector is not attached yet. Keep UEFN and Transaction Manager open while it connects.';
     case 'project-readiness-waiting': return 'The connector is present, but UEFN has not confirmed project readiness yet. Keep the exact project open and wait for the readiness check.';
     case 'uefn-running-project-unknown': return 'Open the project linked to this Transaction Manager window in UEFN before creating its first managed catalog.';
@@ -385,7 +385,7 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
     case 'python-required':
       heading = 'This project is open, but Python Editor Scripting is disabled';
       summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
-      detail = 'Enable Python Editor Scripting for this project. UTM detects the change immediately without requiring a restart.';
+      detail = 'Enable Python Editor Scripting in Project Settings and Tools → Enable Python for your user. UTM watches both settings and connects when the editor runtime is ready.';
       break;
     case 'connected':
       heading = 'This project is open and fully connected';
@@ -400,7 +400,7 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
       detail = !status.autoConnectorInstalled
         ? 'The application connector is missing. Reinstall this UTM build to restore it.'
         : status.bootstrapState === 'failed'
-          ? 'Automatic attachment did not complete. Keep this project open and retry the connection. Need Help includes the manual Python script option.'
+          ? 'Automatic attachment is waiting to recover. Enable Tools → Enable Python and close blocking dialogs. UTM retries automatically; Retry Connection starts a fresh attempt now.'
           : 'Python is enabled. Transaction Manager is attaching its application connector automatically.';
       break;
     case 'project-readiness-waiting':

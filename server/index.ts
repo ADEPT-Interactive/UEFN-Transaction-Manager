@@ -23,6 +23,7 @@ import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLife
 import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
 import { AgentActivityManager } from './agentActivity';
 import { projectIdentityFromContext } from './agentPreflight';
+import { projectPythonIsEnabled as readProjectPythonEnabled } from '../shared/pythonEnablement';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -317,12 +318,7 @@ function freshExactConnectorIdentity(): boolean {
 }
 
 function projectPythonIsEnabled(): boolean {
-  if (!configuredProjectFile) return initialProjectPythonEnabled;
-  try {
-    return /"bEnablePythonForProject"\s*:\s*true/i.test(fs.readFileSync(configuredProjectFile, 'utf8'));
-  } catch {
-    return initialProjectPythonEnabled;
-  }
+  return readProjectPythonEnabled(configuredProjectFile, initialProjectPythonEnabled);
 }
 
 /**

@@ -11,8 +11,43 @@ import { isExpectedNavigationAbort, SerializedAsyncOperation } from '../electron
 import { createProjectBackup, projectBackupDirectory } from '../shared/projectBackups.js';
 import { isConnectorHeartbeatFresh, isProjectReadinessFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle.js';
 import { deriveEditorConnectionState } from '../shared/editorState.js';
+import { projectPythonIsEnabled } from '../shared/pythonEnablement.js';
 
 const read = (filePath: string) => fs.readFileSync(path.join(process.cwd(), filePath), 'utf8');
+
+test('Python eligibility follows project and per-user switches without reopening UTM', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'utm-python-switches-'));
+  const file = path.join(root, 'Demo.uefnproject');
+  const ini = path.join(root, 'UnrealEditorFortnite', 'Saved', 'Config', 'WindowsEditor', 'EditorPerProjectUserSettings.ini');
+  const projectId = '3eed3c4c-4aad-e017-d3c5-1a8ad8cd3d66';
+  const descriptor = (enabled: boolean) => JSON.stringify({ bindings: { projectId }, dataSets: { experimental: { pythonExperimental: { bEnablePythonForProject: enabled } } } });
+  try {
+    fs.writeFileSync(file, descriptor(true));
+    assert.equal(projectPythonIsEnabled(file, false, root), true);
+    fs.mkdirSync(path.dirname(ini), { recursive: true });
+    fs.writeFileSync(ini, `EnablePythonLocallyPerProject=((aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa, True),(${projectId}, False))`);
+    assert.equal(projectPythonIsEnabled(file, true, root), false);
+    fs.writeFileSync(ini, `EnablePythonLocallyPerProject=((${projectId.toUpperCase()}, True))`);
+    assert.equal(projectPythonIsEnabled(file, false, root), true);
+    fs.writeFileSync(file, descriptor(false));
+    assert.equal(projectPythonIsEnabled(file, true, root), false);
+    fs.writeFileSync(file, descriptor(true));
+    assert.equal(projectPythonIsEnabled(file, false, root), true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('late Python runtime or Ducky availability recovers after a bounded cooldown', () => {
+  const policy = new BootstrapPolicy();
+  const project = { projectFile: 'C:/Projects/Commerce.uefnproject', processId: 42 };
+  policy.observe({ now: 0, project, connectorAlive: false, editorConnected: false });
+  for (const now of [4_000, 6_000, 11_000]) assert.equal(policy.observe({ now, project, connectorAlive: false, editorConnected: false }).kind, 'attempt');
+  for (const now of [16_000, 20_000, 45_999]) assert.equal(policy.observe({ now, project, connectorAlive: false, editorConnected: false }).kind, 'exhausted');
+  const recovered = policy.observe({ now: 46_000, project, connectorAlive: false, editorConnected: false });
+  assert.equal(recovered.kind, 'attempt');
+  if (recovered.kind === 'attempt') assert.equal(recovered.attemptNumber, 1);
+  assert.equal(policy.observe({ now: 46_001, project, connectorAlive: true, editorConnected: true }).kind, 'connected');
+  assert.equal(policy.observe({ now: 90_000, project, connectorAlive: true, editorConnected: true }).kind, 'connected');
+});
 
 test('optional Ducky attachment validates live identity before loading application code', async () => {
   let health = { status: 'ok', commands: ['execute_python'], tick_age_sec: 0.1, busy: false };

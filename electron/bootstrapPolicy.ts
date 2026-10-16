@@ -15,12 +15,15 @@ export class BootstrapPolicy {
   private attemptNumber = 0;
   private nextRetryAt = 0;
   private graceUntil = 0;
+  private recoveryAt = 0;
+  private readonly recoveryDelayMs = 30_000;
 
   reset(): void {
     this.identity = undefined;
     this.attemptNumber = 0;
     this.nextRetryAt = 0;
     this.graceUntil = 0;
+    this.recoveryAt = 0;
   }
 
   observe(input: { now: number; project?: BootstrapProjectIdentity; connectorAlive: boolean; editorConnected: boolean }): BootstrapDecision {
@@ -29,6 +32,7 @@ export class BootstrapPolicy {
       // again without changing the editor PID or project.
       this.attemptNumber = 0;
       this.nextRetryAt = 0;
+      this.recoveryAt = 0;
       return { kind: 'connected', reason: 'editor-connected', ...(this.identity ? { identity: this.identity } : {}) };
     }
 
@@ -45,12 +49,18 @@ export class BootstrapPolicy {
       this.attemptNumber = 0;
       this.nextRetryAt = 0;
       this.graceUntil = input.now + this.projectGracePeriodMs;
+      this.recoveryAt = 0;
     }
 
     if (input.connectorAlive) return { kind: 'waiting', reason: 'connector-heartbeat-alive-awaiting-readiness', identity: nextIdentity, ...(identityChanged ? { identityChanged: true } : {}) };
     if (input.now < this.graceUntil) return { kind: 'waiting', reason: 'project-startup-grace', identity: nextIdentity, ...(identityChanged ? { identityChanged: true } : {}) };
     if (input.now < this.nextRetryAt) return { kind: 'waiting', reason: 'bootstrap-backoff', identity: nextIdentity };
-    if (this.attemptNumber >= this.maxAttempts) return { kind: 'exhausted', reason: 'bounded-bootstrap-attempts-exhausted', identity: nextIdentity, attemptNumber: this.attemptNumber, maxAttempts: this.maxAttempts };
+    if (this.attemptNumber >= this.maxAttempts) {
+      if (!this.recoveryAt) this.recoveryAt = input.now + this.recoveryDelayMs;
+      if (input.now < this.recoveryAt) return { kind: 'exhausted', reason: 'bounded-bootstrap-attempts-exhausted', identity: nextIdentity, attemptNumber: this.attemptNumber, maxAttempts: this.maxAttempts };
+      this.attemptNumber = 0;
+      this.recoveryAt = 0;
+    }
 
     this.attemptNumber += 1;
     const delay = this.retryDelays[this.attemptNumber] ?? this.retryDelays.at(-1)!;

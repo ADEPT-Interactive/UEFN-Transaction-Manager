@@ -268,6 +268,7 @@ export class BridgeSession {
         const pythonEnabled = statusBody.pythonEnabled === true;
         if (this.lastPythonEnabled !== undefined && this.lastPythonEnabled !== pythonEnabled) {
           this.editorBootstrapPolicy.reset();
+          this.bootstrapExhaustionReported = false;
           this.bootstrapHandshakeConfirmed = false;
           this.writeDiagnostic(`Automatic UEFN connector bootstrap eligibility changed: pythonEnabled=${pythonEnabled}.`);
         }
@@ -313,12 +314,13 @@ export class BridgeSession {
         if (decision.kind === 'exhausted') {
           if (this.bootstrapExhaustionReported) return;
           this.bootstrapExhaustionReported = true;
-          const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}.`;
+          const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}. Automatic recovery will retry after a short cooldown.`;
           this.writeDiagnostic(`Automatic UEFN connector bootstrap exhausted: ${message}`);
           await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber: decision.attemptNumber, intendedProject: projectFile, uefnProcessId: openProject.processId, method: 'uefn-python-console' }), this.requestController.signal);
           return;
         }
         if (decision.kind !== 'attempt' || !this.isCurrent(generation)) return;
+        this.bootstrapExhaustionReported = false;
         this.writeDiagnostic(`Automatic UEFN connector found the linked project: project=${projectFile}, pid=${openProject.processId}; bootstrap attempt ${decision.attemptNumber}/${decision.maxAttempts}, reason=${decision.reason}, method=uefn-python-console, nextRetryAt=${new Date(decision.nextRetryAt).toISOString()}.`);
         this.editorBootstrapAttemptInFlight = true;
         await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber, generation, bootstrapCommand, bootstrapSource);
