@@ -303,6 +303,15 @@ try {
     $label = if ($Hidden) { "hidden " } else { "" }
     Write-Host "Electron ${label}picker, ${CatalogState} catalog project confirmation, dashboard navigation, project switching, and owned-process shutdown passed." -ForegroundColor Green
 }
+catch {
+    foreach ($failureLog in @($pickerLog, $managerLog)) {
+        if ($failureLog -and (Test-Path -LiteralPath $failureLog)) {
+            Write-Host "Electron lifecycle failure diagnostics ($failureLog):"
+            Get-Content -LiteralPath $failureLog -Raw | Write-Host
+        }
+    }
+    throw
+}
 finally {
     foreach ($id in $trackedIds) {
         if (Test-TrackedProcessAlive -ProcessId $id) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
