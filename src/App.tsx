@@ -687,7 +687,9 @@ export const App: React.FC = () => {
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  const clearStatusLater = () => window.setTimeout(() => setStatus(null), 6000);
+  const clearStatusLater = (savedStatus: { message: string; error?: boolean }) => window.setTimeout(() => {
+    setStatus(current => current === savedStatus ? null : current);
+  }, 6000);
 
   const checkForUpdates = () => {
     if (!window.uemDesktop) return;
@@ -814,8 +816,9 @@ export const App: React.FC = () => {
     if (result.catalog) applyCatalogSnapshot(result.catalog);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash });
     setLastSavedSnapshot(currentSnapshot);
-    setStatus({ message: `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` });
-    clearStatusLater();
+    const savedStatus = { message: `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` };
+    setStatus(savedStatus);
+    clearStatusLater(savedStatus);
     return { contentHash: result.contentHash };
   };
 
