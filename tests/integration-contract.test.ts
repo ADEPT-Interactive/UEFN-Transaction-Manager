@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { createVerseApiReference } from '../src/services/verseApiReference';
 import { describeIntegrationContract } from '../src/services/integrationContract';
 import { defaultProjectConfig } from '../src/services/catalogSession';
 import { generateVerseCode } from '../src/services/verseGenerator';
@@ -71,6 +72,31 @@ test('integration contract is derived from generator naming and exposes a qualif
   };
   const contract = describeIntegrationContract(config, entitlements, bundles, storefrontMembership, canonicalVersion);
   const verse = generateVerseCode(entitlements, bundles, config, storefrontMembership, []);
+
+  // The visible reference must only advertise public symbols that really exist,
+  // including optional runtime inputs, callbacks, and editable device arrays.
+  const reference = createVerseApiReference(config, entitlements, bundles, storefrontMembership);
+  for (const entry of reference) {
+    for (const fn of entry.functions) {
+      assert.ok(verse.includes(`${fn.symbol}<public>`), `${fn.symbol} must be a generated public helper`);
+      assert.ok(fn.call.includes(', Options') === (fn.title === 'Open purchase' && Boolean(entry.runtime)), `${fn.symbol} runtime arguments must match the generated contract`);
+      if (fn.suspends) assert.match(verse, new RegExp(`${escaped(fn.symbol)}<public>[^\\n]*<suspends>`));
+    }
+    for (const event of entry.events) {
+      for (const symbol of [event.subscribe, event.await]) assert.ok(verse.includes(`${symbol}<public>`), `${symbol} must exist`);
+    }
+    for (const field of entry.wiring) assert.ok(verse.includes(`${field.symbol} :`), `${field.symbol} must be generated`);
+    if (entry.runtime) {
+      const type = entry.runtime.type.split('.').at(-1)!;
+      assert.ok(verse.includes(`${type}<public> := struct:`));
+      for (const field of entry.runtime.fields) assert.ok(verse.includes(`${field}:${field === 'PriceVBucks' ? 'float' : 'int'}`));
+    }
+  }
+  assert.equal(reference.find(entry => entry.id === staticEntitlement.id)?.events.some(event => event.name === 'Consumed'), false);
+  assert.equal(reference.find(entry => entry.id === runtimeEntitlement.id)?.events.some(event => event.name === 'Consumed'), true);
+  assert.deepEqual(reference.find(entry => entry.id === 'bundle:quantity-bundle')?.runtime?.fields, ['RuntimeCoinsQuantity']);
+  assert.ok(reference.some(entry => entry.id === 'alternate:runtime-alt'));
+  assert.ok(reference.every(entry => entry.functions.every(fn => !fn.symbol.startsWith('Show'))));
 
   assert.equal(contract.generatorVersion, canonicalVersion);
   assert.equal(contract.managedVerseFile, 'managed_transactions.verse');
@@ -204,4 +230,22 @@ test('integration contract and generated Verse preserve explicit existing-projec
   assert.equal(contract.storefronts[0]?.openHelper, 'OpenPublishedStorefront');
   assert.deepEqual(contract.editableFields.entitlementBindings[0]?.publicIdentity, published.publicIdentity);
   assert.equal(contract.editableFields.storefrontBindings[0]?.openTriggers, 'PublishedStorefront_OpenTriggers');
+});
+
+
+test('Verse API browser preserves adopted public names across catalog renames', () => {
+  const config = defaultProjectConfig('');
+  const item = normalizeEntitlement({ id: 'adopted', verseKey: 'renamed_key', name: 'Readable renamed item', itemType: 'durable', publicIdentity: { apiStem: 'OriginalAccess' }, triggers: { generateTriggerBinding: true } }, 0);
+  const bundle = normalizeBundle({ id: 'adopted-bundle', verseKey: 'renamed_bundle', name: 'Readable bundle', publicIdentity: { apiStem: 'OriginalBundle' }, items: [{ entitlementId: item.id, quantity: 1 }] }, 0);
+  const storefront = { allOffers: [], focused: [{ id: 'adopted-store', verseKey: 'renamed_store', name: 'Readable store', publicIdentity: { apiStem: 'OriginalStore' }, entries: [{ bundleId: bundle.id }], generateTriggerBinding: true }] };
+  const entries = createVerseApiReference(config, [item], [bundle], storefront);
+  const verse = generateVerseCode([item], [bundle], config, storefront, []);
+  assert.equal(entries[0].name, 'Readable renamed item');
+  assert.equal(entries[0].functions[0].symbol, 'OpenOriginalAccessPurchase');
+  assert.equal(entries.find(entry => entry.id === 'bundle:adopted-bundle')?.functions[0].symbol, 'OpenOriginalBundlePurchase');
+  assert.equal(entries.find(entry => entry.id === 'store:adopted-store')?.functions[0].symbol, 'OpenOriginalStore');
+  for (const entry of entries) {
+    for (const fn of entry.functions) assert.ok(verse.includes(`${fn.symbol}<public>`), fn.symbol);
+    for (const field of entry.wiring) assert.ok(verse.includes(`${field.symbol} :`), field.symbol);
+  }
 });

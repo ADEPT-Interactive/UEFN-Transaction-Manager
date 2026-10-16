@@ -1017,16 +1017,8 @@ async function runRendererAssertions() {
   await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created offer editor close action');
   await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the created offer editor to close');
 
-  await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Need Help?\')', 'the setup dialog');
-  await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Need Help?\'', 'the setup dialog');
-  windowRef.setSize(1280, 720);
-  windowRef.webContents.setZoomFactor(1.5);
-  await wait(80);
-  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the setup dialog at 1280x720 150%', true);
-  windowRef.webContents.setZoomFactor(1);
-  windowRef.setSize(1440, 900);
-  await wait(80);
-  await click('() => document.querySelector(\'[aria-label="Close help"]\')', 'the setup dialog close action');
+  await verifyVerseApiBrowser();
+  await verifyConnectionFeedback();
 
   const results = await evaluate(`() => ({
     dialogs: document.querySelectorAll('[role="dialog"], [role="alertdialog"]').length,
@@ -1036,6 +1028,93 @@ async function runRendererAssertions() {
   assert.equal(results.dialogs, 0, 'the renderer test must leave no modal open');
   assert.ok(results.catalogItems >= 10, 'the populated catalog should remain rendered after the checks');
   assert.equal(results.nativeSelects, 0, 'modal-only native selects should be removed when all dialogs close');
+}
+
+
+async function verifyVerseApiBrowser() {
+  const first = await evaluate(`() => {
+    const button = document.querySelector('button[aria-label^="View Verse API for "]');
+    return { label: button?.getAttribute('aria-label'), name: button?.closest('article')?.querySelector('h3')?.innerText };
+  }`);
+  assert.ok(first.name, 'each entitlement should have a Functions shortcut');
+  await click('() => document.querySelector(\'button[aria-label^="View Verse API for "]\')', 'the entitlement Functions shortcut');
+  await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Verse API\'', 'the API browser');
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item] h3\')?.innerText'), first.name, 'Functions must open the clicked entitlement');
+  const current = await evaluate('() => document.querySelector(\'[data-api-item]\')?.dataset.apiItem');
+  await click(buttonByText('Events', true), 'the event reference');
+  assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Subscribe\')'));
+  await click(buttonByText('Await functions', true), 'the awaitable event reference');
+  assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Await\')'));
+  await click(buttonByText('Example', true), 'the callback example');
+  const example = await evaluate('() => document.querySelector(\'[data-api-item] pre\')?.innerText');
+  assert.match(example, /Subscribe.*Event/);
+  assert.match(example, /Cancel\(\)/);
+  await physicalClick('() => document.querySelector(\'[aria-label="Copy callback example"]\')', 'copying the callback example');
+  await waitForExpression('() => document.querySelector(\'[aria-label="Copy callback example"]\')?.innerText.includes(\'Copied\')', 'clipboard success feedback');
+  assert.equal(require('electron').clipboard.readText().replaceAll('\r\n', '\n'), example, 'copy must include the complete example');
+  // Searching exact event symbols is useful when coming from generated Verse.
+  const eventSymbol = example.match(/Transactions\.(Subscribe[A-Za-z0-9_]+Event)/)?.[1];
+  assert.ok(eventSymbol);
+  await setTextInputValue('[placeholder="Find an item or function…"]', eventSymbol);
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item]\')?.dataset.apiItem'), current);
+  await setTextInputValue('[placeholder="Find an item or function…"]', 'no-such-api-xyz');
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item]\')'), null);
+  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'No matching items\')'));
+  await setTextInputValue('[placeholder="Find an item or function…"]', '');
+  await click(buttonByText('Functions', true), 'the functions reference');
+  windowRef.setSize(1280, 720);
+  windowRef.webContents.setZoomFactor(1.5);
+  await wait(100);
+  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the Verse API browser at 1280x720 150%', true);
+  await click(buttonByText('Device setup', true), 'the device setup guide');
+  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the device setup guide at 1280x720 150%', true);
+  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'Tools → Enable Python\')'));
+  windowRef.webContents.setZoomFactor(1);
+  windowRef.setSize(1440, 900);
+  await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing Verse API');
+  await click(buttonByText('Verse API', true), 'the global Verse API action');
+  await waitForExpression('() => document.querySelector(\'[data-api-item]\')', 'the default functions reference');
+  await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing the reference');
+  console.log('VERSE_API_BROWSER_ACCEPTANCE', JSON.stringify({ directItemShortcut: true, eventSearch: true, callbackClipboard: true, emptySearch: true, constrainedZoomScroll: true }));
+}
+
+async function verifyConnectionFeedback() {
+  // Exercise the real component through normal status polling. The bridge itself
+  // stays untouched; only this disposable renderer's status response is controlled.
+  await evaluate(`() => {
+    window.__originalStatusFetch = window.fetch;
+    window.__originalDesktop = window.uemDesktop;
+    window.__connectionTestStatus = { success: true, connectionState: 'connector-waiting', uefnRunning: true, projectActive: true, exactProjectOpen: true, pythonEnabled: true, editorConnected: false, connectorAlive: false, projectReady: false, autoConnectorInstalled: true, bootstrapState: 'waiting', readinessReason: 'connector-heartbeat-stale', processId: 12345 };
+    window.fetch = (...args) => String(args[0]).endsWith('/api/editor/status') ? Promise.resolve(new Response(JSON.stringify(window.__connectionTestStatus), { headers: { 'Content-Type': 'application/json' } })) : window.__originalStatusFetch(...args);
+    window.uemDesktop = { editor: { reconnect: () => new Promise(resolve => { window.__resolveTestRetry = resolve; }) } };
+  }`);
+  const bar = '[aria-label="UEFN editor connection"]';
+  const retry = '() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Retry connection\')';
+  const busyText = 'Connection attachment is already in progress. Try again shortly.';
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'a retryable connection state');
+  assert.ok(await evaluate(`() => document.querySelector('${bar}').getBoundingClientRect().height <= 52`), 'collapsed connection bar should fit in one compact row');
+  await click(`() => document.querySelector('${bar} button[aria-expanded]')`, 'connection details');
+  await click(retry, 'a pending retry');
+  await waitForExpression('() => typeof window.__resolveTestRetry === \'function\'', 'the pending reconnect request');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'uefn-closed'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'uefn-closed'`, 'UEFN closing during retry');
+  await evaluate(`() => { window.__resolveTestRetry({ success: false, error: ${JSON.stringify(busyText)} }); }`);
+  await wait(100);
+  assert.equal(await evaluate(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`), false, 'a late response must not contaminate the new connection state');
+  await evaluate(`() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; window.uemDesktop.editor.reconnect = async () => ({ success: false, error: ${JSON.stringify(busyText)} }); }`);
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'the next retryable state');
+  await click(retry, 'an already-running retry');
+  await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the immediate retry result');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'python-required'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'python-required'`, 'Python becoming disabled');
+  assert.equal(await evaluate(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`), false, 'retry feedback must clear across state transitions');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'another retryable state');
+  await click(retry, 'a temporary retry notification');
+  await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the temporary notification');
+  await waitForExpression(`() => !document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'retry notification expiry', 8000);
+  await evaluate(`() => { window.fetch = window.__originalStatusFetch; window.uemDesktop = window.__originalDesktop; delete window.__originalStatusFetch; delete window.__originalDesktop; delete window.__connectionTestStatus; delete window.__resolveTestRetry; }`);
+  console.log('CONNECTION_FEEDBACK_ACCEPTANCE', JSON.stringify({ compactBar: true, lateResponseDiscarded: true, stateTransitionClears: true, notificationExpires: true }));
 }
 
 async function cleanup() {

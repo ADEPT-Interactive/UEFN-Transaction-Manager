@@ -1,10 +1,10 @@
 <div align="center">
   <img src="public/uem-mark.svg" alt="UEFN Transaction Manager icon" width="112" height="112">
   <h1>UEFN Transaction Manager</h1>
-  <p>Current source: 4.5.0-preview.2 (local manual-testing preview). Public downloads remain on the stable release.</p>
+  <p>Current source: 4.5.0-preview.3 (local manual-testing preview). Public downloads remain on the stable release.</p>
   <p><strong>A visual tool for building and managing Fortnite in-island transactions in UEFN.</strong></p>
   <p>
-    <img alt="Version 4.5.0-preview.2" src="https://img.shields.io/badge/version-4.5.0-preview.2-24c7dd?style=flat-square">
+    <img alt="Version 4.5.0-preview.3" src="https://img.shields.io/badge/version-4.5.0-preview.3-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="https://discord.gg/playadept"><img alt="ADEPT Discord" src="https://img.shields.io/discord/790712680482603038?label=Discord&logo=discord&logoColor=white&color=5865F2&style=flat-square"></a>

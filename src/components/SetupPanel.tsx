@@ -1,87 +1,42 @@
-import React, { useId, useRef, useState } from 'react';
-import { BookOpenCheck, ExternalLink, X } from 'lucide-react';
-import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
-import { derivePublicIdentity } from '../services/publicIdentity';
-import { transactionCallbackExample } from '../services/integrationContract';
-import { dynamicPriceEnabled } from '../services/dynamicOffers';
-import { entitlementEditableNames, storefrontEditableName } from '../services/editableBindings';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Code2, ExternalLink, X } from 'lucide-react';
+import type { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
 import { useModalFocus } from '../hooks/useModalFocus';
+import { CopyCode, VerseApiReference } from './VerseApiReference';
 
 interface SetupPanelProps {
   config: ProjectConfig;
   entitlements: EntitlementItem[];
+  bundles: BundleOffer[];
   storefrontMembership: StorefrontMembership;
 }
 
-const CallbackExample: React.FC<{ item: EntitlementItem; config: ProjectConfig }> = ({ item, config }) => {
-  const [copyStatus, setCopyStatus] = useState('');
-  const example = transactionCallbackExample(item, config);
-  return <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer font-semibold text-cyan-200">Use a callback from your own Verse</summary><p className="mt-2 text-slate-400">Cancel the returned UTM handle when your listener ends. The transaction device also stops callbacks on end. Callbacks receive future notifications without replay and must not suspend.</p>{item.itemType === 'durable' && <p className="mt-2 text-slate-400">For a durable ownership mirror, also subscribe to Reconciled and relevant Removed notifications. Use Has/GetCount for current ownership when attaching late; Granted alone does not establish initial ownership.</p>}<pre className="my-2 overflow-x-auto rounded-lg bg-[#070a13] p-3 text-[10px] leading-4 text-emerald-200">{example}</pre><button type="button" className="font-bold text-cyan-300 hover:text-cyan-100" onClick={async () => { try { await navigator.clipboard.writeText(example); setCopyStatus('Copied'); } catch { setCopyStatus('Copy failed. Select the example text to copy it.'); } }}>Copy callback example</button><span role="status" className="ml-2 text-slate-400">{copyStatus}</span></details>;
+export const SetupPanel: React.FC<Pick<SetupPanelProps, 'config' | 'entitlements' | 'storefrontMembership'>> = ({ config }) => {
+  const reference = `@editable\nTransactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\n# In a player-driven callback:\nTransactions.OpenAllOffersStore(Player)`;
+  return <div className="mx-auto max-w-3xl space-y-5 text-sm leading-relaxed text-slate-300">
+    <section className="rounded-xl border border-slate-800 p-4"><h3 className="font-semibold text-white">1. Enable the editor connection</h3><p className="mt-2 text-slate-400">In UEFN, open Project → Project Settings and enable <strong className="text-slate-200">Python Editor Scripting</strong>. Then check <strong className="text-slate-200">Tools → Enable Python</strong> for your user. Keep the linked project open; UTM connects automatically when the editor is ready.</p></section>
+    <section className="rounded-xl border border-slate-800 p-4"><h3 className="font-semibold text-white">2. Compile and place the manager</h3><p className="mt-2 text-slate-400">Use <strong className="text-slate-200">Compile</strong> in UTM to save and build your Verse. After a successful build, find <code className="text-cyan-200">{config.deviceClassName}</code> in UEFN and drag one instance into the level.</p></section>
+    <section className="rounded-xl border border-slate-800 p-4"><h3 className="font-semibold text-white">3. Connect your gameplay</h3><p className="mt-2 text-slate-400">For device wiring, select the placed manager and assign Trigger or Button devices to its arrays in Details. Find each enabled array under the item’s <strong className="text-slate-200">Device wiring</strong> section in Functions &amp; events.</p><p className="mt-3 text-slate-400">For Verse, add this editable reference inside your own gameplay device. Assign the placed manager to <code>Transactions</code> in that device’s Details.</p><div className="mt-3 rounded-lg bg-[#080d19] p-3"><div className="mb-2 flex justify-end"><CopyCode text={reference} label="Copy manager reference" /></div><pre className="overflow-x-auto text-[13px] leading-6 text-emerald-200">{reference}</pre></div><p className="mt-3 text-slate-400">Browse an item’s functions, events, and complete callback example in <strong className="text-slate-200">Functions &amp; events</strong>. Keep gameplay code in your own file so UTM can safely regenerate the managed transaction file.</p></section>
+    <div className="flex flex-wrap gap-x-5 gap-y-3 border-t border-slate-800 pt-4 text-xs">{[[IN_ISLAND_TRANSACTIONS_URL, 'Epic: In-Island Transactions'], [CREATING_ITEMS_AND_OFFERS_URL, 'Creating Items & Offers'], [TRANSACTION_BEST_PRACTICES_URL, 'Best practices & debugging']].map(([url, label]) => <a key={url} href={url} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, url)} className="inline-flex items-center gap-1 text-cyan-300 hover:underline">{label}<ExternalLink className="h-3 w-3" /></a>)}</div>
+  </div>;
 };
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, storefrontMembership }) => (
-  <div className="space-y-3 text-xs text-slate-300">
-    <ol className="grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4">
-      <li className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="block text-cyan-300">1. Open your UEFN project</strong><span className="mt-1 block text-slate-400">Open the project you want to use with Transaction Manager.</span></li>
-      <li className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="block text-cyan-300">2. Open the Project menu</strong><span className="mt-1 block text-slate-400">Click the Project dropdown with the small palm tree icon.</span></li>
-      <li className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="block text-cyan-300">3. Open Project Settings</strong><span className="mt-1 block text-slate-400">Choose <strong>Project Settings</strong> from that menu.</span></li>
-      <li className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="block text-cyan-300">4. Enable Python</strong><span className="mt-1 block text-slate-400">Scroll down, find <strong>Python Editor Scripting</strong>, and enable its checkbox. Transaction Manager detects it immediately; no restart is needed.</span></li>
-    </ol>
-    <div className="border-t border-slate-800 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">After your first compile</p></div>
-    <ol className="grid gap-2 text-[11px] sm:grid-cols-3">
-      <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><strong className="block text-cyan-300">1. Save &amp; compile</strong><span className="mt-1 block text-slate-400">The generated <code>{config.deviceClassName}</code> type becomes available only after a successful Verse build.</span></li>
-      <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><strong className="block text-cyan-300">2. Place one device</strong><span className="mt-1 block text-slate-400">Find the generated Verse device in UEFN and drag one instance into the level. Select it to expose its editable arrays.</span></li>
-      <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><strong className="block text-cyan-300">3. Wire or call it</strong><span className="mt-1 block text-slate-400">Assign Trigger devices to the arrays below, or reference the placed device from your own Verse and call its public functions.</span></li>
-    </ol>
-    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-[11px]"><strong className="text-white">Reference the placed manager from your own Verse device</strong><pre className="mt-2 overflow-x-auto rounded-lg bg-[#070a13] p-3 font-mono text-[10px] leading-4 text-emerald-200">{`@editable\nTransactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\n# In a player-driven callback:\nTransactions.OpenAllOffersStore(Player)`}</pre><p className="mt-2 text-slate-400">After placing both devices, select your gameplay device and assign the placed transaction-manager instance to <code>Transactions</code> in Details.</p></div>
-    {entitlements.length === 0 ? (
-      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-center text-slate-400">Create your first offer to see its exact Trigger array, purchase function, entitlement events, and consume/grant helpers here.</div>
-    ) : (
-      <>
-        <p className="text-slate-400">Keep the generated file manager-owned. Put game-specific rewards in your own Verse device and use the public interface below.</p>
-        {entitlements.map(item => {
-          const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
-          const editableNames = entitlementEditableNames(item.verseKey, pascal);
-          return (
-            <div key={item.id} className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="text-white">{item.name || item.verseKey}</strong><code className="text-[10px] text-slate-500">{item.verseKey}</code></div>
-              {item.triggers.generateTriggerBinding ? <p><code className="text-cyan-200">{editableNames.purchaseTriggers}</code>: assign one or more Trigger devices and connect them to a deliberate player purchase interaction.</p> : <p className="text-slate-400">No purchase Trigger device array is generated for this offer. Turn it on under Advanced → Triggers &amp; Hooks if you want no-code device wiring.</p>}
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">{item.triggers.generateButtonBinding && <span>Purchase Button: <code className="text-cyan-300">{editableNames.purchaseButtons}</code>. Interacting opens Epic&apos;s purchase interface.</span>}{item.triggers.generateSuccessTriggerBinding && <span>Success Trigger: <code className="text-emerald-300">{editableNames.successTriggers}</code>. Fires once after authoritative success; use the awaitable event for quantity-aware gameplay.</span>}</div>
-              <div className="grid gap-2 text-[11px] sm:grid-cols-2">
-                <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">Open{pascal}Purchase(Player{dynamicPriceEnabled(item.dynamicOffer) ? ', Options' : ''})</code>{dynamicPriceEnabled(item.dynamicOffer) && <span className="mt-1 block text-slate-400">Pass <code>{config.offersModuleName}.{pascal}RuntimeOptions</code> with your calculated PriceVBucks.</span>}</p>
-                <p><span className="block text-slate-500">Grant without V-Bucks (promotion/testing)</span><code className="text-emerald-200">Grant{pascal}(Player, Quantity)</code></p>
-                {item.itemType === 'consumable' && <p><span className="block text-slate-500">Request use; apply effects after Consumed</span><code className="text-emerald-200">Consume{pascal}(Player, Quantity)</code></p>}
-                <p><span className="block text-slate-500">Await every positive entitlement delta</span><code className="text-emerald-200">Await{pascal}GrantedEvent()</code></p>
-              </div>
-              <CallbackExample item={item} config={config} />
-            </div>
-          );
-        })}
-        {storefrontMembership.focused.length > 0 && <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="text-white">Configured storefronts</strong><p className="mt-1 text-[11px] text-slate-400">These display selected offers as individually purchasable cards. They are not bundles.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{storefrontMembership.focused.map(group => { const pascal = derivePublicIdentity(group, config, 'storefront').apiStem; return <div key={group.id} className="rounded-lg bg-slate-950/50 p-2"><span className="block font-semibold text-white">{group.name}</span><code className="block text-[10px] text-emerald-200">Open{pascal}(Player)</code>{group.generateTriggerBinding && <span className="mt-1 block text-[10px] text-slate-500">Open trigger array: <code>{storefrontEditableName(group.verseKey, 'openTriggers', pascal)}</code></span>}</div>; })}</div></div>}
-      </>
-    )}
-    <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-800 pt-3 text-[11px]">
-      {[[IN_ISLAND_TRANSACTIONS_URL, 'In-Island Transactions overview'], [CREATING_ITEMS_AND_OFFERS_URL, 'Creating Items & Offers'], [TRANSACTION_BEST_PRACTICES_URL, 'Best practices & debugging']].map(([url, label]) => <a key={url} href={url} target="_blank" rel="noreferrer" onClick={event => handleExternalLinkClick(event, url)} className="flex items-center gap-1 text-cyan-400 hover:underline"><span>{label}</span><ExternalLink className="h-3 w-3" /></a>)}
-    </div>
-  </div>
-);
-
-export const SetupModal: React.FC<SetupPanelProps & { open: boolean; onClose: () => void }> = ({ open, onClose, ...panelProps }) => {
+export const SetupModal: React.FC<SetupPanelProps & { open: boolean; onClose: () => void; initialItemId?: string | null }> = ({ open, onClose, initialItemId, ...panelProps }) => {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<'api' | 'setup'>('api');
+  const [selectedId, setSelectedId] = useState<string | null>(initialItemId ?? null);
   useModalFocus({ open, dialogRef, onEscape: onClose });
+  useEffect(() => { if (open) { setTab('api'); setSelectedId(initialItemId ?? null); if (bodyRef.current) bodyRef.current.scrollTop = 0; } }, [open, initialItemId]);
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="animate-modal flex min-h-0 max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-[#0d1326] shadow-2xl outline-none">
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-800 px-6 py-5">
-          <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300"><BookOpenCheck className="h-5 w-5" /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">UEFN workflow</p><h2 id={titleId} className="mt-0.5 text-xl font-extrabold text-white">Need Help?</h2><p className="mt-1 text-xs text-slate-400">Enable Python, then compile, place, and connect your generated transaction device.</p></div></div>
-          <button type="button" aria-label="Close help" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-6"><SetupPanel {...panelProps} /></div>
-      </div>
+  return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-4" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="animate-modal flex h-[84vh] max-h-[900px] min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#0d1326] shadow-2xl outline-none">
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div className="flex items-center gap-3"><Code2 className="h-6 w-6 shrink-0 text-cyan-300" /><div><h2 id={titleId} className="text-lg font-bold text-white">Verse API</h2><p className="mt-1 text-xs text-slate-400">Your catalog’s functions, events, and device connections.</p></div></div><button type="button" aria-label="Close Verse API" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button></header>
+      <nav aria-label="Verse API views" className="flex shrink-0 gap-2 border-b border-slate-800 px-5 py-2">{(['api', 'setup'] as const).map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => { setTab(value); if (bodyRef.current) bodyRef.current.scrollTop = 0; }} className={`rounded-lg px-3 py-2 text-xs font-semibold ${tab === value ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>{value === 'api' ? 'Functions & events' : 'Device setup'}</button>)}</nav>
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{tab === 'api' ? <VerseApiReference {...panelProps} selectedId={selectedId} onSelect={id => { setSelectedId(id); if (bodyRef.current) bodyRef.current.scrollTop = 0; }} /> : <SetupPanel {...panelProps} />}</div>
     </div>
-  );
+  </div>;
 };

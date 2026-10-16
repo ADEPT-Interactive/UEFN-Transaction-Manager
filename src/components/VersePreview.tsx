@@ -139,7 +139,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
       </div>
 
       {entitlements.length > 0 && (
-        <details open className="max-h-[48%] overflow-y-auto border-t border-slate-800 bg-[#0b1020] text-xs text-slate-300">
+        <details className="max-h-[48%] overflow-y-auto border-t border-slate-800 bg-[#0b1020] text-xs text-slate-300">
           <summary className="cursor-pointer px-4 py-3 font-bold text-cyan-300 hover:bg-slate-800/40">
             Setup
           </summary>

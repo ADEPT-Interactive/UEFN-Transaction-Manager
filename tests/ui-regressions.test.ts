@@ -46,12 +46,12 @@ test('the supplied V-Bucks icon is bundled and rendered as a colorable mask', ()
   assert.match(read(path.join('src', 'components', 'VBucksIcon.tsx')), /maskImage: 'url\(\/vbucks-icon\.png\)'/);
 });
 
-test('help is globally available and desktop chrome is app-rendered', () => {
+test('Verse API is globally available and desktop chrome is app-rendered', () => {
   const appSource = read(path.join('src', 'App.tsx'));
   const verseSource = read(path.join('src', 'components', 'VersePreview.tsx'));
   const titleBarSource = read(path.join('src', 'components', 'DesktopTitleBar.tsx'));
   const desktopSource = read(path.join('electron', 'main.ts'));
-  assert.match(appSource, />Need Help\?<\/button>/);
+  assert.match(appSource, />Verse API<\/button>/);
   assert.doesNotMatch(verseSource, /Beginner setup/i);
   assert.doesNotMatch(titleBarSource, /uem-mark\.svg|UEFN Entitlement Manager/);
   assert.match(titleBarSource, /text-rose-400/);
@@ -68,8 +68,8 @@ test('creator guidance and template chooser stay streamlined', () => {
   const chooserSource = read(path.join('src', 'components', 'EntitlementList.tsx'));
   const userFacingPythonCopy = [appSource, setupSource, read('README.md'), read('README-USER.txt'), read(path.join('server', 'index.ts')), read(path.join('electron', 'launcher.html'))].join('\n');
   assert.doesNotMatch(userFacingPythonCopy, /restart UEFN/i);
-  assert.match(setupSource, /palm tree icon/);
-  assert.match(setupSource, /detects it immediately/);
+  assert.match(setupSource, /Python Editor Scripting/);
+  assert.match(setupSource, /Tools → Enable Python/);
   assert.doesNotMatch(setupSource, /Reward handling|legacy-named/);
   assert.doesNotMatch(chooserSource, /Starting price/);
   assert.match(chooserSource, /aria-expanded=\{selected\}/);
@@ -199,9 +199,9 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(read(path.join('src', 'components', 'Header.tsx')), /isSwitchingProject/);
   assert.match(serverSource, /createProjectBackup/);
   assert.doesNotMatch(`${bridgeSource}\n${serverSource}`, /\.uem-backups|path\.join\(contentRoot, '\.backups'\)/);
-  assert.match(read(path.join('src', 'App.tsx')), /This project is open and fully connected/);
-  assert.match(read(path.join('src', 'App.tsx')), /A different project is open in UEFN/);
-  assert.match(read(path.join('src', 'App.tsx')), /UEFN is closed/);
+  assert.match(read('src/components/EditorConnectionBar.tsx'), /UEFN connected/);
+  assert.match(read('src/components/EditorConnectionBar.tsx'), /Different project open/);
+  assert.match(read('src/components/EditorConnectionBar.tsx'), /UEFN closed/);
 });
 
 test('launcher uses anti-aliased painted surfaces and a high-resolution mark', () => {

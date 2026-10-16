@@ -48,7 +48,7 @@ function runtimeFactoryContract(stem: string, config: ProjectConfig): Record<str
 
 export function transactionCallbackExample(item: EntitlementItem, config: ProjectConfig): string {
   const stem = derivePublicIdentity(item, config, 'entitlement').apiStem;
-  const boundary = item.itemType === 'consumable' && item.autoConsume ? 'Consumed' : 'Granted';
+  const boundary = item.itemType === 'consumable' ? 'Consumed' : 'Granted';
   return `using { /Fortnite.com/Devices }\nusing { /Verse.org/Simulation }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n    var RewardSubscription:?${config.deviceClassName}_event_subscription = false\n\n    OnBegin<override>()<suspends>:void =\n        Subscription := Transactions.Subscribe${stem}${boundary}Event(OnReward)\n        set RewardSubscription = option{Subscription}\n\n    OnReward(Payload:tuple(player, int)):void =\n        # Payload(0) is the player; Payload(1) is the authoritative quantity.\n        # Apply your gameplay effect here. This callback must not suspend.\n        return\n\n    OnEnd<override>():void =\n        if (Subscription := RewardSubscription?):\n            Subscription.Cancel()`;
 }
 

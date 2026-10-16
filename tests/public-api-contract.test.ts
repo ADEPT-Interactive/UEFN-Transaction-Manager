@@ -73,6 +73,7 @@ test('callback contracts, examples, and preserved public identities agree with g
   assert.match(source, /Offers<override>:\[\]tuple\(offer, int\) = array\{\(published_access_221_offer\{\}, 1\)/);
   assert.match(transactionCallbackExample(items[0], publicApiConfig), /Transactions.SubscribePublishedAccess221GrantedEvent\(OnReward\)/);
   assert.doesNotMatch(transactionCallbackExample(items[0], publicApiConfig), /option\{Transactions.Subscribe/);
+  assert.match(transactionCallbackExample({ ...items[2], autoConsume: false }, publicApiConfig), /SubscribeCoinPackConsumedEvent/);
   const immediate = { ...items[2], autoConsume: true };
   assert.match(transactionCallbackExample(immediate, publicApiConfig), /SubscribeCoinPackConsumedEvent/);
 });
