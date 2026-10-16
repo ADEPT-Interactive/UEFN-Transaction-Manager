@@ -1,6 +1,6 @@
 # Connection, startup coexistence, and Verse events investigation
 
-Investigation date: 2026-10-16. Changes are local source changes, not a published release.
+Investigation date: 2026-10-16. The implementation was delivered in the published stable 4.5.0 release (tag [`v4.5.0`](https://github.com/ADEPT-Interactive/UEFN-Transaction-Manager/releases/tag/v4.5.0)); this record preserves the original investigation and acceptance evidence.
 
 ## Shared Python startup ownership
 
