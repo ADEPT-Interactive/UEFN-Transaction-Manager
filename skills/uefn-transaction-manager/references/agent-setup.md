@@ -9,7 +9,7 @@ UTM setup has four separate states:
 
 Do not describe state 1 as state 4. A running listener is not proof that the current agent has loaded the MCP entry.
 
-The guided UTM panel can install the skill for Codex (`%USERPROFILE%\\.agents\\skills\\uefn-transaction-manager`), Claude Code (`%USERPROFILE%\\.claude\\skills\\uefn-transaction-manager`), or Cursor (`%USERPROFILE%\\.cursor\\skills\\uefn-transaction-manager`). It writes only the UTM-owned folder and refuses to overwrite unrelated files. Manual path/config copying is the fallback for other clients.
+The guided UTM panel can install the skill for Codex (`%USERPROFILE%\.agents\skills\uefn-transaction-manager`), Claude Code (`%USERPROFILE%\.claude\skills\uefn-transaction-manager`), or Cursor (`%USERPROFILE%\.cursor\skills\uefn-transaction-manager`). It writes only the UTM-owned folder and refuses to overwrite unrelated files. Manual path/config copying is the fallback for other clients.
 
 After guided setup:
 

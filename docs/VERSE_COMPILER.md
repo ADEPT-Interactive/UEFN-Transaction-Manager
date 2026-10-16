@@ -41,7 +41,7 @@ Discovery reports structured states including `uefn-not-running`, `project-not-l
   npm run verse-compile -- compile --project <path> --process-id <pid> --json
   ```
 
-- The packaged `compile-verse` skill uses the same discovery and fail-closed selection rules through its independent local helper.
+- This UTM release packages only its own `uefn-transaction-manager` Agent Skill (in `resources/agent-skills/uefn-transaction-manager`). It does not ship a separate `compile-verse` skill. Independently installed compiler tools must verify their own discovery rules; UTM cannot guarantee their implementation.
 
 The UEM renderer-to-server bridge is a separate local transport. Its dynamic port and security allowlist must not be confused with the UEFN Workflow Server compiler session.
 
