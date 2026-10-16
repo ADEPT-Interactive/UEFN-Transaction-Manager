@@ -157,16 +157,15 @@ async function click(source, description) {
 async function physicalClick(source, description) {
   windowRef.show();
   windowRef.focus();
-  const point = await waitForExpression(`async () => {
+  await waitForExpression(`() => Boolean((${source})())`, `${description} control`);
+  // Modal opening transforms run for 180 ms. A hidden/occluded test renderer
+  // can pause animation.finished and requestAnimationFrame indefinitely, so
+  // wait on the main-process clock before measuring instead.
+  await wait(220);
+  const point = await waitForExpression(`() => {
     const target = (${source})();
     if (!target) return null;
     target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-    // A modal can already be hit-testable while its opening transform is still
-    // moving. Wait for finite ancestor animations before measuring the click.
-    for (let ancestor = target; ancestor; ancestor = ancestor.parentElement) {
-      await Promise.all(ancestor.getAnimations().filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished.catch(() => {})));
-    }
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rect = target.getBoundingClientRect();
     const x = Math.round(rect.left + rect.width / 2);
     const y = Math.round(rect.top + rect.height / 2);
@@ -1316,6 +1315,9 @@ async function main() {
     projectFile: showcaseProjectFile,
   });
   await windowRef.loadURL(`http://127.0.0.1:${bridgePort}/#${fragment}`);
+  // Assert final modal geometry and interactions. Motion can be paused by
+  // Windows occlusion in this hidden host; it is not part of these assertions.
+  await windowRef.webContents.insertCSS('.animate-modal { animation: none !important; }');
   await waitForExpression('() => Boolean(document.getElementById(\'root\')?.firstElementChild)', 'the React dashboard root');
   await runRendererAssertions();
   console.log('Electron UI regression checks passed without capturing screenshots.');
