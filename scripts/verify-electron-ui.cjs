@@ -155,15 +155,18 @@ async function click(source, description) {
 }
 
 async function physicalClick(source, description) {
+  windowRef.show();
+  windowRef.focus();
   const point = await waitForExpression(`() => {
     const target = (${source})();
     if (!target) return null;
-    target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     const rect = target.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    return hit && target.contains(hit) ? { x, y } : null;
   }`, `${description} hit target`);
-  windowRef.show();
-  windowRef.focus();
   const x = Math.round(point.x);
   const y = Math.round(point.y);
   windowRef.webContents.sendInputEvent({ type: 'mouseMove', x, y });

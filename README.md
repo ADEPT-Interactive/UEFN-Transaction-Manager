@@ -124,13 +124,13 @@ Bundles preserve configured order and quantities, including nested and dynamic b
 
 ## Agent Integration
 
-Agent Integration is optional. Connect your coding agent to UTM MCP and Unreal MCP when you want it to work with this catalog and your UEFN project.
+Agent Integration is optional. Connect your coding agent to UTM MCP for catalog work. Add Epic Unreal MCP for editor assets, gameplay Verse, device wiring, compilation, or full migration.
 
-1. Enable Unreal MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
+1. Open the intended project in UTM and keep it running.
 2. In UTM, open **Agent** from the workspace header.
 3. Choose **Copy MCP configuration**. UTM supplies the local endpoint and server type.
-4. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
-5. Connect a compatible coding agent to both UTM MCP and Unreal MCP, then verify both identify the same project before making changes.
+4. Use guided setup to install/update the [UTM Agent Skill](docs/AGENT_INTEGRATION.md#guided-setup), add the copied client entry, then reload the coding agent.
+5. Ask the agent to call `describe_operation_contract` and `get_project_context`. For editor work, also [enable Epic Unreal MCP](https://dev.epicgames.com/documentation/fortnite/uefn-mcp) and verify both connections identify the same project.
 
 <p align="center">
   <img src="docs/screenshots/agent-integration.png" alt="UTM Agent Integration panel showing a running UTM MCP endpoint, active project, and Agent Skill access" width="82%">
@@ -204,7 +204,7 @@ Compile successfully, refresh the UEFN Content Browser, and confirm that you pla
 
 ### An agent cannot see both servers
 
-Confirm Unreal MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If Unreal MCP's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
+UTM MCP starts with the project bridge. Add the displayed entry to the client, reload it, then call `get_project_context`. Catalog edits do not require Epic MCP. For editor work, confirm Epic MCP is available and both servers identify the same project. Discover compile, refresh, and session capabilities at runtime; see the [Agent Integration guide](docs/AGENT_INTEGRATION.md).
 
 ## Documentation and support
 

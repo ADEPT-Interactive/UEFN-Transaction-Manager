@@ -410,8 +410,14 @@ sharp(process.argv[3]).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
         $env:UEM_UI_ELECTRON_PATH = $desktop
         $uiElectronRunner = Join-Path $toolRoot "node_modules\\electron\\dist\\electron.exe"
         if (-not (Test-Path -LiteralPath $uiElectronRunner -PathType Leaf)) { throw "The Electron runner is missing for packaged renderer verification: $uiElectronRunner" }
-        & $uiElectronRunner $uiScript
-        if ($LASTEXITCODE -ne 0) { throw "The packaged renderer regression check failed with exit code $LASTEXITCODE." }
+        # Windows PowerShell can return immediately for a GUI-subsystem EXE.
+        # Wait for the actual renderer process and inspect its own exit code.
+        $uiStdoutPath = Join-Path $extractRoot "renderer.stdout.log"
+        $uiStderrPath = Join-Path $extractRoot "renderer.stderr.log"
+        $uiProcess = Start-Process -FilePath $uiElectronRunner -ArgumentList @('"' + $uiScript + '"') -WorkingDirectory $toolRoot -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $uiStdoutPath -RedirectStandardError $uiStderrPath
+        Get-Content -LiteralPath $uiStdoutPath -ErrorAction SilentlyContinue | Write-Host
+        Get-Content -LiteralPath $uiStderrPath -ErrorAction SilentlyContinue | Write-Host
+        if ($uiProcess.ExitCode -ne 0) { throw "The packaged renderer regression check failed with exit code $($uiProcess.ExitCode)." }
         Write-Host "Verified packaged renderer flags, dialogs, constrained scrolling, and native select focus without screenshots." -ForegroundColor Green
     }
     finally {
