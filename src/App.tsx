@@ -810,7 +810,7 @@ export const App: React.FC = () => {
   const addNew = () => {
     const index = entitlements.length + 1;
     setEditingItem(normalizeEntitlement({
-      id: `new-${crypto.randomUUID()}`, verseKey: `item_${index}`, name: '',
+      id: `new-${crypto.randomUUID()}`, verseKey: allocateProjectVerseKey('', entitlements, bundles, storefrontMembership, retiredVerseKeys), name: '',
       shortDescription: '', description: '',
       iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`,
     }, index));
@@ -818,7 +818,7 @@ export const App: React.FC = () => {
   };
 
   const saveModalItem = async (item: EntitlementItem) => {
-    const isDraft = item.id.startsWith('new-');
+    const isDraft = !entitlements.some(existing => existing.id === item.id);
     rememberTransientImages(isDraft ? undefined : item.id, item);
     const applied = await applyBridgeMutation(isDraft
       ? { type: 'create_entitlement', data: buildEntitlementCreatePayload(item) }
@@ -940,7 +940,7 @@ export const App: React.FC = () => {
           : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div>}
       </main>
 
-      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
+      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} reservedVerseKeys={[...collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), ...retiredVerseKeys]} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal bundles={bundles} initialItemId={apiItemId} open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />

@@ -156,13 +156,13 @@ export function normalizeRetiredVerseKeys(value: unknown): string[] {
   return result;
 }
 
-/** Drafts may follow their display name. Once saved, the persisted key wins. */
-export function draftVerseKeyForName(currentKey: string, previousName: string, nextName: string, isExisting: boolean): string {
-  if (isExisting) return currentKey;
-  const previousGeneratedKey = sanitizeVerseIdentifier(previousName);
-  if (!currentKey || currentKey === previousGeneratedKey) {
-    const base = sanitizeVerseIdentifier(nextName);
-    return isGeneratedStemSafe(toVerseApiStem(base)) ? base : base + '_2';
-  }
-  return currentKey;
+/** Before catalog creation, preview the server's name-based allocation. Existing records keep their identity. */
+export function draftVerseKeyForName(
+  currentKey: string,
+  nextName: string,
+  isExisting: boolean,
+  activeKeys: Iterable<string> = [],
+  retiredKeys: Iterable<string> = [],
+): string {
+  return isExisting ? currentKey : allocateVerseKey(nextName, activeKeys, retiredKeys);
 }

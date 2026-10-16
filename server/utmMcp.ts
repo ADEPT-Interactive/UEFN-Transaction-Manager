@@ -308,7 +308,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
     productVersion: options.version,
     operations: Object.values(AGENT_OPERATION_MANIFESTS),
     catalogModel: {
-      entitlement: 'Owned durable access or consumable inventory. Editable data: name, shortDescription, description, priceVBucks, itemType, maxCount, autoConsume, flags, triggers. UTM allocates new ID/verseKey.',
+      entitlement: 'Owned durable access or consumable inventory. Editable data: name, shortDescription, description, priceVBucks, itemType, maxCount, autoConsume, flags, triggers. Supply the intended name when creating: UTM allocates the ID/verseKey then; later title edits preserve that key.',
       alternateOffer: 'Another purchase path for an existing entitlement; reference its returned parent ID.',
       bundle: 'Purchase multiple referenced entitlement/bundle entries with deliberate quantities.',
       storefront: 'Display concrete offers as individually purchasable cards; membership is not ownership.',
@@ -458,7 +458,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
 
   server.registerTool('create_entitlement', {
     title: 'Create entitlement',
-    description: 'Mutates the shared draft by creating one entitlement and allocating its internal ID and stable Verse key. It does not save to disk or compile Verse. Requires expectedRevision.',
+    description: 'Mutates the shared draft by creating one entitlement. Supply data.name with the intended title: its internal ID and stable Verse key are allocated now, and later display-name updates keep that key. It does not save to disk or compile Verse. Requires expectedRevision.',
     inputSchema: { expectedRevision, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => mutate({ type: 'create_entitlement', data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));

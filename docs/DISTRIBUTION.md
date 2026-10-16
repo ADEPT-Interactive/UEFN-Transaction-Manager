@@ -4,7 +4,7 @@ Transaction Manager 4.4.1 separates human downloads from machine updates and kee
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
-Current source build: `v4.5.0-preview.5` is a local manual-testing preview; it has not been published to the stable update service.
+Current source build: `v4.5.0-preview.6` is a local manual-testing preview; it has not been published to the stable update service.
 
 ## Current supported release
 

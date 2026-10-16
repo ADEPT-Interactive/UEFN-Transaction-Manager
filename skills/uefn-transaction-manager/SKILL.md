@@ -10,7 +10,7 @@ metadata:
 UTM is a desktop catalog editor with a project-scoped MCP server. An agent and the UI edit the **same draft**. UTM owns transaction declarations and generated Marketplace plumbing. Project-authored Verse owns gameplay, eligibility, calculations, UI, and persistent state. UEFN Ducky is optional; it is not the UTM catalog owner or a requirement for catalog MCP access.
 
 - An **entitlement** is owned inventory or durable access. An **offer** is a purchase path; alternate offers share the underlying entitlement. A **bundle** purchases multiple entries. A **storefront** displays concrete offers; membership is not ownership.
-- UTM allocates new stable IDs and `verseKey` values. Use returned IDs. Renaming a display label does not authorize changing published Verse identity.
+- UTM allocates new stable IDs and `verseKey` values from the name supplied at creation. Supply the intended title in the create call; creating a placeholder and renaming it later keeps that original key. Use returned IDs. Renaming an existing display label does not authorize changing its Verse identity.
 - Catalog tools change the draft. `save_catalog` validates, generates, and persists the managed Verse file. It **does not compile** or wire devices.
 - `describe_integration_contract` supplies exact public names, types, events, runtime options, examples, and editable arrays. Never derive symbols from display names.
 - Never hand-edit the managed file named by `get_project_context`. Keep gameplay in separate Verse. UTM cannot read arbitrary files or edit `.uasset` binaries.
@@ -72,7 +72,7 @@ Read [transaction-semantics.md](references/transaction-semantics.md) and [verifi
 ## References and recovery
 
 - [dynamic-transactions.md](references/dynamic-transactions.md): runtime price/quantity, fill-to-max, external calculations.
-- [asset-adoption.md](references/asset-adoption.md): exact Texture2D discovery and controlled icon adoption.
+- [asset-adoption.md](references/asset-adoption.md): generated artwork staging outside Content, exact Texture2D discovery, and controlled icon adoption.
 - [verification.md](references/verification.md): compilation, structural integration, manual UEFN wiring, and owner acceptance. Generation does not prove device assignment; use live-supported representations.
 - UTM missing: diagnose endpoint/configuration/reload. Epic missing: continue only already-authorized UTM-only work; never claim external verification.
 - Python disabled, wrong project, browser/loading state: restore required readiness, then refresh preflight. Preserve catalog/files while native prerequisites are absent.

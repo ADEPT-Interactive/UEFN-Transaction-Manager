@@ -24,7 +24,7 @@ test('allocator and draft identity avoid generated native symbol collisions', ()
   const allocator = createVerseKeyAllocator();
   assert.equal(allocator.allocate('Paid Random Item'), 'paid_random_item_2');
   assert.equal(allocator.allocateAlternate('paid_random_item'), 'paid_random_item_alternate_1');
-  assert.equal(draftVerseKeyForName('', '', 'Paid Random Item', false), 'paid_random_item_2');
+  assert.equal(draftVerseKeyForName('', 'Paid Random Item', false), 'paid_random_item_2');
 });
 
 test('sanitization handles punctuation, Unicode, leading numbers, empty names, and keywords defensively', () => {
@@ -54,9 +54,20 @@ test('alternate numbering follows the parent key and does not reuse an occupied 
 });
 
 test('draft names may update a draft key but never a persisted key', () => {
-  assert.equal(draftVerseKeyForName('starter_bundle', 'Starter Bundle', 'Ultimate Starter Pack', true), 'starter_bundle');
-  assert.equal(draftVerseKeyForName('starter_bundle', 'Starter Bundle', 'Ultimate Starter Pack', false), 'ultimate_starter_pack');
-  assert.equal(draftVerseKeyForName('custom_key', 'Starter Bundle', 'Ultimate Starter Pack', false), 'custom_key');
+  assert.equal(draftVerseKeyForName('starter_bundle', 'Ultimate Starter Pack', true), 'starter_bundle');
+  assert.equal(draftVerseKeyForName('starter_bundle', 'Ultimate Starter Pack', false), 'ultimate_starter_pack');
+  assert.equal(draftVerseKeyForName('item_2', 'VIP Pass', false), 'vip_pass');
+  assert.equal(draftVerseKeyForName('vip_pass', 'VIP Gold', false), 'vip_gold');
+  assert.equal(draftVerseKeyForName('preset_key', 'My Actual Offer', false), 'my_actual_offer');
+  assert.equal(draftVerseKeyForName('item_2', 'VIP Pass', true), 'item_2');
+});
+
+test('new draft keys respect active and retired project identities and generated-symbol constraints', () => {
+  assert.equal(draftVerseKeyForName('item_2', 'VIP Pass', false, ['VIP_PASS'], ['vip_pass_2']), 'vip_pass_3');
+  assert.equal(draftVerseKeyForName('vip_pass', 'Class', false), 'item_class');
+  assert.equal(draftVerseKeyForName('vip_pass', '🔥', false, ['item']), 'item_2');
+  assert.equal(draftVerseKeyForName('item_2', 'Café Pass', false), 'cafe_pass');
+  assert.equal(draftVerseKeyForName('item_2', 'Paid Random Item', false), 'paid_random_item_2');
 });
 
 test('retired keys prevent delete and recreate from silently reassigning an identity', () => {

@@ -141,7 +141,7 @@ async function waitForExpression(source, description, timeoutMs = 10000) {
     await wait(100);
   }
   let rendererSnapshot = '';
-  try { rendererSnapshot = String(await evaluate("() => document.body?.innerText?.slice(0, 1200) ?? ''")); } catch { /* renderer may have exited */ }
+  try { rendererSnapshot = String(await evaluate("() => (document.querySelector('[role=dialog]')?.innerText ?? document.body?.innerText ?? '').slice(0, 2000)")); } catch { /* renderer may have exited */ }
   throw new Error(`Timed out waiting for ${description}. Renderer text: ${rendererSnapshot}`);
 }
 
@@ -157,10 +157,16 @@ async function click(source, description) {
 async function physicalClick(source, description) {
   windowRef.show();
   windowRef.focus();
-  const point = await waitForExpression(`() => {
+  const point = await waitForExpression(`async () => {
     const target = (${source})();
     if (!target) return null;
     target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    // A modal can already be hit-testable while its opening transform is still
+    // moving. Wait for finite ancestor animations before measuring the click.
+    for (let ancestor = target; ancestor; ancestor = ancestor.parentElement) {
+      await Promise.all(ancestor.getAnimations().filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished.catch(() => {})));
+    }
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rect = target.getBoundingClientRect();
     const x = Math.round(rect.left + rect.width / 2);
     const y = Math.round(rect.top + rect.height / 2);
@@ -586,6 +592,70 @@ async function assertEntitlementDuplicate() {
   const cleaned = JSON.parse(cleanedResponse.text);
   assert.equal(cleaned.catalog?.entitlements?.length, beforeCount, 'duplicate acceptance cleanup must remove only the temporary copy');
   assert.deepEqual(cleaned.catalog.entitlements.find(item => item.id === original.id), original, 'duplicate cleanup must preserve the original entitlement');
+}
+
+async function verifyEntitlementCreationIdentity() {
+  // Match the initialized showcase's other native-package sentinels. This test
+  // covers naming and identity; real native provisioning has separate coverage.
+  fs.writeFileSync(path.join(runtimeProjectRoot, 'Content', 'EntitlementIcons', 'UTM_PlaceholderIcon.uasset'), 'showcase fixture native placeholder asset');
+  const snapshot = async () => JSON.parse((await request('/api/catalog/snapshot')).text).catalog;
+  const before = await snapshot();
+  const name = 'Named Identity Probe';
+  await click(buttonByText('Create Offer', true), 'the identity creation chooser');
+  await click(buttonByText('Start from scratch'), 'a blank entitlement');
+  await waitForExpression('() => document.getElementById(\'offer-display-name\')', 'the blank offer title');
+  await setTextInputValue('#offer-display-name', 'Builder Kit');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), 'builder_kit_2', 'new title previews must avoid an existing entitlement key');
+  await setTextInputValue('#offer-display-name', name);
+  const preview = await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent');
+  assert.equal(preview, 'named_identity_probe', 'typing the actual title must replace the provisional item key');
+  await setTextInputValue('#offer-short-description', 'Disposable identity acceptance.');
+  await setTextareaValue('#offer-full-description', 'Disposable identity acceptance.');
+  await click(buttonByText('Next'), 'the new offer icon step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-icon\')?.getAttribute(\'aria-selected\') === \'true\'', 'the new offer icon step');
+  await click(buttonByText('Next'), 'the new offer behavior step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-behavior\')?.getAttribute(\'aria-selected\') === \'true\'', 'the new offer behavior step');
+  await click(buttonByText('Save Offer', true), 'creating the named offer');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created named offer');
+  const created = (await snapshot()).entitlements.find(item => item.name === name);
+  assert.ok(created, 'the real create command must add the named offer');
+  assert.equal(created.verseKey, preview, 'the server-allocated final key must match the creation preview');
+  assert.equal(created.publicIdentity, undefined, 'new offers must not import a legacy identity');
+  await click('() => document.querySelector(\'[aria-label="Edit Named Identity Probe"]\')', 'editing the created offer');
+  await setTextInputValue('#offer-display-name', 'Renamed Identity Probe');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), preview, 'editing a catalog record must preserve its established key');
+  await click(buttonByText('Save Offer', true), 'saving the renamed offer');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the renamed offer to close');
+  const renamed = (await snapshot()).entitlements.find(item => item.id === created.id);
+  assert.equal(renamed.name, 'Renamed Identity Probe');
+  assert.equal(renamed.verseKey, preview, 'the server must preserve identity across a display-name edit');
+  await click('() => document.querySelector(\'[aria-label="Delete Renamed Identity Probe"]\')', 'cleaning up the identity probe');
+  await waitForExpression('() => document.querySelector(\'[role="alertdialog"] button\')', 'the identity probe delete confirmation');
+  await click('() => [...document.querySelectorAll(\'[role="alertdialog"] button\')].find(button => button.textContent?.trim() === \'Delete offer\')', 'confirming identity probe deletion');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Edit Renamed Identity Probe"]\')', 'identity probe cleanup');
+  const after = await snapshot();
+  assert.deepEqual(after.entitlements, before.entitlements, 'the creation/rename test must preserve every original record');
+  assert.ok(after.retiredVerseKeys.includes(preview), 'deletion must reserve the identity against accidental reuse');
+  const legacyResponse = await request('/api/catalog/mutate', 'POST', JSON.stringify({ expectedRevision: after.revision, operation: { type: 'create_entitlement', data: { id: 'new-legacy-identity-probe', name: 'Legacy Identity Probe', shortDescription: 'Legacy ID acceptance.', description: 'Legacy ID acceptance.' } } }));
+  assert.equal(legacyResponse.status, 200, legacyResponse.text);
+  const legacy = JSON.parse(legacyResponse.text).catalog.entitlements.find(item => item.id === 'new-legacy-identity-probe');
+  assert.ok(legacy);
+  await waitForExpression('() => document.querySelector(\'[aria-label="Edit Legacy Identity Probe"]\')', 'the legacy-id record');
+  await click('() => document.querySelector(\'[aria-label="Edit Legacy Identity Probe"]\')', 'editing a legacy new-prefixed ID');
+  await waitForExpression('() => document.getElementById(\'entitlement-dialog-title\')?.textContent?.includes(\'Edit offer\')', 'the legacy record to open as an existing offer');
+  await setTextInputValue('#offer-display-name', 'Renamed Legacy Identity Probe');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), legacy.verseKey);
+  await click(buttonByText('Save Offer', true), 'updating the legacy-id record');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the legacy-id editor to close');
+  const legacyUpdated = await snapshot();
+  assert.equal(legacyUpdated.entitlements.length, before.entitlements.length + 1, 'an existing new-prefixed ID must update instead of creating a duplicate');
+  assert.equal(legacyUpdated.entitlements.find(item => item.id === legacy.id)?.verseKey, legacy.verseKey);
+  await click('() => document.querySelector(\'[aria-label="Delete Renamed Legacy Identity Probe"]\')', 'cleaning up the legacy-id probe');
+  await waitForExpression('() => document.querySelector(\'[role="alertdialog"] button\')', 'the legacy-id delete confirmation');
+  await click('() => [...document.querySelectorAll(\'[role="alertdialog"] button\')].find(button => button.textContent?.trim() === \'Delete offer\')', 'confirming legacy-id cleanup');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Edit Renamed Legacy Identity Probe"]\')', 'legacy-id cleanup');
+  assert.deepEqual((await snapshot()).entitlements, before.entitlements);
+  console.log('ENTITLEMENT_IDENTITY_ACCEPTANCE', JSON.stringify({ titleBasedPreview: true, collisionAvoided: true, finalKey: preview, existingRenamePreserved: true, legacyIdUpdatedWithoutDuplicate: true, originalCatalogPreserved: true }));
 }
 
 async function assertTextFieldFocus(rootSelector, description) {
@@ -1023,6 +1093,7 @@ async function runRendererAssertions() {
   await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created offer editor close action');
   await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the created offer editor to close');
 
+  await verifyEntitlementCreationIdentity();
   await verifyVerseApiBrowser();
   await verifyConnectionFeedback();
 

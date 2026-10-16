@@ -1,4 +1,12 @@
-# Texture2D icon adoption
+# Icon files and Texture2D adoption
+
+## Newly generated artwork
+
+Keep original artwork in a temporary/artwork directory outside the project's mounted Content folders. UTM's PNG file importer normalizes the image before native import and stages it outside the project; it does not require a separate source Texture2D.
+
+UTM MCP `adopt_icon` accepts an existing Unreal object path, not an image file. When using that route for new artwork, prepare the normalized RGBA PNG outside Content first, then use the available Epic import tool to import only that ready image into the intended icon folder. Use power-of-two dimensions, preserve proportions and alpha, and verify the resulting Texture2D before adoption. Do not first import an oversized/noncompliant original into a `Source` folder just to make it discoverable: unused source textures can still trigger project validation warnings. Retain the original outside Content for later artwork revisions. Existing source assets may have other consumers; this does not authorize deleting them.
+
+## Existing Texture2D
 
 Use the two-server boundary:
 
