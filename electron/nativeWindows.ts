@@ -43,6 +43,7 @@ const FindWindowExW = user32?.func('intptr_t __stdcall FindWindowExW(intptr_t pa
 const GetForegroundWindow = user32?.func('intptr_t __stdcall GetForegroundWindow()');
 const GetWindowThreadProcessId = user32?.func('unsigned long __stdcall GetWindowThreadProcessId(intptr_t window, _Out_ unsigned long *processId)');
 const IsIconic = user32?.func('bool __stdcall IsIconic(intptr_t window)');
+const IsWindowEnabled = user32?.func('bool __stdcall IsWindowEnabled(intptr_t window)');
 const SetForegroundWindow = user32?.func('bool __stdcall SetForegroundWindow(intptr_t window)');
 const ShowWindow = user32?.func('bool __stdcall ShowWindow(intptr_t window, int command)');
 const SendInput = user32?.func('unsigned int __stdcall SendInput(unsigned int inputCount, UEM_INPUT *inputs, int inputSize)');
@@ -111,6 +112,7 @@ export async function sendUefnConnectorCommand(
   }
   if (!editorWindow) return false;
   if (!matchesProcess(editorWindow)) return false;
+  if (!IsWindowEnabled?.(editorWindow)) return false;
   const originalForegroundWindow = GetForegroundWindow?.() ?? 0;
   try {
     throwIfAborted(signal);
@@ -118,13 +120,14 @@ export async function sendUefnConnectorCommand(
     if (!SetForegroundWindow(editorWindow) && GetForegroundWindow?.() !== editorWindow) return false;
     await delay(250, signal);
     throwIfAborted(signal);
-    if (!matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendVirtualKey(VK_CONSOLE);
     await delay(200, signal);
     throwIfAborted(signal);
-    if (!matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendUnicode(command);
     throwIfAborted(signal);
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendVirtualKey(VK_RETURN);
     return true;
   } finally {

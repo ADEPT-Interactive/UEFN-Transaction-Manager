@@ -353,10 +353,10 @@ export class BridgeSession {
       let sent = await tryDuckyBootstrap(bootstrapSource, uefnProcessId, this.requestController.signal);
       throwIfStopped(() => !this.isCurrent(generation));
       if (!sent) {
-        // UEFN retains either Cmd or Python input mode. Both forms use the
-        // same application script; try Python syntax on the second bounded
-        // attempt if the console form did not produce a verified handshake.
-        const inputMode = attemptNumber === 2 ? 'python' : 'console';
+        // Current UEFN exposes Python/Python REPL in this input bar. Prefer
+        // its verified Python form; retain the console form on the second
+        // bounded attempt for editors that expose a command-console mode.
+        const inputMode = attemptNumber === 2 ? 'console' : 'python';
         method = `uefn-${inputMode}-input`;
         const modeCommand = connectorBootstrapCommand(path.dirname(bootstrapSource.scriptPath), inputMode) ?? command;
         sent = await sendUefnConnectorCommand(windowTitle, modeCommand, this.requestController.signal, uefnProcessId);
