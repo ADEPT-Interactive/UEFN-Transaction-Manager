@@ -144,6 +144,7 @@ export class BridgeSession {
   private lastPythonEnabled: boolean | undefined;
   private bootstrapHandshakeConfirmed = false;
   private lastEditorBootstrapWaitDiagnosticAt = 0;
+  private bootstrapExhaustionReported = false;
 
   private constructor(
     private readonly child: ChildProcess,
@@ -240,6 +241,19 @@ export class BridgeSession {
     return !this.stopped && generation === this.lifecycleGeneration;
   }
 
+  async retryEditorConnection(): Promise<{ success: boolean; error?: string }> {
+    if (this.stopped) return { success: false, error: 'This project session has closed.' };
+    if (this.editorBootstrapAttemptInFlight) return { success: false, error: 'Connection attachment is already in progress. Try again shortly.' };
+    if (!this.editorBootstrapWatcher) return { success: false, error: 'The application connector is missing. Reinstall this UTM build.' };
+    this.editorBootstrapPolicy.reset();
+    this.bootstrapExhaustionReported = false;
+    this.lastEditorBootstrapWaitDiagnosticAt = 0;
+    this.bootstrapHandshakeConfirmed = false;
+    await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'waiting', message: 'Connection retry requested. Waiting for the linked project and Python scripting.' }), this.requestController.signal);
+    this.writeDiagnostic('Editor connection retry requested for the current project session.');
+    return { success: true };
+  }
+
   private watchForEditorBootstrap(projectFile: string, bootstrapCommand: string, bootstrapSource: DuckyBootstrapSource, initialWindowTitle?: string): void {
     const check = async () => {
       const generation = this.lifecycleGeneration;
@@ -261,6 +275,7 @@ export class BridgeSession {
         if (!pythonEnabled) return;
 
         if (status.status === 200 && statusBody.editorConnected) {
+          this.bootstrapExhaustionReported = false;
           const decision = this.editorBootstrapPolicy.observe({ now: Date.now(), connectorAlive: Boolean(statusBody.connectorAlive), editorConnected: true });
           if (!this.bootstrapHandshakeConfirmed) {
             this.bootstrapHandshakeConfirmed = true;
@@ -284,6 +299,7 @@ export class BridgeSession {
           return;
         }
         if (decision.identityChanged) {
+          this.bootstrapExhaustionReported = false;
           this.writeDiagnostic(`Automatic UEFN connector bootstrap tracking linked project identity: project=${projectFile}, pid=${openProject.processId}, graceMs=4000.`);
         }
         if (decision.kind === 'waiting') {
@@ -295,6 +311,8 @@ export class BridgeSession {
           return;
         }
         if (decision.kind === 'exhausted') {
+          if (this.bootstrapExhaustionReported) return;
+          this.bootstrapExhaustionReported = true;
           const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}.`;
           this.writeDiagnostic(`Automatic UEFN connector bootstrap exhausted: ${message}`);
           await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber: decision.attemptNumber, intendedProject: projectFile, uefnProcessId: openProject.processId, method: 'uefn-python-console' }), this.requestController.signal);
@@ -335,8 +353,13 @@ export class BridgeSession {
       let sent = await tryDuckyBootstrap(bootstrapSource, uefnProcessId, this.requestController.signal);
       throwIfStopped(() => !this.isCurrent(generation));
       if (!sent) {
-        method = 'uefn-python-console';
-        sent = await sendUefnConnectorCommand(windowTitle, command, this.requestController.signal);
+        // UEFN retains either Cmd or Python input mode. Both forms use the
+        // same application script; try Python syntax on the second bounded
+        // attempt if the console form did not produce a verified handshake.
+        const inputMode = attemptNumber === 2 ? 'python' : 'console';
+        method = `uefn-${inputMode}-input`;
+        const modeCommand = connectorBootstrapCommand(path.dirname(bootstrapSource.scriptPath), inputMode) ?? command;
+        sent = await sendUefnConnectorCommand(windowTitle, modeCommand, this.requestController.signal, uefnProcessId);
       }
       throwIfStopped(() => !this.isCurrent(generation));
       if (!sent) {

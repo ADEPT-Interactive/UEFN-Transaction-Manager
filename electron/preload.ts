@@ -5,6 +5,9 @@ const windowActions = new Set<WindowAction>(['request-state', 'drag', 'minimize'
 
 contextBridge.exposeInMainWorld('uemDesktop', Object.freeze({
   isDesktop: true,
+  editor: Object.freeze({
+    reconnect: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('uem:editor:reconnect'),
+  }),
   launcher: Object.freeze({
     getState: (): Promise<LauncherState> => ipcRenderer.invoke('uem:launcher:get-state'),
     browse: (): Promise<LauncherState> => ipcRenderer.invoke('uem:launcher:browse'),

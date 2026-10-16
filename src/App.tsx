@@ -351,6 +351,18 @@ function projectDisplayName(projectFile?: string, contentFolderPath?: string): s
 }
 
 const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectName?: string }> = ({ status, projectName }) => {
+  const [retrying, setRetrying] = useState(false);
+  const [retryMessage, setRetryMessage] = useState('');
+  const retryConnection = async () => {
+    if (!window.uemDesktop?.editor || retrying) return;
+    setRetrying(true);
+    setRetryMessage('');
+    try {
+      const result = await window.uemDesktop.editor.reconnect();
+      setRetryMessage(result.success ? 'Retry requested. Connection status updates automatically.' : result.error ?? 'Could not retry the connection.');
+    } catch { setRetryMessage('Could not retry the connection. Wait a moment, then try again.'); }
+    finally { setRetrying(false); }
+  };
   if (!status?.success) return null;
   const connectionState = getEditorConnectionState(status);
   const connected = connectionState === 'connected';
@@ -386,15 +398,19 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
       heading = 'This project is open, but the editor connector is not attached';
       summary = 'Native Texture2D importing is unavailable until the authenticated connector connects.';
       detail = !status.autoConnectorInstalled
-        ? 'Transaction Manager could not install its project connector. Confirm that Content/Python is writable, then relink the project.'
+        ? 'The application connector is missing. Reinstall this UTM build to restore it.'
         : status.bootstrapState === 'failed'
-          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep UTM open while it retries.'
-          : 'Python is enabled and the connector is installed. Transaction Manager is attaching it automatically.';
+          ? 'Automatic attachment did not complete. Keep this project open and retry the connection. Need Help includes the manual Python script option.'
+          : 'Python is enabled. Transaction Manager is attaching its application connector automatically.';
       break;
     case 'project-readiness-waiting':
       heading = 'The UEFN connector is connected; readiness is still pending';
       summary = 'UTM is waiting for the exact project-readiness assertion before enabling native operations.';
-      detail = status.readinessReason ?? 'Keep the exact project open while UEFN finishes loading.';
+      detail = status.readinessReason === 'editor-tick-stale'
+        ? 'UEFN is not responding to editor updates yet. Close any blocking dialog and allow loading to finish.'
+        : status.readinessReason === 'project-browser-open'
+          ? 'Close the UEFN Project Browser or finish opening the linked project. Native operations pause while the selector is open.'
+        : 'Keep the exact project open while UEFN finishes loading. Native operations unlock once its identity is verified.';
       break;
     case 'uefn-running-project-unknown':
       heading = 'UEFN is running without the linked project detected';
@@ -412,6 +428,9 @@ const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectNam
           <p className="font-extrabold text-white">{heading}</p>
           <p>{summary}</p>
           <p className={`mt-1 font-semibold ${tone === 'emerald' ? 'text-emerald-200' : tone === 'cyan' ? 'text-cyan-200' : 'text-amber-200'}`}>{detail}</p>
+          {connectionState === 'connector-waiting' && status.autoConnectorInstalled && window.uemDesktop?.editor && <button type="button" onClick={() => void retryConnection()} disabled={retrying || status.bootstrapState === 'attempting'} className="mt-3 rounded-lg border border-cyan-400/30 px-3 py-1.5 font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:opacity-50">{retrying || status.bootstrapState === 'attempting' ? 'Connecting…' : 'Retry Connection'}</button>}
+          {retryMessage && !connected && <p role="status" className="mt-2">{retryMessage}</p>}
+          {!connected && <details className="mt-2 text-slate-400"><summary className="cursor-pointer">Connection details</summary><p className="break-words">{status.bootstrapMessage ?? 'Waiting for the linked project.'}</p>{status.readinessReason && <p>Readiness: <code>{status.readinessReason}</code></p>}</details>}
         </div>
       </div>
     </section>
@@ -423,6 +442,10 @@ export const App: React.FC = () => {
   const [config, setConfig] = useState(loadConfig);
   const [entitlements, setEntitlements] = useState(loadEntitlements);
   const [bundles, setBundles] = useState(loadBundles);
+  // The long-lived catalog event stream must preserve previews from the
+  // current render, including imports and disk hydration after it subscribed.
+  const catalogImagesRef = useRef({ entitlements, bundles });
+  catalogImagesRef.current = { entitlements, bundles };
   const [storefrontMembership, setStorefrontMembership] = useState(() => loadStorefrontMembership(loadEntitlements(), loadBundles()));
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
   const [dismissedWarningIds, setDismissedWarningIds] = useState(loadDismissedWarningIds);
@@ -502,7 +525,8 @@ export const App: React.FC = () => {
   const isDirty = catalogReady ? catalogDirty : currentSnapshot !== lastSavedSnapshot;
 
   const applyCatalogSnapshot = (next: CatalogSnapshotPayload, consumeTransientImages = false) => {
-    const nextWithImages = preserveCatalogImages(next, entitlements, bundles, pendingIconPreviewsRef.current);
+    const nextWithImages = preserveCatalogImages(next, catalogImagesRef.current.entitlements, catalogImagesRef.current.bundles, pendingIconPreviewsRef.current);
+    catalogImagesRef.current = { entitlements: nextWithImages.entitlements, bundles: nextWithImages.bundles };
     if (consumeTransientImages) pendingIconPreviewsRef.current = [];
     suppressCatalogSyncRef.current = true;
     catalogRevisionRef.current = nextWithImages.revision;

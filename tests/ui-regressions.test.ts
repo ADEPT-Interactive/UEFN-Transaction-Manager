@@ -297,5 +297,5 @@ test('release shell uses stable application identity and versioned artifacts', (
   assert.ok(releaseScript.includes('portable.json'));
   assert.match(releaseScript, /electron\\installer\.nsh/);
   assert.equal(packageVersion, version);
-  assert.match(version, /^\d+\.\d+\.\d+$/);
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
 });

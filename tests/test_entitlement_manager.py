@@ -181,6 +181,14 @@ class EntitlementManagerPathTests(unittest.TestCase):
         )
         readiness = entitlement_manager._editor_project_readiness(broken, r"C:\TaB\TaB.uefnproject", "/TaB")
         self.assertEqual(readiness["reason"], "readiness-check-error")
+
+    def test_project_browser_blocks_an_otherwise_ready_mounted_world(self):
+        import entitlement_manager
+
+        unreal = types.SimpleNamespace(Paths=types.SimpleNamespace(project_dir=lambda: "FortniteGame"))
+        with mock.patch.object(entitlement_manager, "_editor_has_project_browser", return_value=True):
+            readiness = entitlement_manager._editor_project_readiness(unreal, "Project.uefnproject", "/Project")
+        self.assertEqual(readiness, {"ready": False, "reason": "project-browser-open"})
         self.assertFalse(readiness["ready"])
 
     def test_standard_unreal_project_uses_project_content_directory(self):

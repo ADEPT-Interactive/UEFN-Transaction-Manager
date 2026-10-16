@@ -619,6 +619,12 @@ async function showFatalError(error: Error): Promise<void> {
 }
 
 function configureIpc() {
+  ipcMain.handle('uem:editor:reconnect', async event => {
+    assertTrustedSender(event);
+    if (!mainWindow || windowContext(mainWindow)?.mode !== 'dashboard' || !bridgeSession) return { success: false, error: 'Open a project dashboard before retrying its connection.' };
+    try { return await bridgeSession.retryEditorConnection(); }
+    catch { return { success: false, error: 'The project session changed. Wait for its dashboard, then retry.' }; }
+  });
   ipcMain.handle('uem:launcher:get-state', event => { assertTrustedSender(event); return launcherState(); });
   ipcMain.handle('uem:launcher:browse', async event => {
     assertTrustedSender(event);

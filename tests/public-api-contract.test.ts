@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { generateVerseCode } from '../src/services/verseGenerator';
 import { publicApiBundles, publicApiConfig, publicApiDisplayGroups, publicApiItems } from './public-api-fixture';
+import { describeIntegrationContract, transactionCallbackExample } from '../src/services/integrationContract';
+import { validateEntireProject } from '../src/services/validator';
 
 function publicDeclarations(source: string): string[] {
   return source.split(/\r?\n/).filter(line => line.includes('<public>')).map(line => line.trim().replace(/ =.*$/, ' = …'));
@@ -22,12 +24,14 @@ function expectedPublicDeclarations(): string[] {
     'coin_pack_offer<public> := class(entitlement_offer):', 'mystery_item_offer<public> := class(entitlement_offer):', 'mystery_item_mobile_offer<public> := class(entitlement_offer):',
     'starter_bundle_offer<public> := class(bundle_offer):', 'nested_bundle_offer<public> := class(bundle_offer):', 'dynamic_bundle_offer<public> := class(bundle_offer):',
     'dynamic_bundle_dynamic_offer<public> := class(bundle_offer):',
+    'phase4_public_api_device_event_subscription<public> := class:', 'Cancel<public>():void = …',
   );
   for (const stem of ['AccessPass', 'SeasonPass', 'CoinPack', 'MysteryItem']) {
     declarations.push(
       `Await${stem}GrantedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}RemovedEvent<public>()<suspends>:tuple(player, int) = …`, `Await${stem}ReconciledEvent<public>()<suspends>:tuple(player, int) = …`,
+      ...['Granted', 'Removed', 'Reconciled'].map(kind => `Subscribe${stem}${kind}Event<public>(Callback(:tuple(player, int)):void):phase4_public_api_device_event_subscription = …`),
     );
-    if (stem === 'CoinPack' || stem === 'MysteryItem') declarations.push(`Await${stem}ConsumedEvent<public>()<suspends>:tuple(player, int) = …`);
+    if (stem === 'CoinPack' || stem === 'MysteryItem') declarations.push(`Await${stem}ConsumedEvent<public>()<suspends>:tuple(player, int) = …`, `Subscribe${stem}ConsumedEvent<public>(Callback(:tuple(player, int)):void):phase4_public_api_device_event_subscription = …`);
   }
   declarations.push(
     'GrantAccessPass<public>(Player:player, Quantity:int)<suspends>:logic = …', 'GrantSeasonPass<public>(Player:player, Quantity:int)<suspends>:logic = …',
@@ -44,10 +48,45 @@ function expectedPublicDeclarations(): string[] {
   return declarations;
 }
 
+test('callback subscriptions preserve await APIs and cancel safely across device lifecycle boundaries', () => {
+  const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  assert.match(source, /Cancel<public>\(\):void =\n        if \(not IsCancelled\?\):\n            set IsCancelled = true\n            CancelSignal.Signal\(\)/);
+  assert.match(source, /if \(TransactionCallbacksEnded\?\):\n            Subscription.Cancel\(\)\n        else:\n            spawn\{AwaitTransactionCallback/);
+  assert.match(source, /if \(Subscription.IsCancelled\? or TransactionCallbacksEnded\?\):\n            return/);
+  assert.match(source, /Payload := Source.Await\(\)\n                if \(not Subscription.IsCancelled\? and not TransactionCallbacksEnded\?\):\n                    Callback\(Payload\)/);
+  assert.match(source, /Subscription.CancelSignal.Await\(\)\n            TransactionCallbacksEndSignal.Await\(\)/);
+  assert.match(source, /OnEnd<override>\(\):void =\n        set TransactionCallbacksEnded = true\n        TransactionCallbacksEndSignal.Signal\(\)/);
+  assert.doesNotMatch(source, /\(\s*\w+:event\([^\n]+\)\.Subscribe\(/);
+  assert.doesNotMatch(source, /SubscribeAccessPassConsumedEvent/);
+});
+
+test('callback contracts, examples, and preserved public identities agree with generated declarations', () => {
+  const items = structuredClone(publicApiItems);
+  items[0].verseKey = 'renamed_key_221';
+  items[0].publicIdentity = { apiStem: 'PublishedAccess221', metadataStem: 'PublishedAccess221', entitlementStem: 'published_access_221', priceStem: 'published_access_221', offerStem: 'published_access_221' };
+  const source = generateVerseCode(items, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
+  const contract = describeIntegrationContract(publicApiConfig, items, publicApiBundles, { allOffers: [], focused: publicApiDisplayGroups }, 'test');
+  const callbacks = contract.entitlements[0].callbackEvents as Record<string, string>;
+  assert.equal(callbacks.granted, 'SubscribePublishedAccess221GrantedEvent');
+  assert.ok(source.includes(`${callbacks.granted}<public>`));
+  assert.doesNotMatch(source, /SubscribeRenamedKey221/);
+  assert.match(source, /Offers<override>:\[\]tuple\(offer, int\) = array\{\(published_access_221_offer\{\}, 1\)/);
+  assert.match(transactionCallbackExample(items[0], publicApiConfig), /Transactions.SubscribePublishedAccess221GrantedEvent\(OnReward\)/);
+  assert.doesNotMatch(transactionCallbackExample(items[0], publicApiConfig), /option\{Transactions.Subscribe/);
+  const immediate = { ...items[2], autoConsume: true };
+  assert.match(transactionCallbackExample(immediate, publicApiConfig), /SubscribeCoinPackConsumedEvent/);
+});
+
+test('callback handle type names cannot collide with configured modules', () => {
+  const config = { ...publicApiConfig, infoModuleName: `${publicApiConfig.deviceClassName}_event_subscription` };
+  assert.ok(validateEntireProject(publicApiItems, publicApiBundles, config, publicApiDisplayGroups).some(issue => issue.ruleName === 'generated_symbol_unique'));
+  assert.throws(() => generateVerseCode(publicApiItems, publicApiBundles, config, publicApiDisplayGroups), /conflicts/);
+});
+
 test('complex generated output has one locked canonical public declaration baseline', () => {
   const source = generateVerseCode(publicApiItems, publicApiBundles, publicApiConfig, publicApiDisplayGroups);
   assert.deepEqual(publicDeclarations(source), expectedPublicDeclarations());
-  assert.equal(publicDeclarations(source).length, 98);
+  assert.equal(publicDeclarations(source).length, 114);
   assert.match(source, /phase4_public_api_device := class\(creative_device\):/);
   assert.doesNotMatch(source, /phase4_public_api_device<public>/);
 });
@@ -64,6 +103,7 @@ test('the generated device is the supported facade and no UEM namespace is emitt
     'Phase4PublicApiEntitlements<public> := module:',
     'Phase4PublicApiPrices<public> := module:',
     'Phase4PublicApiOffers<public> := module:',
+    'phase4_public_api_device_event_subscription<public> := class:',
     'phase4_public_api_device := class(creative_device):',
   ]);
   assert.doesNotMatch(source, /\bUEM\.(?:Entitlements|Offers|Prices)\b/);

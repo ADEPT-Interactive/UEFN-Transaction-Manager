@@ -16,7 +16,7 @@ test('canonical release metadata preserves the ADEPT distribution contract and r
   const userReadme = read('README-USER.txt');
   const distribution = read('docs/DISTRIBUTION.md');
   const publicContract = read('docs/GENERATED_PUBLIC_API_CONTRACT.md');
-  assert.match(version, /^\d+\.\d+\.\d+$/);
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
   assert.equal(pkg.version, version);
   assert.equal(lock.version, version);
   assert.equal(lock.packages[''].version, version);
@@ -49,9 +49,9 @@ test('canonical release metadata preserves the ADEPT distribution contract and r
   assert.match(upgradeGate, /Invoke-Uninstall/);
   assert.match(upgradeGate, /PendingConsumeIntents/);
   assert.match(read('scripts/verify-release.ps1'), /projectReady/);
-  const currentDistributionLine = distribution.split('\n').find(line => /current supported public release/i.test(line)) ?? '';
+  const currentDistributionLine = distribution.split('\n').find(line => version.includes('-') ? /current source build/i.test(line) : /current supported public release/i.test(line)) ?? '';
   assert.ok(currentDistributionLine.includes(`v${version}`), 'distribution current-release prose must track version.json');
-  assert.ok(publicContract.includes(`Status: Current v${version} public release contract`), 'generated public contract current-release prose must track version.json');
+  assert.ok(publicContract.includes(`Status: Current v${version} ${version.includes('-') ? 'source' : 'public release'} contract`), 'generated public contract current-release prose must track version.json');
   assert.doesNotMatch(publicContract, /pending \d+\.\d+\.\d+ stabilization branch/i);
 });
 

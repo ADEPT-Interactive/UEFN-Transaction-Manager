@@ -189,6 +189,7 @@ test('bootstrap uses the application script even when project Python is rewritte
     fs.writeFileSync(init, '# Ducky managed init\n');
     const expected = `py "${path.join(root, 'uefn_auto_connector.py').replaceAll('\\', '/')}"`;
     assert.equal(connectorBootstrapCommand(root), expected);
+    assert.equal(connectorBootstrapCommand(root, 'python'), `__import__("runpy").run_path(${JSON.stringify(path.join(root, 'uefn_auto_connector.py').replaceAll('\\', '/'))}, run_name="__main__")`);
     fs.writeFileSync(init, '# Ducky refresh replaced all startup text\n');
     assert.equal(connectorBootstrapCommand(root), expected);
     assert.equal(fs.readFileSync(init, 'utf8'), '# Ducky refresh replaced all startup text\n');
@@ -337,6 +338,25 @@ test('project B becomes authoritative only after its own heartbeat', () => {
 test('UTM compile prefers the current editor-session PID after a UEFN restart', () => {
   const server = read('server/index.ts');
   assert.match(server, /preferredProcessId: \(editorSession\?\.processId \?\? launchedUefnProcessId\)/);
+});
+
+test('an editor restart can replace the pinned PID only with completed project and OS process evidence', () => {
+  const server = read('server/index.ts');
+  assert.match(server, /editorSession.processId !== expectedEditorProcessId/);
+  assert.match(server, /!processIdIsRunning\(expectedEditorProcessId\) && configuredProjectFile && openedProject && pathsEqual\(openedProject, configuredProjectFile\)/);
+  assert.match(server, /IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe/);
+  assert.match(server, /if \(!verifiedReplacement\) return res.status\(409\)/);
+  assert.match(server, /expectedEditorProcessId = req.body.processId/);
+});
+
+test('connection retry stays within the trusted current desktop session', () => {
+  const main = read('electron/main.ts');
+  const handler = main.slice(main.indexOf("ipcMain.handle('uem:editor:reconnect'"), main.indexOf("ipcMain.handle('uem:launcher:get-state'"));
+  assert.match(handler, /assertTrustedSender\(event\)/);
+  assert.match(handler, /mode !== 'dashboard'/);
+  assert.match(handler, /bridgeSession.retryEditorConnection\(\)/);
+  assert.doesNotMatch(handler, /scriptPath|projectFile|rawCommand/);
+  assert.match(read('electron/bridgeSession.ts'), /if \(this.bootstrapExhaustionReported\) return/);
 });
 
 test('compile preflight remains tied to stable matching project readiness', () => {

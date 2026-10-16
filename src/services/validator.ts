@@ -650,6 +650,7 @@ export function validateEntireProject(
     'UnsubscribeFromPlayer', 'OnPlayerAdded', 'OnPlayerRemoved', 'TrackSubscription', 'CancelAllSubscriptions',
     'TryAcquireMarketplaceUI', 'ReleaseMarketplaceUI', 'ExecutePurchase', 'ExecuteStorefront', 'ShowAllOffers', 'OpenAllOffersStore',
     'LogDebug', 'LogWarning', 'LogError',
+    'TransactionCallbacksEnded', 'TransactionCallbacksEndSignal', 'SubscribeTransactionEvent', 'AwaitTransactionCallback',
   ].forEach(name => memberOwners.set(name.toLowerCase(), 'generator'));
   memberOwners.set('alloffersstoretitle', 'generator');
   entitlements.forEach(item => {
@@ -662,9 +663,11 @@ export function validateEntireProject(
     registerMember(`Await${pascal}GrantedEvent`, item, 'verseKey');
     registerMember(`Await${pascal}RemovedEvent`, item, 'verseKey');
     registerMember(`Await${pascal}ReconciledEvent`, item, 'verseKey');
+    for (const kind of ['Granted', 'Removed', 'Reconciled']) registerMember(`Subscribe${pascal}${kind}Event`, item, 'verseKey');
     if (item.itemType === 'consumable') {
       registerMember(`${pascal}_ConsumedSignal`, item, 'verseKey');
       registerMember(`Await${pascal}ConsumedEvent`, item, 'verseKey');
+      registerMember(`Subscribe${pascal}ConsumedEvent`, item, 'verseKey');
     }
     registerMember(`Get${pascal}Count`, item, 'verseKey');
     registerMember(`Has${pascal}`, item, 'verseKey');
@@ -728,6 +731,7 @@ export function validateEntireProject(
     ['assetFolderName', config?.assetFolderName], ['deviceClassName', config?.deviceClassName], ['infoModuleName', config?.infoModuleName],
     ['entitlementsModuleName', config?.entitlementsModuleName], ['pricesModuleName', config?.pricesModuleName], ['offersModuleName', config?.offersModuleName],
   ] as Array<[string, string | undefined]>) if (value) registerGeneratedSymbol(value, `config.${field}`);
+  if (config) registerGeneratedSymbol(`${config.deviceClassName}_event_subscription`, 'generated callback subscription');
   entitlements.forEach(item => {
     registerGeneratedSymbol(config ? derivePublicIdentity(item, config, 'entitlement').apiStem : toPascalCase(item.verseKey), `entitlement.${item.id}`);
     (item.alternateOffers ?? []).forEach((offer, index) => registerGeneratedSymbol(config ? derivePublicIdentity(offer, config, 'alternate_offer', item).apiStem : toPascalCase(offer.verseKey), `alternate.${item.id}.${index}`));

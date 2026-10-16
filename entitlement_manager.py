@@ -334,11 +334,39 @@ def import_texture_job(job, normalize_adopted_texture=None):
     }
 
 
+def _editor_has_project_browser():
+    """UEFN can keep the old world and Slate ticks alive behind its selector."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    user32 = ctypes.windll.user32
+    found = False
+    callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def visit(window, _context):
+        nonlocal found
+        handle = ctypes.c_void_p(window)
+        process_id = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
+        if process_id.value == os.getpid() and user32.IsWindowVisible(handle):
+            title = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(handle, title, len(title))
+            if title.value.casefold() == "project browser":
+                found = True
+                return False
+        return True
+
+    user32.EnumWindows(callback_type(visit), 0)
+    return found
+
+
 def _editor_project_readiness(unreal, expected_project_file=None, expected_asset_mount=None, expected_content_dir=None):
     """Return a fail-closed readiness result with a diagnostic reason."""
     if not expected_project_file:
         return {"ready": False, "reason": "expected-project-missing"}
     try:
+        if _editor_has_project_browser():
+            return {"ready": False, "reason": "project-browser-open"}
         paths = getattr(unreal, "Paths", None)
         expected_project = os.path.normcase(os.path.realpath(str(expected_project_file)))
         project_file_path = getattr(paths, "project_file_path", None) if paths else None
@@ -535,6 +563,10 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
             return
 
         try:
+            # Recheck at execution as well: a queued job can outlive the ready
+            # heartbeat that authorized it, including a project-browser switch.
+            if not next_project_ready:
+                raise RuntimeError("The linked UEFN project is not ready for native asset operations: " + next_readiness_reason)
             results.put(import_texture_job(
                 job,
                 lambda job_id: _bridge_request(

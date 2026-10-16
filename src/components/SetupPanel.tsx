@@ -1,7 +1,9 @@
-import React, { useId, useRef } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { BookOpenCheck, ExternalLink, X } from 'lucide-react';
 import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
-import { toPascalCase } from '../services/validator';
+import { derivePublicIdentity } from '../services/publicIdentity';
+import { transactionCallbackExample } from '../services/integrationContract';
+import { dynamicPriceEnabled } from '../services/dynamicOffers';
 import { entitlementEditableNames, storefrontEditableName } from '../services/editableBindings';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
@@ -12,6 +14,12 @@ interface SetupPanelProps {
   entitlements: EntitlementItem[];
   storefrontMembership: StorefrontMembership;
 }
+
+const CallbackExample: React.FC<{ item: EntitlementItem; config: ProjectConfig }> = ({ item, config }) => {
+  const [copyStatus, setCopyStatus] = useState('');
+  const example = transactionCallbackExample(item, config);
+  return <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer font-semibold text-cyan-200">Use a callback from your own Verse</summary><p className="mt-2 text-slate-400">Cancel the returned UTM handle when your listener ends. The transaction device also stops callbacks on end. Callbacks receive future notifications without replay and must not suspend.</p>{item.itemType === 'durable' && <p className="mt-2 text-slate-400">For a durable ownership mirror, also subscribe to Reconciled and relevant Removed notifications. Use Has/GetCount for current ownership when attaching late; Granted alone does not establish initial ownership.</p>}<pre className="my-2 overflow-x-auto rounded-lg bg-[#070a13] p-3 text-[10px] leading-4 text-emerald-200">{example}</pre><button type="button" className="font-bold text-cyan-300 hover:text-cyan-100" onClick={async () => { try { await navigator.clipboard.writeText(example); setCopyStatus('Copied'); } catch { setCopyStatus('Copy failed. Select the example text to copy it.'); } }}>Copy callback example</button><span role="status" className="ml-2 text-slate-400">{copyStatus}</span></details>;
+};
 
 export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, storefrontMembership }) => (
   <div className="space-y-3 text-xs text-slate-300">
@@ -34,23 +42,24 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ config, entitlements, st
       <>
         <p className="text-slate-400">Keep the generated file manager-owned. Put game-specific rewards in your own Verse device and use the public interface below.</p>
         {entitlements.map(item => {
-          const pascal = toPascalCase(item.verseKey);
-          const editableNames = entitlementEditableNames(item.verseKey);
+          const pascal = derivePublicIdentity(item, config, 'entitlement').apiStem;
+          const editableNames = entitlementEditableNames(item.verseKey, pascal);
           return (
             <div key={item.id} className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="text-white">{item.name || item.verseKey}</strong><code className="text-[10px] text-slate-500">{item.verseKey}</code></div>
               {item.triggers.generateTriggerBinding ? <p><code className="text-cyan-200">{editableNames.purchaseTriggers}</code>: assign one or more Trigger devices and connect them to a deliberate player purchase interaction.</p> : <p className="text-slate-400">No purchase Trigger device array is generated for this offer. Turn it on under Advanced → Triggers &amp; Hooks if you want no-code device wiring.</p>}
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">{item.triggers.generateButtonBinding && <span>Purchase Button: <code className="text-cyan-300">{editableNames.purchaseButtons}</code>. Interacting opens Epic&apos;s purchase interface.</span>}{item.triggers.generateSuccessTriggerBinding && <span>Success Trigger: <code className="text-emerald-300">{editableNames.successTriggers}</code>. Fires once after authoritative success; use the awaitable event for quantity-aware gameplay.</span>}</div>
               <div className="grid gap-2 text-[11px] sm:grid-cols-2">
-                <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">Open{pascal}Purchase(Player)</code></p>
+                <p><span className="block text-slate-500">Open from Verse</span><code className="text-emerald-200">Open{pascal}Purchase(Player{dynamicPriceEnabled(item.dynamicOffer) ? ', Options' : ''})</code>{dynamicPriceEnabled(item.dynamicOffer) && <span className="mt-1 block text-slate-400">Pass <code>{config.offersModuleName}.{pascal}RuntimeOptions</code> with your calculated PriceVBucks.</span>}</p>
                 <p><span className="block text-slate-500">Grant without V-Bucks (promotion/testing)</span><code className="text-emerald-200">Grant{pascal}(Player, Quantity)</code></p>
-                {item.itemType === 'consumable' && <p><span className="block text-slate-500">Deduct after the reward is used</span><code className="text-emerald-200">Consume{pascal}(Player, Quantity)</code></p>}
+                {item.itemType === 'consumable' && <p><span className="block text-slate-500">Request use; apply effects after Consumed</span><code className="text-emerald-200">Consume{pascal}(Player, Quantity)</code></p>}
                 <p><span className="block text-slate-500">Await every positive entitlement delta</span><code className="text-emerald-200">Await{pascal}GrantedEvent()</code></p>
               </div>
+              <CallbackExample item={item} config={config} />
             </div>
           );
         })}
-        {storefrontMembership.focused.length > 0 && <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="text-white">Configured storefronts</strong><p className="mt-1 text-[11px] text-slate-400">These display selected offers as individually purchasable cards. They are not bundles.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{storefrontMembership.focused.map(group => { const pascal = toPascalCase(group.verseKey); return <div key={group.id} className="rounded-lg bg-slate-950/50 p-2"><span className="block font-semibold text-white">{group.name}</span><code className="block text-[10px] text-emerald-200">Open{pascal}(Player)</code>{group.generateTriggerBinding && <span className="mt-1 block text-[10px] text-slate-500">Open trigger array: <code>{storefrontEditableName(group.verseKey)}</code></span>}</div>; })}</div></div>}
+        {storefrontMembership.focused.length > 0 && <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3"><strong className="text-white">Configured storefronts</strong><p className="mt-1 text-[11px] text-slate-400">These display selected offers as individually purchasable cards. They are not bundles.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{storefrontMembership.focused.map(group => { const pascal = derivePublicIdentity(group, config, 'storefront').apiStem; return <div key={group.id} className="rounded-lg bg-slate-950/50 p-2"><span className="block font-semibold text-white">{group.name}</span><code className="block text-[10px] text-emerald-200">Open{pascal}(Player)</code>{group.generateTriggerBinding && <span className="mt-1 block text-[10px] text-slate-500">Open trigger array: <code>{storefrontEditableName(group.verseKey, 'openTriggers', pascal)}</code></span>}</div>; })}</div></div>}
       </>
     )}
     <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-800 pt-3 text-[11px]">

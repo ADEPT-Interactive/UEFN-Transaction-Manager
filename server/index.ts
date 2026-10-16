@@ -35,6 +35,7 @@ const configuredProjectFile = process.env.UEM_PROJECT_FILE;
 const initialProjectPythonEnabled = process.env.UEM_PROJECT_PYTHON_ENABLED === '1';
 const autoConnectorInstalled = process.env.UEM_AUTO_CONNECTOR_INSTALLED === '1';
 const launchedUefnProcessId = Number(process.env.UEM_UEFN_PROCESS_ID || 0);
+let expectedEditorProcessId = launchedUefnProcessId;
 const idleTimeoutMs = Number(process.env.UEM_IDLE_TIMEOUT_MS || 120000);
 // Synthetic bridge tests must not let an unrelated live UEFN instance on the
 // host satisfy the no-descriptor project-identity probe.
@@ -302,7 +303,7 @@ function pathsEqual(first: string | undefined, second: string | undefined): bool
  */
 function freshExactConnectorIdentity(): boolean {
   if (!editorSession || !connectorHeartbeatIsFresh()) return false;
-  if (launchedUefnProcessId > 0 && editorSession.processId !== launchedUefnProcessId) return false;
+  if (expectedEditorProcessId > 0 && editorSession.processId !== expectedEditorProcessId) return false;
   if (!pathsEqual(editorSession.contentRoot, contentRoot) || editorSession.assetMount !== configuredAssetMount) return false;
   if (configuredProjectFile && (!editorSession.projectFile || !pathsEqual(editorSession.projectFile, configuredProjectFile))) return false;
   return true;
@@ -441,7 +442,7 @@ function currentProjectContext(): UTMProjectContext {
       projectActive: editorState.exactProjectOpen,
       exactProjectOpen: editorState.exactProjectOpen,
       connectorAlive: editorState.connectorAlive,
-      readinessReason: editorSession?.readinessReason ?? (editorState.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+      readinessReason: !editorState.connectorAlive ? 'connector-heartbeat-stale' : editorSession?.readinessReason ?? 'awaiting-editor-readiness',
       heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
       pythonEnabled: editorState.pythonEnabled,
       missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
@@ -892,8 +893,21 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
     if (configuredProjectFile && (typeof req.body.projectFile !== 'string' || !pathsEqual(req.body.projectFile, configuredProjectFile))) {
       return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
     }
-    if (launchedUefnProcessId > 0 && req.body.processId !== launchedUefnProcessId) {
-      return res.status(409).json({ success: false, error: 'The reporting UEFN editor process does not match this manager session.' });
+    if (expectedEditorProcessId > 0 && req.body.processId !== expectedEditorProcessId) {
+      // The desktop session outlives an editor restart. Retire the pinned PID
+      // only after its death, a completed exact-project open, and an OS image
+      // check on the authenticated replacement connector's live process.
+      const openedProject = latestUefnProjectLifecycle().openedProject;
+      let verifiedReplacement = false;
+      if (!processIdIsRunning(expectedEditorProcessId) && configuredProjectFile && openedProject && pathsEqual(openedProject, configuredProjectFile) && process.platform === 'win32' && !isolateGlobalUefnProbe) {
+        try {
+          const output = childProcess.execFileSync('tasklist.exe', ['/FI', `PID eq ${req.body.processId}`, '/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: 1500 });
+          verifiedReplacement = /"UnrealEditorFortnite-Win64-Shipping\.exe"/i.test(output) && output.includes(`"${req.body.processId}"`);
+        } catch { /* Missing process evidence must fail closed. */ }
+      }
+      if (!verifiedReplacement) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process does not match this manager session.' });
+      expectedEditorProcessId = req.body.processId;
+      console.log(`[Editor] Adopted verified UEFN replacement process ${expectedEditorProcessId} after the previous editor exited.`);
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
     const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
@@ -926,7 +940,7 @@ app.get('/api/editor/status', (_req, res) => {
     projectActive: state.exactProjectOpen,
     exactProjectOpen: state.exactProjectOpen,
     projectReady: state.projectReady,
-    readinessReason: editorSession?.readinessReason ?? (state.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+    readinessReason: !state.connectorAlive ? 'connector-heartbeat-stale' : editorSession?.readinessReason ?? 'awaiting-editor-readiness',
     heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
     processId: editorSession?.processId ?? (launchedUefnProcessId || undefined),
     differentProjectOpen: state.differentProjectOpen,

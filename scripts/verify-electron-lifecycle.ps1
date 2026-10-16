@@ -25,6 +25,7 @@ $statePath = Join-Path $testRoot "state\active-session.json"
 $trackedIds = [System.Collections.Generic.HashSet[int]]::new()
 $trackedIdentities = @{}
 $originalLocalAppData = [Environment]::GetEnvironmentVariable("LOCALAPPDATA", "Process")
+$originalElectronRunAsNode = [Environment]::GetEnvironmentVariable("ELECTRON_RUN_AS_NODE", "Process")
 $testLocalAppData = Join-Path $testRoot "localappdata"
 New-Item -ItemType Directory -Path $testLocalAppData -Force | Out-Null
 $env:LOCALAPPDATA = $testLocalAppData
@@ -110,6 +111,9 @@ function Wait-ForLog {
 
 function Start-TestApplication {
     param([bool]$AutoConfirm, [bool]$AutoSwitch)
+    # Coding-agent hosts can inherit Electron's Node-mode flag. This probe
+    # launches the desktop host; BridgeSession sets Node mode on its own child.
+    [Environment]::SetEnvironmentVariable("ELECTRON_RUN_AS_NODE", $null, "Process")
     $env:UEM_TEST_MODE = "1"
     $env:UEM_TEST_HIDDEN = if ($Hidden) { "1" } else { "0" }
     $env:UEM_TEST_AUTO_CONFIRM = if ($AutoConfirm) { "1" } else { "0" }
@@ -200,7 +204,13 @@ try {
             if ($managerText -match "Fatal error dialog:") { throw "Candidate failure incorrectly became fatal." }
             if ($managerText -notmatch "Synthetic replacement candidate failure requested") { throw "The candidate-failure path was not exercised." }
             if ($managerText -notmatch "Late IPC from retiring dashboard rejected:") { throw "Late IPC from the retiring dashboard was not rejected." }
-            if (([regex]::Matches($managerText, "Bridge shutdown completed:")).Count -ne 0) { throw "The old bridge was torn down before replacement rollback completed." }
+            # Hidden mode immediately requests a clean final shutdown after
+            # rollback. Assert retention at the rollback boundary, not after
+            # the legitimate final shutdown may already have completed.
+            $rollbackBoundary = $managerText.IndexOf("Project switch replacement failed; current dashboard retained:")
+            if ($rollbackBoundary -lt 0) { throw "The replacement rollback boundary was not observed." }
+            $rollbackText = $managerText.Substring(0, $rollbackBoundary)
+            if (([regex]::Matches($rollbackText, "Bridge shutdown completed:")).Count -ne 0) { throw "The old bridge was torn down before replacement rollback completed." }
             if ($managerText -match "Launcher candidate validated before bridge teardown:") { throw "The failing candidate was treated as validated." }
             if ($managerText -match "Retiring dashboard window destroyed:") { throw "Rollback destroyed the retained dashboard." }
         }
@@ -310,6 +320,7 @@ finally {
     }
     Remove-Item Env:UEM_TEST_MODE,Env:UEM_TEST_HIDDEN,Env:UEM_TEST_AUTO_CONFIRM,Env:UEM_TEST_AUTO_SWITCH,Env:UEM_TEST_AUTO_SWITCH_CLICKS,Env:UEM_TEST_AUTO_EXIT,Env:UEM_TEST_AUTO_SWITCH_CYCLES,Env:UEM_TEST_FAIL_REPLACEMENT,Env:UEM_TEST_LATE_IPC,Env:UEM_TEST_STATE_ROOT -ErrorAction SilentlyContinue
     [Environment]::SetEnvironmentVariable("LOCALAPPDATA", $originalLocalAppData, "Process")
+    [Environment]::SetEnvironmentVariable("ELECTRON_RUN_AS_NODE", $originalElectronRunAsNode, "Process")
     if ((Resolve-Path -LiteralPath $testRoot -ErrorAction SilentlyContinue).Path -like (([IO.Path]::GetTempPath().TrimEnd('\')) + "\uem-electron-lifecycle-*")) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }

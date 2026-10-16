@@ -17,6 +17,9 @@ declare global {
   interface Window {
     uemDesktop?: {
       readonly isDesktop: true;
+      readonly editor: {
+        reconnect: () => Promise<{ success: boolean; error?: string }>;
+      };
       readonly launcher: {
         getState: () => Promise<unknown>;
         browse: () => Promise<unknown>;
