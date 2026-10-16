@@ -295,3 +295,21 @@ test('preflight lease is invalidated when the authenticated editor process chang
 function completeIdentity(identity: Partial<ProjectIdentity>): boolean {
   return Object.values(identity).every(value => typeof value === 'string' && value.length > 0);
 }
+
+
+test('routine catalog scope permits offline initialized work but retains first-run, asset and ownership gates', () => {
+  const context = { ...project, editorConnection: { editorConnected: false }, nativeTextureAdoptionAvailable: false, managedFileOwned: true, catalogInitialization: 'initialized' as 'initialized' | 'first-run', projectReadiness: { missingManagedAssets: [] as string[] } };
+  const manager = new OperationPreflightManager(() => context, () => '17');
+  const request = { operation: 'catalog-edit' as const, requestedProject: project };
+  assert.equal(manager.evaluate(request).ready, true);
+  const lease = manager.issue(manager.evaluate(request), request, 'first-agent');
+  assert.throws(() => manager.assert(lease.token, 'first-agent', 'catalog-edit', 'icon'), { code: 'OPERATION_PREFLIGHT_SCOPE' });
+  context.catalogInitialization = 'first-run';
+  assert.equal(manager.evaluate(request).ready, false);
+  context.catalogInitialization = 'initialized';
+  context.projectReadiness.missingManagedAssets = ['missing.Texture'];
+  assert.equal(manager.evaluate(request).ready, false);
+  context.projectReadiness.missingManagedAssets = [];
+  context.managedFileOwned = false;
+  assert.equal(manager.evaluate(request).ready, false);
+});

@@ -72,7 +72,7 @@ test('agent setup UI exposes migration discovery, distinct readiness states, and
   assert.match(headerSource, /Agent/);
   assert.match(panelSource, /Set up your coding agent/);
   assert.match(panelSource, /Connection readiness/);
-  assert.match(panelSource, /Ready in this session/);
+  assert.match(panelSource, /Copied — add to client/);
   assert.match(panelSource, /UTM MCP endpoint/);
   assert.match(panelSource, /local port only/);
   assert.match(panelSource, /Open skill location/);
