@@ -128,7 +128,7 @@ Agent Integration is optional. Connect your coding agent to UTM MCP and Unreal M
 1. Enable Unreal MCP in the UEFN project using [Epic's setup guide](https://dev.epicgames.com/documentation/fortnite/uefn-mcp).
 2. In UTM, open **Agent** from the workspace header.
 3. Choose **Copy MCP configuration**. UTM supplies the local endpoint and server type.
-4. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#agent-skill) using the client-specific destination shown in the guide.
+4. Install or use the packaged [UTM Agent Skill](docs/AGENT_INTEGRATION.md#guided-setup) using the client-specific destination shown in the guide.
 5. Connect a compatible coding agent to both UTM MCP and Unreal MCP, then verify both identify the same project before making changes.
 
 <p align="center">
@@ -203,7 +203,7 @@ Compile successfully, refresh the UEFN Content Browser, and confirm that you pla
 
 ### An agent cannot see both servers
 
-Confirm Unreal MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If Unreal MCP's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#current-uefn-mcp-limits).
+Confirm Unreal MCP is available and the agent was started from the project/workspace context expected by that client. UTM MCP starts with the project bridge. Compare both servers' project context before mutation. If Unreal MCP's refresh or session command is unavailable, save, run a full compile, and restart the editor session as described in the [Agent Integration guide](docs/AGENT_INTEGRATION.md#lifecycle-recovery).
 
 ## Documentation and support
 
