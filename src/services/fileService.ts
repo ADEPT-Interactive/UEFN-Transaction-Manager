@@ -197,6 +197,7 @@ export interface EditorStatus {
   projectReady?: boolean;
   readinessReason?: string;
   heartbeatAgeMs?: number;
+  processId?: number;
   pythonEnabled: boolean;
   autoConnectorInstalled: boolean;
   nativeTextureImportAvailable: boolean;

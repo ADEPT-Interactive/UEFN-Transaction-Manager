@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronRight, Copy, FolderOpen, PlugZap, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import type { AgentIntegrationSetupResult, AgentIntegrationStatus } from '../services/fileService';
+import { copyText } from '../services/clipboard';
 import { NumericInput } from './NumericInput';
 
 type SupportedAgent = 'codex' | 'claude' | 'cursor';
@@ -43,31 +44,6 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
     return () => { document.body.style.overflow = previousOverflow; };
   }, [isOpen]);
   if (!isOpen) return null;
-
-  const copyText = async (text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await Promise.race([
-          navigator.clipboard.writeText(text),
-          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Clipboard access timed out.')), 1500)),
-        ]);
-        return;
-      }
-    } catch {
-      // Electron builds can expose a clipboard promise that never resolves. Fall back to the DOM path.
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const copied = document.execCommand('copy');
-    textarea.remove();
-    if (!copied) throw new Error('Clipboard access is unavailable.');
-  };
 
   const showMessage = (next: string, error = false) => {
     setMessage(next);
@@ -200,10 +176,10 @@ export const AgentIntegrationPanel: React.FC<AgentIntegrationPanelProps> = ({ is
             <p className="mt-2 text-[10px] leading-4 text-slate-500">UTM runs locally for this project. A coding agent that was already open must reload its configuration or start a fresh session before it can see a new MCP entry.</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4"><div className="flex items-center justify-between"><p className="font-extrabold text-white">Connection readiness</p><button type="button" onClick={onRefresh} className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 hover:text-cyan-200"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div><div className="mt-3 grid items-stretch gap-2 sm:grid-cols-2"><ReadinessRow label="UTM MCP" value={serverState} tone={serverTone} detail={status?.running ? status.endpoint : status?.unavailableReason ?? 'UTM MCP starts automatically with the project bridge.'} /><ReadinessRow label={`${agentLabel} Agent Skill`} value={selectedInstallation?.upToDate ? 'Installed' : selectedInstallation?.installed ? 'Update available' : 'Not installed'} tone={selectedInstallation?.upToDate ? 'emerald' : 'amber'} detail={selectedInstallation?.error} action={hasVerifiedSkillLocation ? <button type="button" onClick={() => void openSkillLocation()} className="mt-auto inline-flex items-center gap-1.5 self-start pt-3 text-[10px] font-extrabold text-cyan-300 hover:text-cyan-200"><FolderOpen className="h-3.5 w-3.5" />Open skill location</button> : undefined} /><ReadinessRow label="Agent setup" value={configurationCopied ? 'Ready in this session' : status?.configuration?.available ? 'Ready to copy' : 'Waiting for UTM MCP'} tone={status?.configuration?.available ? 'cyan' : 'slate'} detail={status?.configuration?.restartRequired ? 'Reload or restart the agent after adding this MCP entry.' : 'Use the local endpoint shown below.'} /><ReadinessRow label="Agent connection" value={connectionVerified ? 'Verified' : status?.clientConnection?.state === 'connected' ? 'Connected; verify project' : 'Not verified'} tone={connectionVerified ? 'emerald' : status?.clientConnection?.state === 'connected' ? 'amber' : 'slate'} detail={connectionVerified ? `Verified by ${status?.clientConnection?.clientName ?? 'the MCP client'} at ${status?.clientConnection?.verifiedAt ?? ''}` : status?.clientConnection?.message ?? (status?.configuration?.restartRequired ? 'Reload or restart the agent, then ask it to call get_project_context.' : 'The agent must call get_project_context before UTM can verify the client connection.')} /></div></div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4"><div className="flex items-center justify-between"><p className="font-extrabold text-white">Connection readiness</p><button type="button" onClick={onRefresh} className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 hover:text-cyan-200"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div><div className="mt-3 grid items-stretch gap-2 sm:grid-cols-2"><ReadinessRow label="UTM MCP" value={serverState} tone={serverTone} detail={status?.running ? status.endpoint : status?.unavailableReason ?? 'UTM MCP starts automatically with the project bridge.'} /><ReadinessRow label={`${agentLabel} Agent Skill`} value={selectedInstallation?.upToDate ? 'Installed' : selectedInstallation?.installed ? 'Update available' : 'Not installed'} tone={selectedInstallation?.upToDate ? 'emerald' : 'amber'} detail={selectedInstallation?.error} action={hasVerifiedSkillLocation ? <button type="button" onClick={() => void openSkillLocation()} className="mt-auto inline-flex items-center gap-1.5 self-start pt-3 text-[10px] font-extrabold text-cyan-300 hover:text-cyan-200"><FolderOpen className="h-3.5 w-3.5" />Open skill location</button> : undefined} /><ReadinessRow label="Agent setup" value={configurationCopied ? 'Copied — add to client' : status?.configuration?.available ? 'Ready to copy' : 'Waiting for UTM MCP'} tone={status?.configuration?.available ? 'cyan' : 'slate'} detail={status?.configuration?.restartRequired ? 'Copying does not edit client settings. Add this MCP entry, then reload or restart the agent.' : 'Use the local endpoint shown below.'} /><ReadinessRow label="Agent connection" value={connectionVerified ? 'Client verified' : status?.clientConnection?.state === 'connected' ? 'Connected; verify project' : 'Not verified'} tone={connectionVerified ? 'emerald' : status?.clientConnection?.state === 'connected' ? 'amber' : 'slate'} detail={connectionVerified ? `Project context read by ${status?.clientConnection?.clientName ?? 'an MCP client'} at ${status?.clientConnection?.verifiedAt ?? ''}. Other agent sessions must load and verify their own tools.` : status?.clientConnection?.message ?? (status?.configuration?.restartRequired ? 'Reload or restart the agent, then ask it to call get_project_context.' : 'The agent must call get_project_context before UTM can verify the client connection.')} /></div></div>
           {status?.agentActivity?.current && <div role="status" aria-live="polite" className={`rounded-2xl border p-4 ${status.agentActivity.current.mode === 'mutating' ? 'border-amber-500/30 bg-amber-500/10' : 'border-cyan-500/25 bg-cyan-500/5'}`}><p className="font-extrabold text-white">{status.agentActivity.current.label}</p><p className="mt-1 text-[11px] leading-4 text-slate-300">{status.agentActivity.current.phase}{status.agentActivity.current.description ? ` · ${status.agentActivity.current.description}` : ''}</p><p className="mt-1 text-[10px] text-slate-500">{status.agentActivity.current.projectName} · heartbeat required</p></div>}
 
-          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><div className="flex items-center justify-between gap-3"><p className="font-extrabold text-cyan-100">Keep both project connections aligned</p><span className="rounded-full border border-cyan-500/25 px-2 py-1 text-[10px] font-bold text-cyan-200">Required before edits</span></div><p className="mt-2 text-[11px] leading-5 text-slate-300">Connect the agent to both <strong className="text-white">utm-mcp</strong> and Epic’s <strong className="text-white">unreal-mcp</strong>. The Agent Skill will compare their project identities before any catalog mutation or Verse edit.</p><p className="mt-2 text-[11px] text-slate-400">Active UTM project: <span className="font-bold text-slate-200">{status?.projectName ?? 'this open project'}</span></p></div>
+          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><p className="font-extrabold text-cyan-100">Connect what your task needs</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-[11px] font-bold text-white">Catalog work · UTM MCP</p><p className="mt-1 text-[11px] leading-5 text-slate-300">Create or edit offers, bundles, and storefronts, then save. Epic MCP is not required. The agent checks the selected project and catalog readiness before editing.</p></div><div><p className="text-[11px] font-bold text-white">In-editor work · add Epic Unreal MCP</p><p className="mt-1 text-[11px] leading-5 text-slate-300">Full migration, icon adoption, gameplay Verse, device wiring, and compilation need the relevant editor tools. Both connections must identify the same project.</p></div></div><p className="mt-3 text-[11px] text-slate-400">Active UTM project: <span className="font-bold text-slate-200">{status?.projectName ?? 'this open project'}</span>. Saving a catalog does not compile Verse or wire gameplay devices.</p></div>
 
           {status?.unavailableReason && <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">{status.unavailableReason}</p>}
 

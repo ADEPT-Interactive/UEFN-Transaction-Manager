@@ -1,5 +1,6 @@
 export type AgentOperation =
   | 'inspect-only'
+  | 'catalog-edit'
   | 'catalog-only-migration'
   | 'full-existing-project-migration'
   | 'native-icon-adoption'
@@ -152,6 +153,16 @@ export const AGENT_OPERATION_MANIFESTS: Record<AgentOperation, OperationManifest
     requiresUtmMutation: false,
     mutationDomains: [],
     utmCapabilities: [AGENT_CAPABILITIES.utmProjectIdentity, AGENT_CAPABILITIES.utmCatalogRead],
+    externalCapabilities: [],
+    requiresExternalProject: false,
+    requiresEditorReady: false,
+  },
+  'catalog-edit': {
+    operation: 'catalog-edit',
+    defaultMode: 'full',
+    requiresUtmMutation: true,
+    mutationDomains: ['catalog', 'save'],
+    utmCapabilities: [AGENT_CAPABILITIES.utmProjectIdentity, AGENT_CAPABILITIES.utmCatalogRead, AGENT_CAPABILITIES.utmCatalogWrite, AGENT_CAPABILITIES.utmGenerateVerse, AGENT_CAPABILITIES.utmCatalogSave],
     externalCapabilities: [],
     requiresExternalProject: false,
     requiresEditorReady: false,

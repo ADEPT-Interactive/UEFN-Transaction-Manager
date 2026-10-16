@@ -8,6 +8,7 @@ import { CatalogDomainError, catalogForMcp } from '../src/services/catalogSessio
 import { describeIntegrationContract } from '../src/services/integrationContract';
 import { validateMigrationParityTable, type MigrationParityEntry } from '../src/services/migrationParity';
 import {
+  AGENT_OPERATION_MANIFESTS,
   type AgentOperationMode,
   type ExternalReadinessEvidence,
   type OperationPreflightRequest,
@@ -149,6 +150,7 @@ const migrationPolicy = z.object({
 }).default({ preserveUnmatchedExisting: true, authorizedDeletionIds: [], mode: 'new-catalog' });
 const agentOperationSchema = z.enum([
   'inspect-only',
+  'catalog-edit',
   'catalog-only-migration',
   'full-existing-project-migration',
   'native-icon-adoption',
@@ -271,9 +273,10 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
     assertProjectReady();
     await options.assertCatalogReady?.(document);
   };
-  const assertMutationContext = (domain: 'catalog' | 'icon' | 'save', context: MutationContext): void => {
+  const assertMutationContext = (domain: 'catalog' | 'icon' | 'save', context: MutationContext) => {
     const lease = preflight.assert(context.preflightToken, connectionId, undefined, domain);
     activity.assertMutating(context.activityId, connectionId, lease.operation);
+    return lease;
   };
   const advanceMutationContext = (context: MutationContext, revision: string): void => {
     preflight.advance(context.preflightToken, connectionId, revision);
@@ -295,6 +298,29 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
       return errorResult(error);
     }
   };
+
+  server.registerTool('describe_operation_contract', {
+    title: 'Choose a UTM workflow',
+    description: 'Read-only first-use guide: scope, live preflight manifests, draft/save behavior, revisions, activity lifecycle, and when Epic Unreal MCP is needed. Start here if unfamiliar with UTM.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async () => jsonResult({
+    productVersion: options.version,
+    operations: Object.values(AGENT_OPERATION_MANIFESTS),
+    catalogModel: {
+      entitlement: 'Owned durable access or consumable inventory. Editable data: name, shortDescription, description, priceVBucks, itemType, maxCount, autoConsume, flags, triggers. Supply the intended name when creating: UTM allocates the ID/verseKey then; later title edits preserve that key.',
+      alternateOffer: 'Another purchase path for an existing entitlement; reference its returned parent ID.',
+      bundle: 'Purchase multiple referenced entitlement/bundle entries with deliberate quantities.',
+      storefront: 'Display concrete offers as individually purchasable cards; membership is not ownership.',
+      updates: 'Patch only requested data fields on the existing stable ID. Read defaults/current fields from the snapshot and validation; do not overwrite a full guessed record.',
+    },
+    start: ['Discover live tools and choose the operation matching the user request.', 'begin_activity(mode: read-only), then get_project_context and get_catalog_snapshot.', 'Compare the requested project with UTM. Inspect Epic schemas and canonical project identity only for operations requiring external capabilities.', 'preflight_operation using the selected operation and requestedProject; omit externalReadiness for UTM-only work.'],
+    catalogWrites: ['catalog-edit creates or updates ordinary UTM catalog records; it is not an existing-project migration.', 'UTM and the dashboard share the same draft. Mutations return snapshot.revision; they do not save to disk or compile.', 'apply_catalog_patch defaults to dryRun=true. Preview changes nothing and needs expectedRevision but no mutation token/activity. Commit explicitly with dryRun=false and the mutation context.', 'After successful preflight, end the discovery activity, then begin a mutating activity with preflightToken.', 'Use preflightToken, activityId and the latest expectedRevision on every UTM write. Successful own writes advance the lease; retain the returned revision for the next call.', 'validate_catalog, save_catalog, then get_catalog_snapshot; verify dirty=false and revision=savedRevision. save_catalog generates managed Verse but never compiles it.'],
+    readiness: ['Initialized catalogs with confirmed assets can be edited/saved without UEFN or Epic MCP.', 'First-run catalogs and missing managed assets still require the exact ready UEFN project, both project and per-user Python enablement, and verified native asset provisioning. Catalog-only scope does not bypass these checks.'],
+    lifecycle: ['Heartbeat active activities before expiresAt; activity heartbeat does not extend the separate preflight lease.', 'End every activity exactly once. Read-only UTM activity is appropriate when only Epic performs external edits; these operations do not issue a UTM mutation token.', 'On concurrent revision changes, stale lease, disconnect, project/session transition or readiness failure: refresh context/snapshot, re-preflight, and reconcile only the intended change.'],
+    migration: ['Use catalog-only-migration only when the user explicitly requested/approved that partial scope; approval.confirmation records that existing instruction, not invented consent.', 'Never silently downgrade full-existing-project-migration. Preserve its native and same-project requirements.', 'Existing-project patches still require confirmed parity and adopted published identity. Preserve unmatched records. Ordinary catalog-edit cannot apply an existing-project migration patch.'],
+    integration: ['describe_integration_contract is the authority for public names, callback/await APIs, runtime options, and editable arrays.', 'Keep gameplay in external project Verse; never hand-edit the managed file. Compilation, wiring, gameplay and real-purchase acceptance are separate evidence levels.'],
+  }));
 
   server.registerTool('preflight_operation', {
     title: 'Preflight agent operation',
@@ -391,7 +417,8 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   }, async () => {
     projectContextInspected = true;
-    return jsonResult({ ...options.getProjectContext(), catalog: { revision: catalog.currentRevision, dirty: catalog.snapshot().dirty }, agentActivity: activity.getState() });
+    const context = options.getProjectContext();
+    return jsonResult({ ...context, ...projectIdentityFromContext(context), catalog: { revision: catalog.currentRevision, dirty: catalog.snapshot().dirty }, agentActivity: activity.getState() });
   });
 
   server.registerTool('get_catalog_snapshot', {
@@ -431,7 +458,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
 
   server.registerTool('create_entitlement', {
     title: 'Create entitlement',
-    description: 'Mutates the shared draft by creating one entitlement and allocating its internal ID and stable Verse key. It does not save to disk or compile Verse. Requires expectedRevision.',
+    description: 'Mutates the shared draft by creating one entitlement. Supply data.name with the intended title: its internal ID and stable Verse key are allocated now, and later display-name updates keep that key. It does not save to disk or compile Verse. Requires expectedRevision.',
     inputSchema: { expectedRevision, data, ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => mutate({ type: 'create_entitlement', data: args.data ?? {} }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
@@ -542,7 +569,10 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
         moduleConfiguration: args.migration.moduleConfiguration,
       };
       if (args.dryRun) return jsonResult(catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true, patchOptions));
-      assertMutationContext('catalog', { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' });
+      const lease = assertMutationContext('catalog', { preflightToken: args.preflightToken ?? '', activityId: args.activityId ?? '' });
+      if (args.migration.mode === 'existing-project' && !['catalog-only-migration', 'full-existing-project-migration'].includes(lease.operation)) {
+        throw new OperationPreflightError('OPERATION_PREFLIGHT_SCOPE', 'An existing-project migration patch requires an explicitly scoped migration preflight, not catalog-edit.');
+      }
       const proposed = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, true, patchOptions).snapshot;
       await assertCatalogReady(proposed);
       const result = catalog.applyPatch(args.operations as CatalogPatchOperation[], args.expectedRevision, false, patchOptions);
@@ -677,7 +707,9 @@ export class UTMcpHost {
     if (!entry) {
       if (req.method !== 'POST') { res.writeHead(404).end(JSON.stringify({ error: 'MCP session was not found. Reinitialize.' })); return; }
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
-      const server = new McpServer({ name: 'utm-mcp', title: 'UEFN Transaction Manager', version: this.options.version });
+      const server = new McpServer({ name: 'utm-mcp', title: 'UEFN Transaction Manager', version: this.options.version }, {
+        instructions: 'UTM manages a project-scoped transaction catalog shared with its desktop UI. New here: call describe_operation_contract, then begin_activity in read-only mode and get_project_context/get_catalog_snapshot. Choose the operation matching the requested scope; inspect-only and catalog-edit need no Epic Unreal MCP. Mutation preflight returns preflightToken; close discovery activity and begin a mutating activity before UTM writes. Mutations change the shared draft; save_catalog persists/generated Verse and does not compile. Use describe_integration_contract for exact public Verse symbols. Never edit the managed Verse by hand or silently downgrade a full migration.',
+      });
       const connectionId = crypto.randomUUID();
       registerTools(server, this.options, connectionId, this.preflight, this.activity);
       transport.onclose = () => {

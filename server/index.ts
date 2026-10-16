@@ -23,6 +23,7 @@ import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLife
 import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
 import { AgentActivityManager } from './agentActivity';
 import { projectIdentityFromContext } from './agentPreflight';
+import { projectPythonIsEnabled as readProjectPythonEnabled } from '../shared/pythonEnablement';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -35,6 +36,7 @@ const configuredProjectFile = process.env.UEM_PROJECT_FILE;
 const initialProjectPythonEnabled = process.env.UEM_PROJECT_PYTHON_ENABLED === '1';
 const autoConnectorInstalled = process.env.UEM_AUTO_CONNECTOR_INSTALLED === '1';
 const launchedUefnProcessId = Number(process.env.UEM_UEFN_PROCESS_ID || 0);
+let expectedEditorProcessId = launchedUefnProcessId;
 const idleTimeoutMs = Number(process.env.UEM_IDLE_TIMEOUT_MS || 120000);
 // Synthetic bridge tests must not let an unrelated live UEFN instance on the
 // host satisfy the no-descriptor project-identity probe.
@@ -231,6 +233,20 @@ function processIdIsRunning(processId: number): boolean {
   const now = Date.now();
   const cached = processProbeCache.get(processId);
   if (cached && now - cached.checkedAt < PROCESS_PROBE_CACHE_MS) return cached.running;
+  // Node's signal-zero probe uses the native process API without spawning
+  // tasklist on every status request. Parallel editor/status requests can
+  // otherwise exhaust tasklist's timeout and briefly report a live editor dead.
+  try {
+    process.kill(processId, 0);
+    processProbeCache.set(processId, { checkedAt: now, running: true, lastSuccessfulProbeAt: now });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH' || process.platform !== 'win32') {
+      processProbeCache.set(processId, { checkedAt: now, running: false, lastSuccessfulProbeAt: now });
+      return false;
+    }
+    // Protected Windows processes may need the read-only tasklist fallback.
+  }
   if (process.platform === 'win32') {
     try {
       const output = childProcess.execFileSync(
@@ -250,19 +266,12 @@ function processIdIsRunning(processId: number): boolean {
       return running;
     }
   }
-  try {
-    process.kill(processId, 0);
-    processProbeCache.set(processId, { checkedAt: now, running: true, lastSuccessfulProbeAt: now });
-    return true;
-  } catch {
-    processProbeCache.set(processId, { checkedAt: now, running: false, lastSuccessfulProbeAt: now });
-    return false;
-  }
+  return false;
 }
 
 function uefnIsRunning(): boolean {
   if (connectorHeartbeatIsFresh()) return true;
-  if (launchedUefnProcessId > 0 && processIdIsRunning(launchedUefnProcessId)) return true;
+  if (expectedEditorProcessId > 0 && processIdIsRunning(expectedEditorProcessId)) return true;
   if (isolateGlobalUefnProbe) return false;
   const now = Date.now();
   if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
@@ -302,19 +311,14 @@ function pathsEqual(first: string | undefined, second: string | undefined): bool
  */
 function freshExactConnectorIdentity(): boolean {
   if (!editorSession || !connectorHeartbeatIsFresh()) return false;
-  if (launchedUefnProcessId > 0 && editorSession.processId !== launchedUefnProcessId) return false;
+  if (expectedEditorProcessId > 0 && editorSession.processId !== expectedEditorProcessId) return false;
   if (!pathsEqual(editorSession.contentRoot, contentRoot) || editorSession.assetMount !== configuredAssetMount) return false;
   if (configuredProjectFile && (!editorSession.projectFile || !pathsEqual(editorSession.projectFile, configuredProjectFile))) return false;
   return true;
 }
 
 function projectPythonIsEnabled(): boolean {
-  if (!configuredProjectFile) return initialProjectPythonEnabled;
-  try {
-    return /"bEnablePythonForProject"\s*:\s*true/i.test(fs.readFileSync(configuredProjectFile, 'utf8'));
-  } catch {
-    return initialProjectPythonEnabled;
-  }
+  return readProjectPythonEnabled(configuredProjectFile, initialProjectPythonEnabled);
 }
 
 /**
@@ -441,7 +445,7 @@ function currentProjectContext(): UTMProjectContext {
       projectActive: editorState.exactProjectOpen,
       exactProjectOpen: editorState.exactProjectOpen,
       connectorAlive: editorState.connectorAlive,
-      readinessReason: editorSession?.readinessReason ?? (editorState.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+      readinessReason: !editorState.connectorAlive ? 'connector-heartbeat-stale' : editorSession?.readinessReason ?? 'awaiting-editor-readiness',
       heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
       pythonEnabled: editorState.pythonEnabled,
       missingManagedAssets: missingManagedAssetReferences(snapshot, configuredAssetMount!).map(reference => reference.objectPath),
@@ -892,8 +896,21 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
     if (configuredProjectFile && (typeof req.body.projectFile !== 'string' || !pathsEqual(req.body.projectFile, configuredProjectFile))) {
       return res.status(409).json({ success: false, error: 'The reporting UEFN editor project file does not match this manager session.' });
     }
-    if (launchedUefnProcessId > 0 && req.body.processId !== launchedUefnProcessId) {
-      return res.status(409).json({ success: false, error: 'The reporting UEFN editor process does not match this manager session.' });
+    if (expectedEditorProcessId > 0 && req.body.processId !== expectedEditorProcessId) {
+      // The desktop session outlives an editor restart. Retire the pinned PID
+      // only after its death, a completed exact-project open, and an OS image
+      // check on the authenticated replacement connector's live process.
+      const openedProject = latestUefnProjectLifecycle().openedProject;
+      let verifiedReplacement = false;
+      if (!processIdIsRunning(expectedEditorProcessId) && configuredProjectFile && openedProject && pathsEqual(openedProject, configuredProjectFile) && process.platform === 'win32' && !isolateGlobalUefnProbe) {
+        try {
+          const output = childProcess.execFileSync('tasklist.exe', ['/FI', `PID eq ${req.body.processId}`, '/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: 1500 });
+          verifiedReplacement = /"UnrealEditorFortnite-Win64-Shipping\.exe"/i.test(output) && output.includes(`"${req.body.processId}"`);
+        } catch { /* Missing process evidence must fail closed. */ }
+      }
+      if (!verifiedReplacement) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process does not match this manager session.' });
+      expectedEditorProcessId = req.body.processId;
+      console.log(`[Editor] Adopted verified UEFN replacement process ${expectedEditorProcessId} after the previous editor exited.`);
     }
     if (!processIdIsRunning(req.body.processId)) return res.status(409).json({ success: false, error: 'The reporting UEFN editor process is not running.' });
     const readinessReason = typeof req.body.readinessReason === 'string' ? req.body.readinessReason.slice(0, 160) : (req.body.projectReady ? 'verified' : 'editor-not-ready');
@@ -906,7 +923,15 @@ app.post('/api/editor/session', requireEditorToken, (req, res) => {
 
 app.get('/api/editor/status', (_req, res) => {
   const state = currentEditorState();
-  if (state.editorConnected) bootstrapState = 'connected';
+  if (state.editorConnected) {
+    bootstrapState = 'connected';
+    bootstrapMessage = 'The application connector handshake is verified for the linked project.';
+    bootstrapDetails = { ...bootstrapDetails, handshakeConfirmed: true };
+  } else if (bootstrapState === 'connected') {
+    bootstrapState = autoConnectorInstalled ? 'waiting' : 'not-needed';
+    bootstrapMessage = 'Waiting for the linked project connector to become ready again.';
+    bootstrapDetails = { ...bootstrapDetails, handshakeConfirmed: false };
+  }
   res.json({
     success: true,
     connectionState: state.connectionState,
@@ -918,7 +943,7 @@ app.get('/api/editor/status', (_req, res) => {
     projectActive: state.exactProjectOpen,
     exactProjectOpen: state.exactProjectOpen,
     projectReady: state.projectReady,
-    readinessReason: editorSession?.readinessReason ?? (state.connectorAlive ? 'awaiting-editor-readiness' : 'connector-heartbeat-stale'),
+    readinessReason: !state.connectorAlive ? 'connector-heartbeat-stale' : editorSession?.readinessReason ?? 'awaiting-editor-readiness',
     heartbeatAgeMs: editorSession ? Math.max(0, Date.now() - editorSession.reportedAt) : undefined,
     processId: editorSession?.processId ?? (launchedUefnProcessId || undefined),
     differentProjectOpen: state.differentProjectOpen,
@@ -1051,7 +1076,7 @@ app.post('/api/texture/import', upload.single('image'), async (req, res) => {
           : editorState.connectionState === 'connector-waiting'
             ? autoConnectorInstalled
               ? 'The automatic native-import connector is not attached. Keep this Transaction Manager window open while the project connector starts.'
-              : 'Transaction Manager could not install its automatic native-import connector. Check that the project Content/Python folder is writable, then relink the project.'
+              : 'Transaction Manager could not find its application connector. Repair the UTM installation, then relink the project.'
             : `Native texture import is unavailable until the linked UEFN project is ready. ${catalogReadinessMessage(editorState.connectionState)}`,
       });
     }

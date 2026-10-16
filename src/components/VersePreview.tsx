@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Copy, 
   Check, 
@@ -9,6 +9,7 @@ import {
 import { EntitlementItem, StorefrontMembership, ProjectConfig } from '../types/entitlement';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { CREATING_ITEMS_AND_OFFERS_URL, IN_ISLAND_TRANSACTIONS_URL, TRANSACTION_BEST_PRACTICES_URL } from '../constants/docs';
+import { copyText } from '../services/clipboard';
 import { SetupPanel } from './SetupPanel';
 
 interface VersePreviewProps {
@@ -26,14 +27,19 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
   storefrontMembership,
   hasErrors,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
+  useEffect(() => {
+    if (!copyStatus) return;
+    const timer = window.setTimeout(() => setCopyStatus(''), 4000);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (hasErrors) return;
-    navigator.clipboard.writeText(verseCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyStatus('');
+    try { await copyText(verseCode); setCopyStatus('Copied!'); }
+    catch { setCopyStatus('Copy failed'); }
   };
 
   const handleDownload = () => {
@@ -77,8 +83,8 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
             title={hasErrors ? 'Resolve validation errors before copying generated Verse.' : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
-            <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+            {copyStatus === 'Copied!' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+            <span role="status">{copyStatus || 'Copy Code'}</span>
           </button>
 
           {/* Download File Button */}
@@ -139,7 +145,7 @@ export const VersePreview: React.FC<VersePreviewProps> = ({
       </div>
 
       {entitlements.length > 0 && (
-        <details open className="max-h-[48%] overflow-y-auto border-t border-slate-800 bg-[#0b1020] text-xs text-slate-300">
+        <details className="max-h-[48%] overflow-y-auto border-t border-slate-800 bg-[#0b1020] text-xs text-slate-300">
           <summary className="cursor-pointer px-4 py-3 font-bold text-cyan-300 hover:bg-slate-800/40">
             Setup
           </summary>

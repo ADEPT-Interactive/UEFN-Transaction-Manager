@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { AlternateOffer, EntitlementItem, OfferRestrictions, ValidationIssue } from '../types/entitlement';
 import { validateEntitlement } from '../services/validator';
-import { createVerseKeyAllocator } from '../services/verseIdentity';
+import { createVerseKeyAllocator, draftVerseKeyForName } from '../services/verseIdentity';
 import { handleExternalLinkClick } from '../services/externalLink';
 import { EditorStatus } from '../services/fileService';
 import { entitlementDraftSnapshot } from '../services/draftSnapshots';
@@ -40,6 +40,7 @@ interface EntitlementModalProps {
   contentFolderPath: string;
   assetFolderName: string;
   allEntitlements: EntitlementItem[];
+  reservedVerseKeys: string[];
   editorStatus: EditorStatus | null;
   dismissedWarningIds?: string[];
   onSave: (item: EntitlementItem) => void;
@@ -61,6 +62,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   contentFolderPath,
   assetFolderName,
   allEntitlements,
+  reservedVerseKeys,
   editorStatus,
   dismissedWarningIds = [],
   onSave,
@@ -159,10 +161,19 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
     setFormData(prev => ({ ...prev, priceVBucks: amount }));
   };
 
-  const isCreating = item.id.startsWith('new-');
+  const isCreating = !allEntitlements.some(existing => existing.id === item.id);
 
   const handleNameChange = (newName: string) => {
-    setFormData(prev => ({ ...prev, name: newName }));
+    setFormData(prev => {
+      const verseKey = draftVerseKeyForName(prev.verseKey, newName, !isCreating, reservedVerseKeys);
+      const allocator = createVerseKeyAllocator([...reservedVerseKeys, verseKey]);
+      return {
+        ...prev,
+        name: newName,
+        verseKey,
+        ...(isCreating && prev.alternateOffers ? { alternateOffers: prev.alternateOffers.map(offer => ({ ...offer, verseKey: allocator.allocateAlternate(verseKey) })) } : {}),
+      };
+    });
   };
 
   const updateRestrictions = (patch: Partial<OfferRestrictions>) => {
@@ -251,7 +262,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
             </div>
             <div>
               <h2 id="entitlement-dialog-title" className="font-extrabold text-base text-white">
-                {item.id.includes('new') ? 'Create Offer' : `Edit offer: ${formData.name || formData.verseKey}`}
+                {isCreating ? 'Create Offer' : `Edit offer: ${formData.name || formData.verseKey}`}
               </h2>
               <p className="text-xs text-slate-400">
                 {isCreating ? `Step ${creationStep + 1} of 3 · Review the details before saving.` : 'Add the storefront details players will see.'}
@@ -369,6 +380,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   className={fieldClass('utm-native-field w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium', 'name')}
                 />
                 <InlineWarnings issues={warningsFor('name')} />
+                <p className="mt-2 text-[11px] leading-4 text-slate-500">Verse key: <code aria-label="Verse key" className="break-all text-slate-300">{formData.verseKey}</code><span className="mt-0.5 block">{isCreating ? 'Follows the title until you create the offer.' : 'Fixed identity. Renaming the title keeps existing Verse references.'}</span></p>
               </div>
 
               {/* Descriptions */}
@@ -499,7 +511,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                         ? 'The linked project is still opening in UEFN. Keep it open while Transaction Manager waits for the identity and readiness checks to settle.'
                         : connectionState === 'different-project' || connectionState === 'uefn-running-project-unknown'
                         ? 'Open the project linked to this Transaction Manager window in UEFN. Icon importing is available only for that active project.'
-                        : 'Python is enabled, but the full connector is not attached yet. Use UEFN Tools → Execute Python Script to run Content/Python/init_unreal.py. No restart is needed, and future launches will use the installed helper automatically.'}</p>
+                        : 'Python is enabled, but the connector is not attached yet. Keep UTM open while it connects. If automatic connection fails, use UEFN Tools → Execute Python Script to run uefn_auto_connector.py from your UTM installation, then retry. No editor restart is needed.'}</p>
                 </div>}
                 <ImageUploadZone
                   key={item.id}
@@ -833,7 +845,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
       </div>
       <DraftConfirmDialog
         open={dirtyConfirmationOpen}
-        isNew={item.id.startsWith('new-')}
+        isNew={isCreating}
         onSave={() => { setDirtyConfirmationOpen(false); commitForm(); }}
         onDiscard={() => { setDirtyConfirmationOpen(false); onClose(); }}
         onContinue={() => setDirtyConfirmationOpen(false)}

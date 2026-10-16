@@ -1,12 +1,14 @@
 # UEFN Transaction Manager distribution and update infrastructure
 
-Transaction Manager 4.4.1 separates human downloads from machine updates and keeps portable upgrades in-place.
+Transaction Manager 4.5.0 separates human downloads from machine updates and keeps portable upgrades in-place.
 
 The cross-project Cloudflare inventory is maintained in the private [ADEPT-Interactive/infrastructure](https://github.com/ADEPT-Interactive/infrastructure) repository. This public document remains limited to the UTM update contract and intentionally contains no account credentials or secret values.
 
+Current supported public release: `v4.5.0`.
+
 ## Current supported release
 
-`v4.4.1` is the current supported public release. `v4.4.0` remains publicly retained as the prior stabilization baseline; `v4.3.7` remains publicly retained as the prior regression-recovery baseline; `v4.3.6` remains publicly retained as the prior identity-preservation baseline; `v4.3.5` remains publicly retained as the prior renderer baseline; `v4.3.2` remains publicly retained as the earlier portable-updater acceptance baseline. Their tags, releases, and Git history remain intact.
+`v4.5.0` is the current supported public release. `v4.4.1` remains publicly retained as the preceding release. `v4.4.0` remains publicly retained as the prior stabilization baseline; `v4.3.7` remains publicly retained as the prior regression-recovery baseline; `v4.3.6` remains publicly retained as the prior identity-preservation baseline; `v4.3.5` remains publicly retained as the prior renderer baseline; `v4.3.2` remains publicly retained as the earlier portable-updater acceptance baseline. Their tags, releases, and Git history remain intact.
 
 ## Human downloads
 
@@ -32,12 +34,12 @@ A reserved future beta path is `uem/beta/`. The preferred R2 bucket is `adept-so
 
 ```text
 uem/stable/latest.yml
-uem/stable/UEFN-Transaction-Manager-Setup-4.4.1.exe
-uem/stable/UEFN-Transaction-Manager-Setup-4.4.1.exe.blockmap
-uem/stable/manifests/4.4.1.yml
-uem/stable/manifests/portable-4.4.1.json
+uem/stable/UEFN-Transaction-Manager-Setup-4.5.0.exe
+uem/stable/UEFN-Transaction-Manager-Setup-4.5.0.exe.blockmap
+uem/stable/manifests/4.5.0.yml
+uem/stable/manifests/portable-4.5.0.json
 uem/stable/portable-latest.json
-uem/stable/UEFN-Transaction-Manager-4.4.1-Portable.zip
+uem/stable/UEFN-Transaction-Manager-4.5.0-Portable.zip
 ```
 
 After verified promotion, automatic retention removes recognized older release objects from `uem/stable/`, keeping the active payload and feed objects listed above. Newer staged versions and unrecognized keys are preserved. `latest.yml` and `portable-latest.json` are the two mutable pointers; their referenced artifacts remain immutable. Git history and retained GitHub releases provide historical acceptance baselines and manual recovery downloads.
@@ -80,9 +82,9 @@ Before deletion, cleanup reads both mutable feeds directly from R2 and requires 
 Preview or retry cleanup of an already published release with the same R2 credentials:
 
 ```powershell
-node scripts/publish-updates.mjs prune --version 4.4.1
+node scripts/publish-updates.mjs prune --version 4.5.0
 # Execute the same verified plan:
-node scripts/publish-updates.mjs prune --version 4.4.1 --apply true
+node scripts/publish-updates.mjs prune --version 4.5.0 --apply true
 ```
 
 The command verifies the public current-release payload before planning and defaults to a dry run. Logs include selected keys, object count, and bytes reclaimable. Successful publication retains approximately one release's payload in R2, plus any newer drafts. Failed drafts newer than the public release are intentionally preserved for separate review.
@@ -105,7 +107,7 @@ The helper uses `region=auto` and the account R2 endpoint. Values are read from 
 
 ## Recovery and cutoff
 
-Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the last verified payload until a separately authorized release is ready. The retained 4.4.0, 4.3.7, 4.3.6, 4.3.5, and 4.3.2 public releases are not the stable pointer after 4.4.1 promotion.
+Before promotion, fix staged objects and rerun verification. If a bad mutable manifest is promoted, restore a previously verified manifest only after confirming that its referenced immutable artifacts remain available. Recovery must leave the public stable origin on the last verified payload until a separately authorized release is ready. The retained 4.4.1, 4.4.0, 4.3.7, 4.3.6, 4.3.5, and 4.3.2 public releases are not the stable pointer after 4.5.0 promotion.
 
 The compatibility namespace and updater path continue to support existing installs, including older 4.0.1 clients; the public 4.3.2 release remains only as the explicitly retained updater baseline. New versions use the ADEPT endpoint and retain the established `uem/stable/` path.
 
@@ -120,7 +122,7 @@ The compatibility namespace and updater path continue to support existing instal
 7. Review hashes, unsigned SmartScreen wording, and release notes.
 8. Publish the release only after review; the separate workflow promotes `latest.yml` last.
 
-The 4.4.1 installer remains unsigned in local builds unless a secure Authenticode certificate is supplied through the release environment. Signing is an owner-controlled launch gate; MCP integration and Agent Skill work remain part of the 4.4 release line.
+The installer is unsigned unless a secure Authenticode certificate is supplied through the release environment. The human release notes disclose Windows SmartScreen behavior. Stable 4.5.0 retains the established installer and portable update contracts.
 
 ## Rename compatibility boundary
 

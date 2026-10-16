@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -619,6 +619,17 @@ async function showFatalError(error: Error): Promise<void> {
 }
 
 function configureIpc() {
+  ipcMain.handle('uem:clipboard:write-text', (event, text: unknown) => {
+    assertTrustedSender(event);
+    if (typeof text !== 'string' || text.length > 8 * 1024 * 1024) throw new Error('Clipboard text must be a string of at most 8 MiB.');
+    clipboard.writeText(text);
+  });
+  ipcMain.handle('uem:editor:reconnect', async event => {
+    assertTrustedSender(event);
+    if (!mainWindow || windowContext(mainWindow)?.mode !== 'dashboard' || !bridgeSession) return { success: false, error: 'Open a project dashboard before retrying its connection.' };
+    try { return await bridgeSession.retryEditorConnection(); }
+    catch { return { success: false, error: 'The project session changed. Wait for its dashboard, then retry.' }; }
+  });
   ipcMain.handle('uem:launcher:get-state', event => { assertTrustedSender(event); return launcherState(); });
   ipcMain.handle('uem:launcher:browse', async event => {
     assertTrustedSender(event);

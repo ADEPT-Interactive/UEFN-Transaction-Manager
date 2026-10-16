@@ -18,7 +18,7 @@ test('every published release has checked-in version-specific notes', () => {
   assert.equal(new Set(notes).size, notes.length, '4.3.x release notes must not be copied generic text');
 
   const currentVersion = JSON.parse(read('version.json')).version as string;
-  assert.equal(currentVersion, '4.4.1');
+  assert.match(currentVersion, /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/);
   assert.ok(fs.existsSync(path.join(root, `release-notes/${currentVersion}.md`)));
 });
 

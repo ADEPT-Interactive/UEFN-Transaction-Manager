@@ -5,7 +5,7 @@ UTM setup has four separate states:
 1. **UTM MCP server** — the project-scoped loopback listener is running by default.
 2. **Agent Skill** — the complete UTM skill folder, including `SKILL.md` and `references`, is installed for the selected client.
 3. **Client configuration** — the current `utm-mcp` URL and server type were copied/prepared.
-4. **Verified connection** — the reloaded or fresh client has initialized UTM MCP and called `get_project_context` for the current project.
+4. **Observed client connection** — UTM has received `get_project_context` from a client. Check the reported client name; this does not prove that another already-open agent session has loaded the tools.
 
 Do not describe state 1 as state 4. A running listener is not proof that the current agent has loaded the MCP entry.
 
@@ -15,12 +15,12 @@ After guided setup:
 
 1. Replace or add only the UTM-owned MCP entry in the client configuration using the copied local URL entry.
 2. Reload the client or start a fresh coding-agent process.
-3. Confirm both `utm-mcp` and `unreal-mcp` are visible to that fresh session.
-4. Ask the agent to call `get_project_context` and compare it with Epic's project context before doing any mutation.
+3. Confirm `utm-mcp` is visible to that fresh session. Discover Epic `unreal-mcp` only when the requested operation needs external editor capabilities.
+4. Ask the agent to call `describe_operation_contract`, then `get_project_context`. Compare with Epic context before cross-server changes; UTM-only catalog work does not require Epic.
 
-The first operation call must be a read-only `begin_activity`. The agent then discovers the live tool schemas and both canonical project contexts and calls UTM `preflight_operation` with the selected operation manifest. A successful mutation-capable response contains a short-lived `preflightToken`; a blocked response is terminal for that operation and must be reported before any catalog, generated Verse, source, asset, device, compile, or session mutation. Every later UTM mutation carries the token and its mutating `activityId`.
+Start a read-only activity for inspection and call preflight for the selected operation. `catalog-edit` handles ordinary UTM draft edits/save without Epic MCP; `catalog-only-migration` is a separately approved partial import, with parity/identity requirements retained. Existing explicit user approval is sufficient; do not ask again. Full migration never silently downgrades.
 
-Full existing-project migration never downgrades itself. If Unreal MCP is unavailable, request a separate `catalog-only-migration` only after explicit owner approval and keep that result labeled partial. `begin_activity`, `heartbeat_activity`, `update_activity_phase`, and `end_activity` are server-owned lifecycle calls; the server binds them to the MCP connection and selected project and expires stale heartbeats.
+After successful UTM-mutation preflight, end discovery before starting a matching mutating activity with its token. Every write carries that token, activity ID, and latest revision. Own successful writes advance the lease; concurrent changes do not. Heartbeat activities before their returned expiry, separately from preflight expiry. End each activity exactly once. External-only operations retain a read-only UTM activity and issue no UTM mutation token.
 
 When the port changes, copy a fresh entry and repeat the reload/verification sequence. If UTM restarts, an MCP session that disconnected must still reconnect.
 

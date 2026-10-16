@@ -140,6 +140,22 @@ class EntitlementManagerPathTests(unittest.TestCase):
 
         self.assertFalse(entitlement_manager._editor_project_is_ready(unreal, r"C:\TaB\TaB.uefnproject", "/TaB"))
 
+    def test_host_uproject_requires_exact_plugin_content_and_world(self):
+        import entitlement_manager
+
+        with tempfile.TemporaryDirectory() as content:
+            unreal = types.SimpleNamespace(
+                Paths=types.SimpleNamespace(project_file_path=lambda: "D:/Fortnite/FortniteGame/FortniteGame.uproject"),
+                PluginBlueprintLibrary=types.SimpleNamespace(get_plugin_content_dir=lambda name: content if name == "TaB" else ""),
+                EditorLevelLibrary=types.SimpleNamespace(get_editor_world=lambda: types.SimpleNamespace(get_path_name=lambda: "/TaB/TaB.TaB")),
+            )
+            result = entitlement_manager._editor_project_readiness(unreal, "C:/Projects/TaB.uefnproject", "/TaB", content)
+            self.assertTrue(result["ready"])
+            self.assertFalse(entitlement_manager._editor_project_readiness(unreal, "C:/Projects/TaB.uefnproject", "/TaB")["ready"])
+            self.assertEqual(entitlement_manager._editor_project_readiness(unreal, "C:/Projects/TaB.uefnproject", "/TaB", content + '-other')["reason"], "project-content-mismatch")
+            unreal.EditorLevelLibrary.get_editor_world = lambda: types.SimpleNamespace(get_path_name=lambda: "/Other/Other.Other")
+            self.assertEqual(entitlement_manager._editor_project_readiness(unreal, "C:/Projects/TaB.uefnproject", "/TaB", content)["reason"], "editor-world-mount-mismatch")
+
     def test_editor_project_readiness_reports_path_and_mount_reasons(self):
         import entitlement_manager
 
@@ -165,6 +181,14 @@ class EntitlementManagerPathTests(unittest.TestCase):
         )
         readiness = entitlement_manager._editor_project_readiness(broken, r"C:\TaB\TaB.uefnproject", "/TaB")
         self.assertEqual(readiness["reason"], "readiness-check-error")
+
+    def test_project_browser_blocks_an_otherwise_ready_mounted_world(self):
+        import entitlement_manager
+
+        unreal = types.SimpleNamespace(Paths=types.SimpleNamespace(project_dir=lambda: "FortniteGame"))
+        with mock.patch.object(entitlement_manager, "_editor_has_project_browser", return_value=True):
+            readiness = entitlement_manager._editor_project_readiness(unreal, "Project.uefnproject", "/Project")
+        self.assertEqual(readiness, {"ready": False, "reason": "project-browser-open"})
         self.assertFalse(readiness["ready"])
 
     def test_standard_unreal_project_uses_project_content_directory(self):
@@ -458,25 +482,107 @@ class EntitlementManagerPathTests(unittest.TestCase):
 
     def test_auto_connector_install_is_idempotent_for_repeated_startup_imports(self):
         import uefn_auto_connector
+        import threading
 
         callbacks = []
         logs = []
+        unregistered = []
+        legacy_stop = threading.Event()
         unreal = types.SimpleNamespace(
             register_slate_post_tick_callback=lambda callback: callbacks.append(callback) or "auto-handle",
-            unregister_slate_post_tick_callback=lambda _handle: None,
+            unregister_slate_post_tick_callback=lambda handle: unregistered.append(handle),
             log=lambda message: logs.append(message),
             log_warning=lambda message: logs.append(message),
+            _uem_auto_connector_thread=types.SimpleNamespace(is_alive=lambda: True),
+            _uem_auto_connector_tick_handle="legacy-handle",
+            _uem_auto_connector_stop_event=legacy_stop,
+            _uem_auto_connector_runtime_version=1,
         )
         previous_unreal = uefn_auto_connector.unreal
         try:
             uefn_auto_connector.unreal = unreal
             self.assertTrue(uefn_auto_connector.install())
             self.assertTrue(uefn_auto_connector.install())
+            self.assertTrue(legacy_stop.is_set())
+            self.assertEqual(unregistered, ["legacy-handle"])
+            self.assertEqual(unreal._uem_auto_connector_runtime_version, uefn_auto_connector.CONNECTOR_RUNTIME_VERSION)
             self.assertEqual(len(callbacks), 1)
             self.assertTrue(any("already monitoring" in message for message in logs))
             unreal._uem_auto_connector_stop_event.set()
         finally:
             uefn_auto_connector.unreal = previous_unreal
+
+    def test_auto_connector_reattaches_when_same_session_worker_stops(self):
+        import uefn_auto_connector
+        import threading
+
+        unreal = types.SimpleNamespace(
+            register_slate_post_tick_callback=lambda callback: "auto-handle",
+            unregister_slate_post_tick_callback=lambda handle: None,
+            log=lambda message: None,
+            log_warning=lambda message: None,
+        )
+        state = {"desktopProcessId": 1, "port": 43210, "editorToken": "test", "connectorScript": "test", "contentRoot": "test", "assetMount": "/Test"}
+        attached = []
+
+        def attach(*args):
+            attached.append(args)
+            unreal._uem_texture_import_stop_event = threading.Event()
+            unreal._uem_texture_import_worker = types.SimpleNamespace(is_alive=lambda: True)
+            unreal._uem_texture_heartbeat_worker = types.SimpleNamespace(is_alive=lambda: True)
+
+        connector = types.SimpleNamespace(install_texture_import_bridge=attach)
+        with mock.patch.object(uefn_auto_connector, "unreal", unreal), mock.patch.object(uefn_auto_connector, "_read_ready_session", return_value=state), mock.patch.object(uefn_auto_connector, "_load_connector", return_value=connector), mock.patch.object(uefn_auto_connector, "_session_matches_this_project", return_value=True):
+            uefn_auto_connector.install()
+            try:
+                deadline = time.monotonic() + 3
+                while not attached and time.monotonic() < deadline:
+                    unreal._uem_auto_connector_tick_callback(0.016)
+                    time.sleep(0.02)
+                self.assertEqual(len(attached), 1)
+                time.sleep(1.1)
+                unreal._uem_auto_connector_tick_callback(0.016)
+                self.assertEqual(len(attached), 1)
+                unreal._uem_texture_import_stop_event.set()
+                deadline = time.monotonic() + 3
+                while len(attached) == 1 and time.monotonic() < deadline:
+                    unreal._uem_auto_connector_tick_callback(0.016)
+                    time.sleep(0.02)
+                self.assertEqual(len(attached), 2)
+            finally:
+                unreal._uem_auto_connector_stop_event.set()
+                unreal._uem_auto_connector_thread.join(timeout=2)
+
+    def test_network_heartbeat_revokes_readiness_when_editor_ticks_stop(self):
+        import entitlement_manager
+
+        reports = []
+        unreal = types.SimpleNamespace(
+            register_slate_post_tick_callback=lambda callback: "tick-handle",
+            log=lambda message: None,
+            log_warning=lambda message: None,
+        )
+
+        def request(port, token, endpoint, method=None, body=None):
+            if endpoint == '/api/editor/session':
+                reports.append(body)
+            return {"job": None}
+
+        with mock.patch.dict(sys.modules, {"unreal": unreal}), mock.patch.object(entitlement_manager, "_bridge_request", side_effect=request), mock.patch.object(entitlement_manager, "_editor_project_readiness", return_value={"ready": True, "reason": "verified"}), mock.patch.object(entitlement_manager, "EDITOR_HEARTBEAT_INTERVAL_SECONDS", 0.02), mock.patch.object(entitlement_manager, "EDITOR_TICK_MAX_AGE_SECONDS", 0.08):
+            entitlement_manager.install_texture_import_bridge(43210, "test", "content", "/Test", "Test.uefnproject")
+            try:
+                unreal._uem_texture_import_callback(0.016)
+                deadline = time.monotonic() + 1
+                while not any(report['projectReady'] for report in reports) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(any(report['projectReady'] for report in reports))
+                time.sleep(0.15)
+                self.assertFalse(reports[-1]['projectReady'])
+                self.assertEqual(reports[-1]['readinessReason'], 'editor-tick-stale')
+            finally:
+                unreal._uem_texture_import_stop_event.set()
+                unreal._uem_texture_import_worker.join(timeout=1)
+                unreal._uem_texture_heartbeat_worker.join(timeout=1)
 
     def test_editor_tick_bridge_replaces_previous_callback_without_network_on_tick(self):
         import entitlement_manager

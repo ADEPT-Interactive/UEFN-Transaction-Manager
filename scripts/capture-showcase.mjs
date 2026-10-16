@@ -294,7 +294,7 @@ try {
 
   await clickText(cdp, 'Creator Commerce Demo', '#projects .project');
   await clickText(cdp, 'Open project in Transaction Manager', '#continue');
-  await waitFor(cdp, "document.querySelector('#root') && document.body.innerText.includes('This project is open and fully connected')", 'healthy showcase manager');
+  await waitFor(cdp, "document.querySelector('#root') && document.body.innerText.includes('UEFN connected')", 'healthy showcase manager');
   // The bridge may finish the catalog load before the image elements have
   // committed. Give the renderer a short, deterministic hydration window;
   // the capture remains useful even when a local preview cache is unavailable.
@@ -305,7 +305,7 @@ try {
   if (!agentConfigResult?.body?.success || !agentConfigResult.body.status?.running) throw new Error(`Showcase UTM MCP did not start: ${JSON.stringify(agentConfigResult)}`);
   const agentSetupResult = await cdp.evaluate(`fetch('/api/agent-integration/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-UEM-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({ agent: 'codex' }) }).then(async response => ({ status: response.status, body: await response.json() }))`, true);
   if (!agentSetupResult?.body?.success || !agentSetupResult.body.skill?.upToDate) throw new Error(`Showcase Codex Agent Skill setup did not complete: ${JSON.stringify(agentSetupResult)}`);
-  await waitFor(cdp, "document.body.innerText.includes('This project is open and fully connected')", 'healthy connected state');
+  await waitFor(cdp, "document.body.innerText.includes('UEFN connected')", 'healthy connected state');
 
   await capture(cdp, 'catalog-overview', { width: 1440, height: 980 });
 

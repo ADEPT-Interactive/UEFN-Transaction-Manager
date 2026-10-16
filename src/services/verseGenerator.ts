@@ -431,6 +431,7 @@ function assertGeneratedSymbolSafety(entitlements: EntitlementItem[], bundles: B
     ['pricesModuleName', config.pricesModuleName],
     ['offersModuleName', config.offersModuleName],
   ] as Array<[string, string]>) register(value, 'config.' + field);
+  register(`${config.deviceClassName}_event_subscription`, 'generated callback subscription');
   const registerIdentity = (record: EntitlementItem | BundleOffer, kind: 'entitlement' | 'bundle', owner: string, parent?: EntitlementItem) => {
     const identity = derivePublicIdentity(record, config, kind, parent);
     for (const name of [identity.apiStem, identity.metadataStem, identity.entitlementStem, identity.priceStem, identity.offerStem]) {
@@ -520,7 +521,7 @@ function resolveBundleEntry(entry: BundleOfferItem, entitlements: EntitlementIte
   const item = entitlements.find(candidate => candidate.id === entry.entitlementId);
   const reference = entry.offerVerseKey?.toLowerCase();
   const alternate = reference ? item?.alternateOffers?.find(offer => offer.verseKey.toLowerCase() === reference || offer.id.toLowerCase() === reference) : undefined;
-  const primary = reference && item?.verseKey.toLowerCase() === reference ? item : undefined;
+  const primary = item && (!reference || item.verseKey.toLowerCase() === reference) ? item : undefined;
   const offerIdentity = alternate
     ? derivePublicIdentity(alternate, config, 'alternate_offer', item)
     : primary
@@ -789,6 +790,18 @@ export function generateVerseCode(
 
   const editableFields = editableDescriptors(entitlements, config, offerDisplayGroups);
   push(...editableMetadataLines(editableFields));
+  const callbackSubscriptionType = `${deviceClass}_event_subscription`;
+  push(
+    '# A UTM callback handle, independent of native event.Subscribe (UEFN 43.00).',
+    `${callbackSubscriptionType}<public> := class:`,
+    '    var IsCancelled:logic = false',
+    '    CancelSignal:event() = event(){}',
+    '    Cancel<public>():void =',
+    '        if (not IsCancelled?):',
+    '            set IsCancelled = true',
+    '            CancelSignal.Signal()',
+    '',
+  );
   push(`${deviceClass} := class(creative_device):`, '');
   push(...debugEditableLines(), '');
   if (editableFields.some(field => field.rootCategory === 'entitlements')) push('    # Entitlement Purchase Bindings');
@@ -803,7 +816,31 @@ export function generateVerseCode(
     '    var PlayerLeftSubscription:?cancelable = false',
     '    var DeviceSubscriptions:[]cancelable = array{}',
     '    var MarketplaceUIInFlight:[player]logic = map{}',
+    '    var TransactionCallbacksEnded:logic = false',
+    '    TransactionCallbacksEndSignal:event() = event(){}',
     `    UEMLogger:log = log{Channel := ${UEM_LOG_CHANNEL}}`,
+    '',
+  );
+  push(
+    '    # Registration starts eagerly; callbacks must not suspend. Late subscribers receive future notifications only.',
+    `    SubscribeTransactionEvent(Source:event(tuple(player, int)), Callback(:tuple(player, int)):void):${callbackSubscriptionType} =`,
+    `        Subscription := ${callbackSubscriptionType}{}`,
+    '        if (TransactionCallbacksEnded?):',
+    '            Subscription.Cancel()',
+    '        else:',
+    '            spawn{AwaitTransactionCallback(Source, Callback, Subscription)}',
+    '        Subscription',
+    '',
+    `    AwaitTransactionCallback(Source:event(tuple(player, int)), Callback(:tuple(player, int)):void, Subscription:${callbackSubscriptionType})<suspends>:void =`,
+    '        if (Subscription.IsCancelled? or TransactionCallbacksEnded?):',
+    '            return',
+    '        race:',
+    '            loop:',
+    '                Payload := Source.Await()',
+    '                if (not Subscription.IsCancelled? and not TransactionCallbacksEnded?):',
+    '                    Callback(Payload)',
+    '            Subscription.CancelSignal.Await()',
+    '            TransactionCallbacksEndSignal.Await()',
     '',
   );
   push(
@@ -827,10 +864,12 @@ export function generateVerseCode(
       `    Await${pascal}GrantedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_GrantedSignal.Await()`,
       `    Await${pascal}RemovedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_RemovedSignal.Await()`,
       `    Await${pascal}ReconciledEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ReconciledSignal.Await()`,
+      ...['Granted', 'Removed', 'Reconciled'].map(kind => `    Subscribe${pascal}${kind}Event<public>(Callback(:tuple(player, int)):void):${callbackSubscriptionType} = SubscribeTransactionEvent(${pascal}_${kind}Signal, Callback)`),
       ...(item.itemType === 'consumable'
         ? [
           `    ${pascal}_ConsumedSignal:event(tuple(player, int)) = event(tuple(player, int)){}`,
           `    Await${pascal}ConsumedEvent<public>()<suspends>:tuple(player, int) = ${pascal}_ConsumedSignal.Await()`,
+          `    Subscribe${pascal}ConsumedEvent<public>(Callback(:tuple(player, int)):void):${callbackSubscriptionType} = SubscribeTransactionEvent(${pascal}_ConsumedSignal, Callback)`,
           `    # Each request stores (id, authoritative quantity still expected, native success, matched quantity awaiting success).`,
           `    var ${pascal}_PendingConsumeIntents:[player][]tuple(int, int, logic, int) = map{}`,
           `    var ${pascal}_NextConsumeRequestIds:[player]int = map{}`,
@@ -866,6 +905,8 @@ export function generateVerseCode(
 
   push(
     '    OnEnd<override>():void =',
+    '        set TransactionCallbacksEnded = true',
+    '        TransactionCallbacksEndSignal.Signal()',
     '        LogDebug("Device lifecycle ended.")',
     '        if (Subscription := PlayerJoinSubscription?):',
     '            Subscription.Cancel()',

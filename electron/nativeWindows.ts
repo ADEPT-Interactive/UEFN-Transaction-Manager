@@ -39,8 +39,11 @@ const INPUT = koffi.struct('UEM_INPUT', {
 export const UEM_INPUT_SIZE = koffi.sizeof(INPUT);
 
 const FindWindowW = user32?.func('intptr_t __stdcall FindWindowW(const char16_t *className, const char16_t *windowName)');
+const FindWindowExW = user32?.func('intptr_t __stdcall FindWindowExW(intptr_t parent, intptr_t previous, const char16_t *className, const char16_t *windowName)');
 const GetForegroundWindow = user32?.func('intptr_t __stdcall GetForegroundWindow()');
+const GetWindowThreadProcessId = user32?.func('unsigned long __stdcall GetWindowThreadProcessId(intptr_t window, _Out_ unsigned long *processId)');
 const IsIconic = user32?.func('bool __stdcall IsIconic(intptr_t window)');
+const IsWindowEnabled = user32?.func('bool __stdcall IsWindowEnabled(intptr_t window)');
 const SetForegroundWindow = user32?.func('bool __stdcall SetForegroundWindow(intptr_t window)');
 const ShowWindow = user32?.func('bool __stdcall ShowWindow(intptr_t window, int command)');
 const SendInput = user32?.func('unsigned int __stdcall SendInput(unsigned int inputCount, UEM_INPUT *inputs, int inputSize)');
@@ -92,24 +95,39 @@ export async function sendUefnConnectorCommand(
   windowTitle: string | undefined,
   command: string,
   signal?: AbortSignal,
+  expectedProcessId?: number,
 ): Promise<boolean> {
   throwIfAborted(signal);
   if (!windowTitle || !FindWindowW || !ShowWindow || !SetForegroundWindow || !SendInput) return false;
   throwIfAborted(signal);
-  const editorWindow = FindWindowW(null, windowTitle);
+  const matchesProcess = (window: number | bigint): boolean => {
+    if (!expectedProcessId || !window || !GetWindowThreadProcessId) return false;
+    const output = [0];
+    GetWindowThreadProcessId(window, output);
+    return output[0] === expectedProcessId;
+  };
+  let editorWindow = FindWindowW(null, windowTitle);
+  for (let duplicate = 0; editorWindow && !matchesProcess(editorWindow) && duplicate < 32; duplicate += 1) {
+    editorWindow = FindWindowExW?.(0, editorWindow, null, windowTitle) ?? 0;
+  }
   if (!editorWindow) return false;
+  if (!matchesProcess(editorWindow)) return false;
+  if (!IsWindowEnabled?.(editorWindow)) return false;
   const originalForegroundWindow = GetForegroundWindow?.() ?? 0;
   try {
     throwIfAborted(signal);
     if (IsIconic?.(editorWindow)) ShowWindow(editorWindow, SW_RESTORE);
-    if (!SetForegroundWindow(editorWindow)) return false;
+    if (!SetForegroundWindow(editorWindow) && GetForegroundWindow?.() !== editorWindow) return false;
     await delay(250, signal);
     throwIfAborted(signal);
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendVirtualKey(VK_CONSOLE);
     await delay(200, signal);
     throwIfAborted(signal);
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendUnicode(command);
     throwIfAborted(signal);
+    if (!IsWindowEnabled(editorWindow) || !matchesProcess(GetForegroundWindow?.() ?? 0)) return false;
     sendVirtualKey(VK_RETURN);
     return true;
   } finally {

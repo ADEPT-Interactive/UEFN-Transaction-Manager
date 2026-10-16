@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, BookOpenCheck, CheckCircle2, Columns, FileCode, ImageIcon, Layers, PlugZap } from 'lucide-react';
+import { ArrowRight, Code2, CheckCircle2, Columns, FileCode, Layers } from 'lucide-react';
 import { Header } from './components/Header';
 import { EntitlementList } from './components/EntitlementList';
 import { EntitlementModal } from './components/EntitlementModal';
@@ -29,11 +29,12 @@ import {
 import { createVerseKeyAllocator, collectManagedVerseKeys, normalizeRetiredVerseKeys } from './services/verseIdentity';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupModal } from './components/SetupPanel';
+import { EditorConnectionBar, getEditorConnectionState } from './components/EditorConnectionBar';
 import { DesktopTitleBar, isDesktopHost, postDesktopWindowAction } from './components/DesktopTitleBar';
 import { UpdateCard } from './components/UpdateCard';
 import { AgentIntegrationPanel } from './components/AgentIntegrationPanel';
 import { isDynamicBundle } from './services/dynamicOffers';
-import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
+import type { EditorConnectionState } from '../shared/editorState';
 import { createHealthyShowcaseConnection } from './services/showcaseMode';
 import versionInfo from '../version.json';
 
@@ -266,25 +267,12 @@ function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlement
 
 type AgentIntegrationIntent = 'connect' | 'migrate';
 
-function getEditorConnectionState(status: EditorStatus): EditorConnectionState {
-  return status.connectionState ?? deriveEditorConnectionState({
-    uefnRunning: status.uefnRunning,
-    projectOpening: status.projectOpening ?? false,
-    exactProjectOpen: status.exactProjectOpen ?? status.projectActive,
-    differentProjectOpen: status.differentProjectOpen,
-    pythonEnabled: status.pythonEnabled,
-    connectorAlive: status.connectorAlive ?? status.editorConnected,
-    projectReady: status.projectReady ?? status.editorConnected,
-    editorConnected: status.editorConnected,
-  });
-}
-
 function readinessMessage(state: EditorConnectionState, projectName?: string): string | null {
   switch (state) {
     case 'connected': return null;
     case 'different-project': return 'First catalog creation is blocked until the exact project linked to this window is open in UEFN.';
     case 'project-opening': return `${projectName ? `${projectName} is` : 'The linked project is'} still opening in UEFN. UTM will update automatically when the project identity is confirmed.`;
-    case 'python-required': return 'Enable Python Editor Scripting in this project before creating its first managed catalog. UTM detects the change without a restart.';
+    case 'python-required': return 'Enable Python Editor Scripting in Project Settings and Tools → Enable Python for your user. UTM connects when the runtime is ready.';
     case 'connector-waiting': return 'The authenticated UEFN connector is not attached yet. Keep UEFN and Transaction Manager open while it connects.';
     case 'project-readiness-waiting': return 'The connector is present, but UEFN has not confirmed project readiness yet. Keep the exact project open and wait for the readiness check.';
     case 'uefn-running-project-unknown': return 'Open the project linked to this Transaction Manager window in UEFN before creating its first managed catalog.';
@@ -350,79 +338,15 @@ function projectDisplayName(projectFile?: string, contentFolderPath?: string): s
   return name && name.toLowerCase() !== 'content' ? name : undefined;
 }
 
-const EditorCapabilityNotice: React.FC<{ status: EditorStatus | null; projectName?: string }> = ({ status, projectName }) => {
-  if (!status?.success) return null;
-  const connectionState = getEditorConnectionState(status);
-  const connected = connectionState === 'connected';
-  const tone = connected || connectionState === 'project-readiness-waiting' || connectionState === 'connector-waiting' || connectionState === 'project-opening' ? (connected ? 'emerald' : 'cyan') : 'amber';
-  let heading = 'UEFN is closed';
-  let summary = `Open ${projectName ? `${projectName} ` : 'this project '}in UEFN and UTM will reconnect automatically.`;
-  let detail = 'Transaction Manager remains linked to this project while the editor is closed.';
-
-  switch (connectionState) {
-    case 'different-project':
-      heading = 'A different project is open in UEFN';
-      summary = 'First-time managed catalog creation is blocked until the exact project linked to this window is open.';
-      detail = 'Close or switch the project in UEFN, then open the project linked to this Transaction Manager window.';
-      break;
-    case 'project-opening':
-      heading = `${projectName ?? 'The linked project'} is opening in UEFN`;
-      summary = 'UTM has detected the project-opening transition and is waiting for the exact identity to settle.';
-      detail = 'Keep the project open; connection and native operations will update automatically when readiness is confirmed.';
-      break;
-    case 'python-required':
-      heading = 'This project is open, but Python Editor Scripting is disabled';
-      summary = 'First-time setup and native Texture2D provisioning are blocked until Python Editor Scripting is enabled.';
-      detail = 'Enable Python Editor Scripting for this project. UTM detects the change immediately without requiring a restart.';
-      break;
-    case 'connected':
-      heading = 'This project is open and fully connected';
-      summary = 'Saving, authoritative compilation, and native Texture2D importing are available.';
-      detail = status.autoConnectorInstalled
-        ? 'Python is enabled and Transaction Manager’s authenticated editor connector is active.'
-        : 'The authenticated editor connector is active for this session.';
-      break;
-    case 'connector-waiting':
-      heading = 'This project is open, but the editor connector is not attached';
-      summary = 'Native Texture2D importing is unavailable until the authenticated connector connects.';
-      detail = !status.autoConnectorInstalled
-        ? 'Transaction Manager could not install its project connector. Confirm that Content/Python is writable, then relink the project.'
-        : status.bootstrapState === 'failed'
-          ? 'Python is enabled and the connector is installed, but automatic attachment did not complete. Keep UTM open while it retries.'
-          : 'Python is enabled and the connector is installed. Transaction Manager is attaching it automatically.';
-      break;
-    case 'project-readiness-waiting':
-      heading = 'The UEFN connector is connected; readiness is still pending';
-      summary = 'UTM is waiting for the exact project-readiness assertion before enabling native operations.';
-      detail = status.readinessReason ?? 'Keep the exact project open while UEFN finishes loading.';
-      break;
-    case 'uefn-running-project-unknown':
-      heading = 'UEFN is running without the linked project detected';
-      summary = 'UTM has not detected the linked project as open yet. It may still be loading or UEFN may be at its project browser.';
-      detail = 'Open the project linked to this Transaction Manager window. Connection will update automatically.';
-      break;
-  }
-  return (
-    <section className={`mx-auto mb-5 max-w-6xl rounded-2xl border p-4 ${tone === 'emerald' ? 'border-emerald-500/25 bg-emerald-500/5' : tone === 'cyan' ? 'border-cyan-500/25 bg-cyan-500/5' : 'border-amber-500/25 bg-amber-500/5'}`} aria-label="UEFN editor connection">
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone === 'emerald' ? 'bg-emerald-500/10 text-emerald-300' : tone === 'cyan' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}`}>
-          {connected ? <PlugZap className="h-5 w-5" /> : <ImageIcon className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0 text-xs leading-5 text-slate-300">
-          <p className="font-extrabold text-white">{heading}</p>
-          <p>{summary}</p>
-          <p className={`mt-1 font-semibold ${tone === 'emerald' ? 'text-emerald-200' : tone === 'cyan' ? 'text-cyan-200' : 'text-amber-200'}`}>{detail}</p>
-        </div>
-      </div>
-    </section>
-  );
-};
-
 export const App: React.FC = () => {
   const desktopHost = isDesktopHost();
   const [config, setConfig] = useState(loadConfig);
   const [entitlements, setEntitlements] = useState(loadEntitlements);
   const [bundles, setBundles] = useState(loadBundles);
+  // The long-lived catalog event stream must preserve previews from the
+  // current render, including imports and disk hydration after it subscribed.
+  const catalogImagesRef = useRef({ entitlements, bundles });
+  catalogImagesRef.current = { entitlements, bundles };
   const [storefrontMembership, setStorefrontMembership] = useState(() => loadStorefrontMembership(loadEntitlements(), loadBundles()));
   const [retiredVerseKeys, setRetiredVerseKeys] = useState(loadRetiredVerseKeys);
   const [dismissedWarningIds, setDismissedWarningIds] = useState(loadDismissedWarningIds);
@@ -435,6 +359,8 @@ export const App: React.FC = () => {
   const [isValidatorOpen, setIsValidatorOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [apiItemId, setApiItemId] = useState<string | null>(null);
+  const openApiReference = (id?: string) => { setApiItemId(id ?? null); setIsSetupOpen(true); };
   const [pendingDelete, setPendingDelete] = useState<EntitlementItem | null>(null);
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
   const [closeConfirmationOpen, setCloseConfirmationOpen] = useState(false);
@@ -502,7 +428,8 @@ export const App: React.FC = () => {
   const isDirty = catalogReady ? catalogDirty : currentSnapshot !== lastSavedSnapshot;
 
   const applyCatalogSnapshot = (next: CatalogSnapshotPayload, consumeTransientImages = false) => {
-    const nextWithImages = preserveCatalogImages(next, entitlements, bundles, pendingIconPreviewsRef.current);
+    const nextWithImages = preserveCatalogImages(next, catalogImagesRef.current.entitlements, catalogImagesRef.current.bundles, pendingIconPreviewsRef.current);
+    catalogImagesRef.current = { entitlements: nextWithImages.entitlements, bundles: nextWithImages.bundles };
     if (consumeTransientImages) pendingIconPreviewsRef.current = [];
     suppressCatalogSyncRef.current = true;
     catalogRevisionRef.current = nextWithImages.revision;
@@ -663,7 +590,9 @@ export const App: React.FC = () => {
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  const clearStatusLater = () => window.setTimeout(() => setStatus(null), 6000);
+  const clearStatusLater = (savedStatus: { message: string; error?: boolean }) => window.setTimeout(() => {
+    setStatus(current => current === savedStatus ? null : current);
+  }, 6000);
 
   const checkForUpdates = () => {
     if (!window.uemDesktop) return;
@@ -790,8 +719,9 @@ export const App: React.FC = () => {
     if (result.catalog) applyCatalogSnapshot(result.catalog);
     setLoadedFileRevision({ fileName: config.targetVerseFileName, contentHash: result.contentHash });
     setLastSavedSnapshot(currentSnapshot);
-    setStatus({ message: `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` });
-    clearStatusLater();
+    const savedStatus = { message: `Saved ${result.filePath}${result.backupPath ? ' with a verified backup.' : '.'}` };
+    setStatus(savedStatus);
+    clearStatusLater(savedStatus);
     return { contentHash: result.contentHash };
   };
 
@@ -880,7 +810,7 @@ export const App: React.FC = () => {
   const addNew = () => {
     const index = entitlements.length + 1;
     setEditingItem(normalizeEntitlement({
-      id: `new-${crypto.randomUUID()}`, verseKey: `item_${index}`, name: '',
+      id: `new-${crypto.randomUUID()}`, verseKey: allocateProjectVerseKey('', entitlements, bundles, storefrontMembership, retiredVerseKeys), name: '',
       shortDescription: '', description: '',
       iconTexture: `${config.assetFolderName}.${PLACEHOLDER_ICON_ASSET_NAME}`,
     }, index));
@@ -888,7 +818,7 @@ export const App: React.FC = () => {
   };
 
   const saveModalItem = async (item: EntitlementItem) => {
-    const isDraft = item.id.startsWith('new-');
+    const isDraft = !entitlements.some(existing => existing.id === item.id);
     rememberTransientImages(isDraft ? undefined : item.id, item);
     const applied = await applyBridgeMutation(isDraft
       ? { type: 'create_entitlement', data: buildEntitlementCreatePayload(item) }
@@ -904,6 +834,7 @@ export const App: React.FC = () => {
   };
 
   const listProps = {
+    onViewApi: (item: EntitlementItem) => openApiReference(item.id),
     entitlements, bundles, warningCounts: validationWarningCounts, creationRequest: creationChooserRequest, onAddNew: addNew, onAddPreset: addPreset,
     onEdit: (item: EntitlementItem) => { setEditingItem(item); setIsModalOpen(true); },
     onDuplicate: async (item: EntitlementItem) => {
@@ -997,23 +928,22 @@ export const App: React.FC = () => {
       <div className="px-4 lg:px-8 py-2.5 bg-[#090e1a] border-b border-slate-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2"><span className="text-xs font-semibold text-slate-400">Workspace:</span><div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl">
           {([['catalog', Layers, 'Catalog'], ['split', Columns, 'Catalog + Verse'], ['verse', FileCode, 'Verse']] as const).map(([mode, Icon, label]) => <button key={mode} type="button" onClick={() => setActiveViewMode(mode)} aria-pressed={activeViewMode === mode} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg ${activeViewMode === mode ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-slate-200'}`}><Icon className="w-3.5 h-3.5" />{label}</button>)}
-          <button type="button" aria-haspopup="dialog" onClick={() => setIsSetupOpen(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"><BookOpenCheck className="h-3.5 w-3.5" />Need Help?</button>
-        </div></div>
+        </div><button type="button" aria-haspopup="dialog" onClick={() => openApiReference()} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-3 py-1 text-xs font-bold text-cyan-200 hover:bg-cyan-500/15"><Code2 className="h-3.5 w-3.5" />Verse API</button></div>
         <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400"><span>Icon folder: <code className="text-cyan-300">Content/{config.assetFolderName}/</code></span></div>
       </div>
 
       <main className="flex-1 px-4 lg:px-8 py-6">
-        <EditorCapabilityNotice status={editorStatus} projectName={projectDisplayName(launchContext.projectFile, config.contentFolderPath)} />
+        <EditorConnectionBar status={editorStatus} projectName={projectDisplayName(launchContext.projectFile, config.contentFolderPath)} />
         {!catalogInitialized && entitlements.length === 0 && <SetupGuide bridgeConnected={serverOnline} editorStatus={editorStatus} onCreateEntitlement={requestOfferCreation} onStartMigration={() => openAgentIntegration('migrate')} />}
           {activeViewMode === 'split' ? <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"><div className="xl:col-span-7 space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} contentFolderPath={config.contentFolderPath} editorStatus={editorStatus} warningCounts={validationWarningCounts} dismissedWarningIds={dismissedWarningIds} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div><div className="xl:col-span-5 sticky top-20 h-[calc(100vh-140px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div></div>
           : activeViewMode === 'catalog' ? <div className="max-w-6xl mx-auto space-y-8"><EntitlementList {...listProps} />{entitlements.length > 0 && <><BundleManager bundles={bundles} entitlements={entitlements} assetFolderName={config.assetFolderName} contentFolderPath={config.contentFolderPath} editorStatus={editorStatus} warningCounts={validationWarningCounts} dismissedWarningIds={dismissedWarningIds} allocateVerseKey={allocateNewVerseKey} onChange={updateBundles} onDuplicate={duplicateBundle} /><OfferDisplayManager membership={storefrontMembership} entitlements={entitlements} bundles={bundles} allocateVerseKey={allocateNewVerseKey} onChange={updateStorefrontMembership} /></>}</div>
           : <div className="max-w-6xl mx-auto h-[calc(100vh-150px)]"><VersePreview verseCode={verseCode} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} hasErrors={hasErrors} /></div>}
       </main>
 
-      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
+      <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} reservedVerseKeys={[...collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), ...retiredVerseKeys]} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
-      <SetupModal open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
+      <SetupModal bundles={bundles} initialItemId={apiItemId} open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />
        <AgentIntegrationPanel isOpen={agentIntegrationOpen} status={agentIntegrationStatus} intent={agentIntegrationIntent} showcaseMode={showcaseMode} appChromeHeight={appChromeHeight} onRefresh={refreshAgentIntegration} onUpdate={updateAgentIntegration} onSetup={setupAgentIntegration} onOpenSkillLocation={agent => FileService.openAgentSkillLocation(agent)} onCopyConfig={copyAgentConfig} onClose={() => setAgentIntegrationOpen(false)} />
       <ConfirmDialog open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.name ?? 'offer'}?`} description={<>This offer and its entitlement definition will also be removed from every bundle and storefront. The project file remains unchanged until you save.</>} confirmLabel="Delete offer" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) deleteItem(pendingDelete); }} />
       <ConfirmDialog open={reloadConfirmationOpen} tone="warning" title="Reload from the project?" description={<>Reloading replaces the unsaved catalog, bundles, and offer displays currently in this manager with the last saved project version.</>} confirmLabel="Discard changes and reload" onCancel={() => setReloadConfirmationOpen(false)} onConfirm={() => { setReloadConfirmationOpen(false); void performLoadFromDisk(); }} />

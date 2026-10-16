@@ -18,6 +18,7 @@ export interface IntegrationContract {
   bundles: Array<Record<string, unknown>>;
   storefronts: Array<Record<string, unknown>>;
   examples: string[];
+  callbackExamples: string[];
 }
 
 function directPurchaseExample(config: ProjectConfig, key: string, runtimeFields: string[] = [], publicStem = toVerseApiStem(key)): string {
@@ -32,7 +33,8 @@ function directPurchaseExample(config: ProjectConfig, key: string, runtimeFields
   const call = runtimeFields.length
     ? `Transactions.Open${stem}Purchase(Player, Options)`
     : `Transactions.Open${stem}Purchase(Player)`;
-  return `using { /Fortnite.com/Devices }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\nOnOffer(Player:player):void =\n${optionLines}    ${call}`;
+  const body = `${optionLines}    ${call}`.split('\n').map(line => `    ${line}`).join('\n');
+  return `using { /Fortnite.com/Devices }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n\n    OnOffer(Player:player):void =\n${body}`;
 }
 
 function runtimeFactoryContract(stem: string, config: ProjectConfig): Record<string, string> {
@@ -42,6 +44,12 @@ function runtimeFactoryContract(stem: string, config: ProjectConfig): Record<str
     dynamicOfferFactorySignature: `(Options:${runtimeOptionsType})<transacts>:?offer`,
     dynamicOfferFactoryRole: 'Lower-level generated-offer construction API; use the guarded device purchase helper for normal purchases.',
   };
+}
+
+export function transactionCallbackExample(item: EntitlementItem, config: ProjectConfig): string {
+  const stem = derivePublicIdentity(item, config, 'entitlement').apiStem;
+  const boundary = item.itemType === 'consumable' ? 'Consumed' : 'Granted';
+  return `using { /Fortnite.com/Devices }\nusing { /Verse.org/Simulation }\n\nmy_game_device := class(creative_device):\n    @editable\n    Transactions : ${config.deviceClassName} = ${config.deviceClassName}{}\n    var RewardSubscription:?${config.deviceClassName}_event_subscription = false\n\n    OnBegin<override>()<suspends>:void =\n        Subscription := Transactions.Subscribe${stem}${boundary}Event(OnReward)\n        set RewardSubscription = option{Subscription}\n\n    OnReward(Payload:tuple(player, int)):void =\n        # Payload(0) is the player; Payload(1) is the authoritative quantity.\n        # Apply your gameplay effect here. This callback must not suspend.\n        return\n\n    OnEnd<override>():void =\n        if (Subscription := RewardSubscription?):\n            Subscription.Cancel()`;
 }
 
 function entitlementContract(item: EntitlementItem, config: ProjectConfig): Record<string, unknown> {
@@ -76,6 +84,15 @@ function entitlementContract(item: EntitlementItem, config: ProjectConfig): Reco
       removed: `Await${stem}RemovedEvent`,
       reconciled: `Await${stem}ReconciledEvent`,
       ...(item.itemType === 'consumable' ? { consumed: `Await${stem}ConsumedEvent` } : {}),
+    },
+    callbackEvents: {
+      granted: `Subscribe${stem}GrantedEvent`,
+      removed: `Subscribe${stem}RemovedEvent`,
+      reconciled: `Subscribe${stem}ReconciledEvent`,
+      ...(item.itemType === 'consumable' ? { consumed: `Subscribe${stem}ConsumedEvent` } : {}),
+      signature: `(Callback(:tuple(player, int)):void):${config.deviceClassName}_event_subscription`,
+      cancellation: 'Call Cancel() on the returned UTM handle. Callbacks also stop when the transaction device ends. The handle is not a native cancelable.',
+      delivery: 'Future notifications only, without replay. Register during OnBegin. Callbacks must not suspend; spawn a separate coroutine if needed.',
     },
     editableFields: {
       purchaseTriggers: item.triggers.generateTriggerBinding ? entitlementEditableNames(item.verseKey, identity.apiStem).purchaseTriggers : undefined,
@@ -216,6 +233,8 @@ export function describeIntegrationContract(
       'The Consumed event is emitted only for the matched portion of an authoritative negative entitlement delta correlated to a generated Consume helper intent; Removed is not proof of explicit consumption.',
       'Immediate-use legacy transactions must be mapped to consumable autoConsume and their gameplay consequence must wait for the Consumed event.',
       'Reconciliation establishes initial truth; generated delta events keep current truth current.',
+      'Subscribe<Stem><Boundary>Event provides callback delivery alongside the existing Await API. It does not add an event.Subscribe extension and remains independent of native event subscription availability.',
+      'Callbacks do not replay prior events. Use the ownership/count helpers when attaching late, and subscribe to Reconciled plus Granted/Removed for durable mirrors.',
       'Ownership Confirmed trigger bindings are separate opt-in durable reconciliation outputs: they fire once per player only when the reconciled owned count is greater than zero, never for zero ownership, and never replace purchase Success Triggers.',
       'For every gameplay-affecting durable with mirrored project state, initialize from reconciliation and maintain a persistent Await<Stem>GrantedEvent path for same-session acquisition; a join-only cache is incomplete.',
       'When ownership loss is supported and relevant, use the generated Await<Stem>RemovedEvent path; do not invent removal semantics.',
@@ -228,7 +247,7 @@ export function describeIntegrationContract(
     bundles: currentBundles.map(bundle => bundleContract(bundle, config, currentEntitlements, currentBundles)),
     storefronts: currentStorefronts.map(group => storefrontContract(group, config)),
     examples: [
-      ...(currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey, [], derivePublicIdentity(currentEntitlements[0], config, 'entitlement').apiStem)] : []),
+      ...(currentEntitlements.length ? [directPurchaseExample(config, currentEntitlements[0].verseKey, dynamicPriceEnabled(currentEntitlements[0].dynamicOffer) ? ['PriceVBucks'] : [], derivePublicIdentity(currentEntitlements[0], config, 'entitlement').apiStem)] : []),
       ...currentEntitlements.filter(item => dynamicPriceEnabled(item.dynamicOffer)).slice(0, 1)
         .map(item => directPurchaseExample(config, item.verseKey, ['PriceVBucks'], derivePublicIdentity(item, config, 'entitlement').apiStem)),
       ...currentEntitlements.flatMap(item => (item.alternateOffers ?? [])
@@ -237,6 +256,7 @@ export function describeIntegrationContract(
       ...currentBundles.filter(bundle => bundleRuntimeFields(bundle, currentEntitlements, currentBundles, config).length > 0)
         .map(bundle => directPurchaseExample(config, bundle.verseKey, bundleRuntimeFields(bundle, currentEntitlements, currentBundles, config), derivePublicIdentity(bundle, config, 'bundle').apiStem)),
     ],
+    callbackExamples: currentEntitlements.slice(0, 1).map(item => transactionCallbackExample(item, config)),
   };
 }
 

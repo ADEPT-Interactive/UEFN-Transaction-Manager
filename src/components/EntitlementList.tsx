@@ -26,6 +26,7 @@ interface EntitlementListProps {
   onEdit: (item: EntitlementItem) => void;
   onDuplicate: (item: EntitlementItem) => void | Promise<void>;
   onDelete: (id: string) => void;
+  onViewApi?: (item: EntitlementItem) => void;
   warningCounts?: Record<string, number>;
   creationRequest?: number;
 }
@@ -38,6 +39,7 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  onViewApi,
   warningCounts = {},
   creationRequest = 0,
 }) => {
@@ -223,6 +225,7 @@ export const EntitlementList: React.FC<EntitlementListProps> = ({
             <EntitlementCard
               key={item.id}
               item={item}
+              onViewApi={onViewApi}
               onEdit={onEdit}
               onDuplicate={onDuplicate}
               onDelete={onDelete}

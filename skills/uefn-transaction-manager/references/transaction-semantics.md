@@ -33,3 +33,8 @@ For existing-project parity, record the initial state source, live-change source
 `Removed` is intentionally not an alias for `Consumed`: native entitlement changes can include other decreases/removals. The generated `Consume<Stem>` wrapper records a pending intent, and the generated `Consumed` event is emitted only for a matching authoritative negative entitlement delta, including auto-consume. Failed, expired, or unmatched decreases do not emit `Consumed`; arbitrary raw native calls cannot create the correlation. Migrated callers should use the generated wrapper so the event and failure boundary remain correlated. Repeated immediate-use purchases are represented by repeated positive grants followed by confirmed consumption, not by retained inventory.
 
 Ask for clarification rather than guessing when evidence cannot distinguish a separate entitlement from an alternate path, an intentionally sold offer from dead code, a transaction quantity from a gameplay quantity, or a product restriction from an eligibility rule.
+
+
+## Callback alternative
+
+The current contract also exposes named `Subscribe<Stem>GrantedEvent`, `ReconciledEvent`, `RemovedEvent`, and consumable `ConsumedEvent` callbacks. A lifetime subscription is an alternative to a persistent Await loop. Keep the returned UTM handle, cancel it when the listener ends, and keep callbacks non-suspending. These are UTM facade helpers, not native event.Subscribe extensions. Notifications are not replayed: register early and query authoritative ownership/count for late attachment. Migration parity accepts callback or await API names under the same lifecycle modes; both must preserve initialization, same-session ownership propagation, and the confirmed-use boundary.

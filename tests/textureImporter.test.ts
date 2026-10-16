@@ -127,6 +127,7 @@ test('texture imports are normalized before UEFN receives them', async () => {
   assert.equal(claimed?.jobId, queued.jobId);
   assert.equal(claimed?.status, 'processing');
   assert.equal(claimed?.sourcePath.endsWith('.png'), true);
+  assert.equal(path.relative(contentRoot, claimed!.sourcePath).startsWith('..'), true, 'native import staging must stay outside the project Content root');
   const stagedPng = fs.readFileSync(claimed!.sourcePath);
   const stagedMetadata = await sharp(stagedPng).metadata();
   assert.equal(stagedMetadata.width, 256);
@@ -148,6 +149,7 @@ test('texture imports are normalized before UEFN receives them', async () => {
       assetObjectPath: '/MyProject/EntitlementIcons/VipPass.VipPass',
     }]);
     assert.deepEqual(fs.readFileSync(resolveProjectIconPreview(contentRoot, 'EntitlementIcons', 'VipPass')), stagedPng);
+    assert.deepEqual(fs.readdirSync(contentRoot), ['.uem-icon-previews'], 'UTM must not leave an original or Source folder in Content');
   } finally {
     fs.rmSync(contentRoot, { recursive: true, force: true });
   }

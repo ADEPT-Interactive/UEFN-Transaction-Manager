@@ -192,11 +192,11 @@ function validateRuntimePropagation(entry: MigrationParityEntry, issues: Migrati
     if (!['persistent-granted-event', 'persistent-granted-and-removed-events'].includes(proposed.liveChange.mode)) {
       addRuntimeIssue(entry, 'proposed.liveChange', 'A gameplay-affecting durable mirror requires a persistent Granted-event path for same-session acquisition; reconnect is not a substitute.', issues);
     }
-    if (!/Await(?:<Stem>|[A-Za-z0-9]+)GrantedEvent/.test(proposed.liveChange.source)) {
-      addRuntimeIssue(entry, 'proposed.liveChange.source', 'Record the generated Await<Stem>GrantedEvent API used to keep the durable mirror current.', issues);
+    if (!/(?:Await|Subscribe)(?:<Stem>|[A-Za-z0-9_]+)GrantedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange.source', 'Record the generated Await<Stem>GrantedEvent or Subscribe<Stem>GrantedEvent API used to keep the durable mirror current.', issues);
     }
-    if (proposed.liveChange.mode === 'persistent-granted-and-removed-events' && !/Await(?:<Stem>|[A-Za-z0-9]+)RemovedEvent/.test(proposed.liveChange.source)) {
-      addRuntimeIssue(entry, 'proposed.liveChange.source', 'The removal-aware live path must name the actual generated Await<Stem>RemovedEvent API.', issues);
+    if (proposed.liveChange.mode === 'persistent-granted-and-removed-events' && !/(?:Await|Subscribe)(?:<Stem>|[A-Za-z0-9_]+)RemovedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange.source', 'The removal-aware live path must name the actual generated Await<Stem>RemovedEvent or Subscribe<Stem>RemovedEvent API.', issues);
     }
   }
 
@@ -211,8 +211,8 @@ function validateRuntimePropagation(entry: MigrationParityEntry, issues: Migrati
 
   const immediateConsume = pair(entry, 'immediateConsume')?.proposed;
   if (proposedType === 'consumable' && immediateConsume === true) {
-    if (proposed.liveChange.mode !== 'persistent-consumed-event' || !/Await(?:<Stem>|[A-Za-z0-9]+)ConsumedEvent/.test(proposed.liveChange.source)) {
-      addRuntimeIssue(entry, 'proposed.liveChange', 'An immediate-use consumable must use its generated Await<Stem>ConsumedEvent path, not a Granted callback, for the gameplay consequence.', issues);
+    if (proposed.liveChange.mode !== 'persistent-consumed-event' || !/(?:Await|Subscribe)(?:<Stem>|[A-Za-z0-9_]+)ConsumedEvent/.test(proposed.liveChange.source)) {
+      addRuntimeIssue(entry, 'proposed.liveChange', 'An immediate-use consumable must use its generated Await<Stem>ConsumedEvent or Subscribe<Stem>ConsumedEvent path, not a Granted callback, for the gameplay consequence.', issues);
     }
   }
 }

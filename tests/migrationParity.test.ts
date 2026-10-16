@@ -239,3 +239,20 @@ test('migration parity requires exact structured public identity for adoption an
   const storefrontReport = validateMigrationParityTable([storefrontEntry], [{ type: 'adopt_existing_identity', kind: 'storefront', targetId: 'utm-store' }], true);
   assert.equal(storefrontReport.valid, true, JSON.stringify(storefrontReport, null, 2));
 });
+
+
+test('migration lifecycle parity accepts persistent callback APIs and preserved underscore stems without changing boundaries', () => {
+  for (const prefix of ['Await', 'Subscribe']) {
+    const durable = parityEntry({ itemType: { legacy: 'durable', proposed: 'durable' }, maxCount: { legacy: 1, proposed: 1 } });
+    durable.runtimePropagation!.proposed.liveChange = { mode: 'persistent-granted-and-removed-events', source: `Persistent ${prefix}Published_Access221GrantedEvent and ${prefix}Published_Access221RemovedEvent update the mirror` };
+    assert.equal(validateMigrationParityTable([durable]).valid, true, JSON.stringify(validateMigrationParityTable([durable])));
+    durable.runtimePropagation!.proposed.liveChange.source = `${prefix}Published_Access221RemovedEvent only`;
+    assert.equal(validateMigrationParityTable([durable]).valid, false, 'Removed alone cannot update same-session acquisition');
+    const immediate = parityEntry({ immediateConsume: { legacy: true, proposed: true }, autoConsume: { legacy: true, proposed: true }, consequenceBoundary: { legacy: 'successful-consumption', proposed: 'successful-consumption' } });
+    immediate.runtimePropagation!.legacy.liveChange = { mode: 'persistent-consumed-event', source: 'Legacy successful-use listener' };
+    immediate.runtimePropagation!.proposed.liveChange = { mode: 'persistent-consumed-event', source: `Persistent ${prefix}Published_Coins221ConsumedEvent applies the effect` };
+    assert.equal(validateMigrationParityTable([immediate]).valid, true, JSON.stringify(validateMigrationParityTable([immediate])));
+    immediate.runtimePropagation!.proposed.liveChange.source = `${prefix}Published_Coins221GrantedEvent applies the effect`;
+    assert.equal(validateMigrationParityTable([immediate]).valid, false, 'Granted is not a successful-use boundary');
+  }
+});

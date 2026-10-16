@@ -7,6 +7,7 @@ import {
   ShieldAlert, 
   Copy, 
   Trash2,
+  Code2,
   Gamepad2
 } from 'lucide-react';
 import { EntitlementItem } from '../types/entitlement';
@@ -18,6 +19,7 @@ interface EntitlementCardProps {
   onEdit: (item: EntitlementItem) => void;
   onDuplicate: (item: EntitlementItem) => void | Promise<void>;
   onDelete: (id: string) => void;
+  onViewApi?: (item: EntitlementItem) => void;
   warningCount?: number;
 }
 
@@ -26,6 +28,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  onViewApi,
   warningCount = 0,
 }) => {
   const isConsumable = item.itemType === 'consumable';
@@ -150,6 +153,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
+        {onViewApi && <button type="button" aria-label={`View Verse API for ${item.name}`} onClick={() => onViewApi(item)} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10"><Code2 className="h-3.5 w-3.5" />Functions</button>}
       </div>
     </article>
   );

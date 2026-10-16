@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 const applicationRoot = path.resolve(process.env.UEM_UI_APP_ROOT ?? repositoryRoot);
@@ -22,6 +22,9 @@ let bridgePort;
 let windowRef;
 let bridgeStdout = '';
 let bridgeStderr = '';
+let reconnectFixture = () => Promise.resolve({ success: false, error: 'No reconnect fixture configured.' });
+let resolvePendingRetry;
+let clipboardWriteCount = 0;
 
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -138,7 +141,7 @@ async function waitForExpression(source, description, timeoutMs = 10000) {
     await wait(100);
   }
   let rendererSnapshot = '';
-  try { rendererSnapshot = String(await evaluate("() => document.body?.innerText?.slice(0, 1200) ?? ''")); } catch { /* renderer may have exited */ }
+  try { rendererSnapshot = String(await evaluate("() => (document.querySelector('[role=dialog]')?.innerText ?? document.body?.innerText ?? '').slice(0, 2000)")); } catch { /* renderer may have exited */ }
   throw new Error(`Timed out waiting for ${description}. Renderer text: ${rendererSnapshot}`);
 }
 
@@ -152,15 +155,23 @@ async function click(source, description) {
 }
 
 async function physicalClick(source, description) {
+  windowRef.show();
+  windowRef.focus();
+  await waitForExpression(`() => Boolean((${source})())`, `${description} control`);
+  // Modal opening transforms run for 180 ms. A hidden/occluded test renderer
+  // can pause animation.finished and requestAnimationFrame indefinitely, so
+  // wait on the main-process clock before measuring instead.
+  await wait(220);
   const point = await waitForExpression(`() => {
     const target = (${source})();
     if (!target) return null;
-    target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     const rect = target.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    return hit && target.contains(hit) ? { x, y } : null;
   }`, `${description} hit target`);
-  windowRef.show();
-  windowRef.focus();
   const x = Math.round(point.x);
   const y = Math.round(point.y);
   windowRef.webContents.sendInputEvent({ type: 'mouseMove', x, y });
@@ -580,6 +591,70 @@ async function assertEntitlementDuplicate() {
   const cleaned = JSON.parse(cleanedResponse.text);
   assert.equal(cleaned.catalog?.entitlements?.length, beforeCount, 'duplicate acceptance cleanup must remove only the temporary copy');
   assert.deepEqual(cleaned.catalog.entitlements.find(item => item.id === original.id), original, 'duplicate cleanup must preserve the original entitlement');
+}
+
+async function verifyEntitlementCreationIdentity() {
+  // Match the initialized showcase's other native-package sentinels. This test
+  // covers naming and identity; real native provisioning has separate coverage.
+  fs.writeFileSync(path.join(runtimeProjectRoot, 'Content', 'EntitlementIcons', 'UTM_PlaceholderIcon.uasset'), 'showcase fixture native placeholder asset');
+  const snapshot = async () => JSON.parse((await request('/api/catalog/snapshot')).text).catalog;
+  const before = await snapshot();
+  const name = 'Named Identity Probe';
+  await click(buttonByText('Create Offer', true), 'the identity creation chooser');
+  await click(buttonByText('Start from scratch'), 'a blank entitlement');
+  await waitForExpression('() => document.getElementById(\'offer-display-name\')', 'the blank offer title');
+  await setTextInputValue('#offer-display-name', 'Builder Kit');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), 'builder_kit_2', 'new title previews must avoid an existing entitlement key');
+  await setTextInputValue('#offer-display-name', name);
+  const preview = await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent');
+  assert.equal(preview, 'named_identity_probe', 'typing the actual title must replace the provisional item key');
+  await setTextInputValue('#offer-short-description', 'Disposable identity acceptance.');
+  await setTextareaValue('#offer-full-description', 'Disposable identity acceptance.');
+  await click(buttonByText('Next'), 'the new offer icon step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-icon\')?.getAttribute(\'aria-selected\') === \'true\'', 'the new offer icon step');
+  await click(buttonByText('Next'), 'the new offer behavior step');
+  await waitForExpression('() => document.getElementById(\'offer-tab-behavior\')?.getAttribute(\'aria-selected\') === \'true\'', 'the new offer behavior step');
+  await click(buttonByText('Save Offer', true), 'creating the named offer');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created named offer');
+  const created = (await snapshot()).entitlements.find(item => item.name === name);
+  assert.ok(created, 'the real create command must add the named offer');
+  assert.equal(created.verseKey, preview, 'the server-allocated final key must match the creation preview');
+  assert.equal(created.publicIdentity, undefined, 'new offers must not import a legacy identity');
+  await click('() => document.querySelector(\'[aria-label="Edit Named Identity Probe"]\')', 'editing the created offer');
+  await setTextInputValue('#offer-display-name', 'Renamed Identity Probe');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), preview, 'editing a catalog record must preserve its established key');
+  await click(buttonByText('Save Offer', true), 'saving the renamed offer');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the renamed offer to close');
+  const renamed = (await snapshot()).entitlements.find(item => item.id === created.id);
+  assert.equal(renamed.name, 'Renamed Identity Probe');
+  assert.equal(renamed.verseKey, preview, 'the server must preserve identity across a display-name edit');
+  await click('() => document.querySelector(\'[aria-label="Delete Renamed Identity Probe"]\')', 'cleaning up the identity probe');
+  await waitForExpression('() => document.querySelector(\'[role="alertdialog"] button\')', 'the identity probe delete confirmation');
+  await click('() => [...document.querySelectorAll(\'[role="alertdialog"] button\')].find(button => button.textContent?.trim() === \'Delete offer\')', 'confirming identity probe deletion');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Edit Renamed Identity Probe"]\')', 'identity probe cleanup');
+  const after = await snapshot();
+  assert.deepEqual(after.entitlements, before.entitlements, 'the creation/rename test must preserve every original record');
+  assert.ok(after.retiredVerseKeys.includes(preview), 'deletion must reserve the identity against accidental reuse');
+  const legacyResponse = await request('/api/catalog/mutate', 'POST', JSON.stringify({ expectedRevision: after.revision, operation: { type: 'create_entitlement', data: { id: 'new-legacy-identity-probe', name: 'Legacy Identity Probe', shortDescription: 'Legacy ID acceptance.', description: 'Legacy ID acceptance.' } } }));
+  assert.equal(legacyResponse.status, 200, legacyResponse.text);
+  const legacy = JSON.parse(legacyResponse.text).catalog.entitlements.find(item => item.id === 'new-legacy-identity-probe');
+  assert.ok(legacy);
+  await waitForExpression('() => document.querySelector(\'[aria-label="Edit Legacy Identity Probe"]\')', 'the legacy-id record');
+  await click('() => document.querySelector(\'[aria-label="Edit Legacy Identity Probe"]\')', 'editing a legacy new-prefixed ID');
+  await waitForExpression('() => document.getElementById(\'entitlement-dialog-title\')?.textContent?.includes(\'Edit offer\')', 'the legacy record to open as an existing offer');
+  await setTextInputValue('#offer-display-name', 'Renamed Legacy Identity Probe');
+  assert.equal(await evaluate('() => document.querySelector(\'[aria-label="Verse key"]\')?.textContent'), legacy.verseKey);
+  await click(buttonByText('Save Offer', true), 'updating the legacy-id record');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Close offer editor"]\')', 'the legacy-id editor to close');
+  const legacyUpdated = await snapshot();
+  assert.equal(legacyUpdated.entitlements.length, before.entitlements.length + 1, 'an existing new-prefixed ID must update instead of creating a duplicate');
+  assert.equal(legacyUpdated.entitlements.find(item => item.id === legacy.id)?.verseKey, legacy.verseKey);
+  await click('() => document.querySelector(\'[aria-label="Delete Renamed Legacy Identity Probe"]\')', 'cleaning up the legacy-id probe');
+  await waitForExpression('() => document.querySelector(\'[role="alertdialog"] button\')', 'the legacy-id delete confirmation');
+  await click('() => [...document.querySelectorAll(\'[role="alertdialog"] button\')].find(button => button.textContent?.trim() === \'Delete offer\')', 'confirming legacy-id cleanup');
+  await waitForExpression('() => !document.querySelector(\'[aria-label="Edit Renamed Legacy Identity Probe"]\')', 'legacy-id cleanup');
+  assert.deepEqual((await snapshot()).entitlements, before.entitlements);
+  console.log('ENTITLEMENT_IDENTITY_ACCEPTANCE', JSON.stringify({ titleBasedPreview: true, collisionAvoided: true, finalKey: preview, existingRenamePreserved: true, legacyIdUpdatedWithoutDuplicate: true, originalCatalogPreserved: true }));
 }
 
 async function assertTextFieldFocus(rootSelector, description) {
@@ -1017,16 +1092,9 @@ async function runRendererAssertions() {
   await click('() => document.querySelector(\'[aria-label="Close offer editor"]\')', 'the created offer editor close action');
   await waitForExpression('() => !document.querySelector(\'[role="dialog"][aria-labelledby="entitlement-dialog-title"]\')', 'the created offer editor to close');
 
-  await click('() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Need Help?\')', 'the setup dialog');
-  await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Need Help?\'', 'the setup dialog');
-  windowRef.setSize(1280, 720);
-  windowRef.webContents.setZoomFactor(1.5);
-  await wait(80);
-  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the setup dialog at 1280x720 150%', true);
-  windowRef.webContents.setZoomFactor(1);
-  windowRef.setSize(1440, 900);
-  await wait(80);
-  await click('() => document.querySelector(\'[aria-label="Close help"]\')', 'the setup dialog close action');
+  await verifyEntitlementCreationIdentity();
+  await verifyVerseApiBrowser();
+  await verifyConnectionFeedback();
 
   const results = await evaluate(`() => ({
     dialogs: document.querySelectorAll('[role="dialog"], [role="alertdialog"]').length,
@@ -1036,6 +1104,110 @@ async function runRendererAssertions() {
   assert.equal(results.dialogs, 0, 'the renderer test must leave no modal open');
   assert.ok(results.catalogItems >= 10, 'the populated catalog should remain rendered after the checks');
   assert.equal(results.nativeSelects, 0, 'modal-only native selects should be removed when all dialogs close');
+}
+
+
+async function verifyVerseApiBrowser() {
+  const browserCopyError = await evaluate(`async () => {
+    try { await navigator.clipboard.writeText('permission-policy-probe'); return null; }
+    catch (error) { return error.name; }
+  }`);
+  assert.equal(browserCopyError, 'NotAllowedError', 'production browser clipboard permission must stay denied');
+  const first = await evaluate(`() => {
+    const button = document.querySelector('button[aria-label^="View Verse API for "]');
+    return { label: button?.getAttribute('aria-label'), name: button?.closest('article')?.querySelector('h3')?.innerText };
+  }`);
+  assert.ok(first.name, 'each entitlement should have a Functions shortcut');
+  await click('() => document.querySelector(\'button[aria-label^="View Verse API for "]\')', 'the entitlement Functions shortcut');
+  await waitForExpression('() => document.querySelector(\'[role="dialog"] h2\')?.innerText === \'Verse API\'', 'the API browser');
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item] h3\')?.innerText'), first.name, 'Functions must open the clicked entitlement');
+  const current = await evaluate('() => document.querySelector(\'[data-api-item]\')?.dataset.apiItem');
+  const functionText = await evaluate('() => document.querySelector(\'[data-api-item] section code\')?.innerText');
+  await physicalClick('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')', 'copying a function call');
+  await waitForExpression('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')?.innerText.includes(\'Copied\')', 'the function copy result');
+  assert.equal(clipboard.readText(), functionText, 'the function button must write its exact call');
+  await click(buttonByText('Events', true), 'the event reference');
+  assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Subscribe\')'));
+  await click(buttonByText('Await functions', true), 'the awaitable event reference');
+  assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Await\')'));
+  await click(buttonByText('Example', true), 'the callback example');
+  const example = await evaluate('() => document.querySelector(\'[data-api-item] pre\')?.innerText');
+  assert.match(example, /Subscribe.*Event/);
+  assert.match(example, /Cancel\(\)/);
+  await physicalClick('() => document.querySelector(\'[aria-label="Copy callback example"]\')', 'copying the callback example');
+  await waitForExpression('() => document.querySelector(\'[aria-label="Copy callback example"]\')?.innerText.includes(\'Copied\')', 'clipboard success feedback');
+  assert.equal(require('electron').clipboard.readText().replaceAll('\r\n', '\n'), example, 'copy must include the complete example');
+  // Searching exact event symbols is useful when coming from generated Verse.
+  const eventSymbol = example.match(/Transactions\.(Subscribe[A-Za-z0-9_]+Event)/)?.[1];
+  assert.ok(eventSymbol);
+  await setTextInputValue('[placeholder="Find an item or function…"]', eventSymbol);
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item]\')?.dataset.apiItem'), current);
+  await setTextInputValue('[placeholder="Find an item or function…"]', 'no-such-api-xyz');
+  assert.equal(await evaluate('() => document.querySelector(\'[data-api-item]\')'), null);
+  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'No matching items\')'));
+  await setTextInputValue('[placeholder="Find an item or function…"]', '');
+  await click(buttonByText('Functions', true), 'the functions reference');
+  windowRef.setSize(1280, 720);
+  windowRef.webContents.setZoomFactor(1.5);
+  await wait(100);
+  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the Verse API browser at 1280x720 150%', true);
+  await click(buttonByText('Device setup', true), 'the device setup guide');
+  await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the device setup guide at 1280x720 150%', true);
+  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'Tools → Enable Python\')'));
+  windowRef.webContents.setZoomFactor(1);
+  windowRef.setSize(1440, 900);
+  await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing Verse API');
+  await click(buttonByText('Verse API', true), 'the global Verse API action');
+  await waitForExpression('() => document.querySelector(\'[data-api-item]\')', 'the default functions reference');
+  await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing the reference');
+  assert.ok(clipboardWriteCount >= 2, 'the real preload must deliver native clipboard writes');
+  await click(buttonByText('Verse', true), 'the generated Verse workspace');
+  const source = await evaluate(`() => [...document.querySelectorAll('[aria-label="Generated Verse source"] .whitespace-pre')].map(line => line.textContent === ' ' ? '' : line.textContent).join(String.fromCharCode(10))`);
+  assert.ok(source.length > 1000, 'the generated source should be present');
+  await physicalClick(buttonByText('Copy Code', true), 'copying the complete generated Verse');
+  await waitForExpression('() => [...document.querySelectorAll(\'button\')].some(button => button.innerText.trim() === \'Copied!\')', 'the generated source copy result');
+  assert.equal(clipboard.readText().replaceAll('\r\n', '\n'), source, 'generated Verse must copy the complete source before reporting success');
+  await click(buttonByText('Catalog', true), 'returning to the catalog');
+  console.log('VERSE_API_BROWSER_ACCEPTANCE', JSON.stringify({ directItemShortcut: true, eventSearch: true, callbackClipboard: true, emptySearch: true, constrainedZoomScroll: true }));
+}
+
+async function verifyConnectionFeedback() {
+  // Exercise the real component through normal status polling. The bridge itself
+  // stays untouched; only this disposable renderer's status response is controlled.
+  await evaluate(`() => {
+    window.__originalStatusFetch = window.fetch;
+    window.__connectionTestStatus = { success: true, connectionState: 'connector-waiting', uefnRunning: true, projectActive: true, exactProjectOpen: true, pythonEnabled: true, editorConnected: false, connectorAlive: false, projectReady: false, autoConnectorInstalled: true, bootstrapState: 'waiting', readinessReason: 'connector-heartbeat-stale', processId: 12345 };
+    window.fetch = (...args) => String(args[0]).endsWith('/api/editor/status') ? Promise.resolve(new Response(JSON.stringify(window.__connectionTestStatus), { headers: { 'Content-Type': 'application/json' } })) : window.__originalStatusFetch(...args);
+  }`);
+  reconnectFixture = () => new Promise(resolve => { resolvePendingRetry = resolve; });
+  const bar = '[aria-label="UEFN editor connection"]';
+  const retry = '() => [...document.querySelectorAll(\'button\')].find(element => element.innerText?.trim() === \'Retry connection\')';
+  const busyText = 'Connection attachment is already in progress. Try again shortly.';
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'a retryable connection state');
+  assert.ok(await evaluate(`() => document.querySelector('${bar}').getBoundingClientRect().height <= 52`), 'collapsed connection bar should fit in one compact row');
+  await click(`() => document.querySelector('${bar} button[aria-expanded]')`, 'connection details');
+  await click(retry, 'a pending retry');
+  assert.equal(typeof resolvePendingRetry, 'function', 'the reconnect fixture should be pending');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'uefn-closed'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'uefn-closed'`, 'UEFN closing during retry');
+  resolvePendingRetry({ success: false, error: busyText });
+  await wait(100);
+  assert.equal(await evaluate(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`), false, 'a late response must not contaminate the new connection state');
+  reconnectFixture = async () => ({ success: false, error: busyText });
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'the next retryable state');
+  await click(retry, 'an already-running retry');
+  await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the immediate retry result');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'python-required'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'python-required'`, 'Python becoming disabled');
+  assert.equal(await evaluate(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`), false, 'retry feedback must clear across state transitions');
+  await evaluate("() => { window.__connectionTestStatus.connectionState = 'connector-waiting'; }");
+  await waitForExpression(`() => document.querySelector('${bar}')?.dataset.connectionState === 'connector-waiting'`, 'another retryable state');
+  await click(retry, 'a temporary retry notification');
+  await waitForExpression(`() => document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'the temporary notification');
+  await waitForExpression(`() => !document.querySelector('${bar}').innerText.includes(${JSON.stringify(busyText)})`, 'retry notification expiry', 8000);
+  await evaluate(`() => { window.fetch = window.__originalStatusFetch; delete window.__originalStatusFetch; delete window.__connectionTestStatus; }`);
+  console.log('CONNECTION_FEEDBACK_ACCEPTANCE', JSON.stringify({ compactBar: true, lateResponseDiscarded: true, stateTransitionClears: true, notificationExpires: true }));
 }
 
 async function cleanup() {
@@ -1119,7 +1291,20 @@ async function main() {
     width: 1440,
     height: 900,
     backgroundColor: '#080c14',
-    webPreferences: { contextIsolation: true, sandbox: true },
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(applicationRoot, 'dist-electron', 'preload.cjs') },
+  });
+  // The standalone host denies browser permissions. Keep the real preload and
+  // native clipboard transport here so a permissive harness cannot mask failures.
+  windowRef.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  windowRef.webContents.session.setPermissionCheckHandler(() => false);
+  ipcMain.handle('uem:update:get-state', () => ({ status: 'idle', currentVersion: 'renderer-test' }));
+  ipcMain.handle('uem:editor:reconnect', () => reconnectFixture());
+  ipcMain.handle('uem:clipboard:write-text', (event, text) => {
+    assert.equal(event.sender, windowRef.webContents);
+    assert.equal(event.senderFrame, event.sender.mainFrame);
+    if (typeof text !== 'string' || text.length > 8 * 1024 * 1024) throw new Error('Invalid clipboard text.');
+    clipboard.writeText(text);
+    clipboardWriteCount += 1;
   });
   const contentRoot = path.join(runtimeProjectRoot, 'Content');
   const fragment = new URLSearchParams({
@@ -1130,6 +1315,9 @@ async function main() {
     projectFile: showcaseProjectFile,
   });
   await windowRef.loadURL(`http://127.0.0.1:${bridgePort}/#${fragment}`);
+  // Assert final modal geometry and interactions. Motion can be paused by
+  // Windows occlusion in this hidden host; it is not part of these assertions.
+  await windowRef.webContents.insertCSS('.animate-modal { animation: none !important; }');
   await waitForExpression('() => Boolean(document.getElementById(\'root\')?.firstElementChild)', 'the React dashboard root');
   await runRendererAssertions();
   console.log('Electron UI regression checks passed without capturing screenshots.');

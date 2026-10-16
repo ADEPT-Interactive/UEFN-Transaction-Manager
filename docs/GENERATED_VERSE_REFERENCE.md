@@ -1,4 +1,4 @@
-# Generated Verse reference (UTM 4.4.1)
+# Generated Verse reference (UTM 4.5.0)
 
 UEFN Transaction Manager generates `managed_transactions.verse` from the catalog saved for your project. The generated file is managed by the application. Do not edit it manually. Put gameplay rules, rewards, saved state, and player-specific decisions in your own Verse.
 
@@ -115,7 +115,7 @@ WatchImmediateUse()<suspends>:void =
 
 Inventory-bearing consumables must leave `autoConsume` disabled and should apply their gameplay behavior from the project’s deliberate inventory/use flow. A direct native `ConsumeEntitlement` call outside the generated helper cannot emit the generated `Consumed` signal, so migrated callers should use the helper.
 
-Use `.Await()` through these generated helpers for Transaction Manager notifications. Epic-provided device events such as Button, Trigger, and playspace events are separate APIs and may use `.Subscribe()`.
+Use the generated await functions or named `Subscribe<StableKeyStem>GrantedEvent`, `RemovedEvent`, `ReconciledEvent`, and consumable-only `ConsumedEvent` callback methods. Callbacks accept `tuple(player, int)`, must not suspend, and return a device-prefixed UTM subscription handle with idempotent `Cancel()`. Register early, query current ownership when attaching late, and cancel when the owning listener ends. These callbacks do not replay earlier notifications. UTM adds no `event.Subscribe` extension; native device/listenable events remain separate APIs. Open **Verse API** or an offer’s **Functions** shortcut for exact copyable calls and examples.
 
 ### Durable initialization and live propagation
 
