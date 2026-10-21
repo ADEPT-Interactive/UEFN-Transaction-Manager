@@ -91,9 +91,9 @@ test('desktop verification explicitly installs the locked Electron runtime', () 
 test('desktop clipboard exposes only a bounded, trusted write operation', () => {
   const main = fs.readFileSync(path.resolve('electron/main.ts'), 'utf8');
   const preload = fs.readFileSync(path.resolve('electron/preload.ts'), 'utf8');
-  assert.match(main, /ipcMain.handle\('uem:clipboard:write-text', \(event, text: unknown\) => \{\s*assertTrustedSender\(event\);/);
+  assert.match(main, /ipcMain.handle\('uem:clipboard:write-text', async \(event, text: unknown\) => \{\s*assertTrustedSender\(event\);/);
   assert.match(main, /typeof text !== 'string' \|\| text.length > 8 \* 1024 \* 1024/);
-  assert.match(main, /clipboard.writeText\(text\)/);
+  assert.match(main, /await clipboard.writeText\(text\)/);
   assert.match(preload, /writeText: \(text: string\): Promise<void> => ipcRenderer.invoke\('uem:clipboard:write-text', text\)/);
   assert.doesNotMatch(preload, /clipboard.read|clipboard:\s*clipboard/);
   assert.match(main, /setPermissionCheckHandler\(\(\) => false\)/);

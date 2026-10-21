@@ -97,8 +97,8 @@ try {
         main = "dist-electron/main.cjs"
         type = "commonjs"
         dependencies = [ordered]@{
-            sharp = "0.35.4"
-            koffi = "3.1.5"
+            sharp = (Get-Content -LiteralPath (Join-Path $toolRoot "node_modules\sharp\package.json") -Raw | ConvertFrom-Json).version
+            koffi = (Get-Content -LiteralPath (Join-Path $toolRoot "node_modules\koffi\package.json") -Raw | ConvertFrom-Json).version
         }
         build = $builderConfig
     } | ConvertTo-Json -Depth 20
@@ -150,7 +150,11 @@ try {
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\sharp\dist") -File -Filter "*.cjs") {
         Copy-AppFile -RelativePath ("node_modules\sharp\dist\" + $file.Name)
     }
-    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\sharp\node_modules\semver") -Recurse -File | Where-Object { $_.Extension -eq ".js" -or $_.Name -in @("package.json", "LICENSE") }) {
+    # npm may hoist semver; resolve the dependency from sharp's own location.
+    $semverPackage = & node -p "require.resolve('semver/package.json', { paths: [require.resolve('sharp')] })"
+    if ($LASTEXITCODE -ne 0) { throw "Could not resolve sharp's semver dependency." }
+    $semverRoot = Split-Path -Parent $semverPackage
+    foreach ($file in Get-ChildItem -LiteralPath $semverRoot -Recurse -File | Where-Object { $_.Extension -eq ".js" -or $_.Name -in @("package.json", "LICENSE") }) {
         Copy-AppFile -RelativePath ($file.FullName.Substring($toolRoot.Length).TrimStart('\'))
     }
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\detect-libc\lib") -File -Filter "*.js") {
@@ -229,3 +233,4 @@ finally {
     Pop-Location
     if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
 }
+

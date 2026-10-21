@@ -20,11 +20,11 @@ function Invoke-NativeChecked {
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $node -or -not $npm) {
-    throw "Source setup requires Node.js 22.12.0 or newer. End-user installer releases bundle Electron and do not require Node.js."
+    throw "Source setup requires Node.js 26.12.1 or a later Node 26 patch. End-user installer releases bundle Electron and do not require Node.js."
 }
 $nodeVersionText = (& $node.Source --version).Trim().TrimStart('v')
 try { $nodeVersion = [version]$nodeVersionText } catch { throw "Could not parse the installed Node.js version: $nodeVersionText." }
-if ($nodeVersion -lt [version]'22.12.0') { throw "Source setup requires Node.js 22.12.0 or newer; found $nodeVersionText." }
+if ($nodeVersion -lt [version]'26.12.1' -or $nodeVersion.Major -ne 26) { throw "Source setup requires Node.js 26.12.1 or a later Node 26 patch; found $nodeVersionText." }
 if ($PreferPortableRuntime) {
     Write-Host "PreferPortableRuntime is retained for command compatibility; Electron dependencies are installed through the locked npm toolchain." -ForegroundColor DarkGray
 }
