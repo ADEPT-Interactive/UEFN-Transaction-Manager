@@ -150,7 +150,11 @@ try {
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\sharp\dist") -File -Filter "*.cjs") {
         Copy-AppFile -RelativePath ("node_modules\sharp\dist\" + $file.Name)
     }
-    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\sharp\node_modules\semver") -Recurse -File | Where-Object { $_.Extension -eq ".js" -or $_.Name -in @("package.json", "LICENSE") }) {
+    # npm may hoist semver; resolve the dependency from sharp's own location.
+    $semverPackage = & node -p 'require.resolve("semver/package.json", { paths: [require.resolve("sharp/package.json")] })'
+    if ($LASTEXITCODE -ne 0) { throw "Could not resolve sharp's semver dependency." }
+    $semverRoot = Split-Path -Parent $semverPackage
+    foreach ($file in Get-ChildItem -LiteralPath $semverRoot -Recurse -File | Where-Object { $_.Extension -eq ".js" -or $_.Name -in @("package.json", "LICENSE") }) {
         Copy-AppFile -RelativePath ($file.FullName.Substring($toolRoot.Length).TrimStart('\'))
     }
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $toolRoot "node_modules\detect-libc\lib") -File -Filter "*.js") {
