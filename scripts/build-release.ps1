@@ -151,7 +151,7 @@ try {
         Copy-AppFile -RelativePath ("node_modules\sharp\dist\" + $file.Name)
     }
     # npm may hoist semver; resolve the dependency from sharp's own location.
-    $semverPackage = & node -p 'require.resolve("semver/package.json", { paths: [require.resolve("sharp/package.json")] })'
+    $semverPackage = & node -p "require.resolve('semver/package.json', { paths: [require.resolve('sharp/package.json')] })"
     if ($LASTEXITCODE -ne 0) { throw "Could not resolve sharp's semver dependency." }
     $semverRoot = Split-Path -Parent $semverPackage
     foreach ($file in Get-ChildItem -LiteralPath $semverRoot -Recurse -File | Where-Object { $_.Extension -eq ".js" -or $_.Name -in @("package.json", "LICENSE") }) {
