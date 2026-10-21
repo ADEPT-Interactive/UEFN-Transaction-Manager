@@ -97,8 +97,8 @@ try {
         main = "dist-electron/main.cjs"
         type = "commonjs"
         dependencies = [ordered]@{
-            sharp = "0.35.4"
-            koffi = "3.1.5"
+            sharp = (Get-Content -LiteralPath (Join-Path $toolRoot "node_modules\sharp\package.json") -Raw | ConvertFrom-Json).version
+            koffi = (Get-Content -LiteralPath (Join-Path $toolRoot "node_modules\koffi\package.json") -Raw | ConvertFrom-Json).version
         }
         build = $builderConfig
     } | ConvertTo-Json -Depth 20

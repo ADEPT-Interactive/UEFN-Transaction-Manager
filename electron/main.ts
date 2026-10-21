@@ -619,10 +619,10 @@ async function showFatalError(error: Error): Promise<void> {
 }
 
 function configureIpc() {
-  ipcMain.handle('uem:clipboard:write-text', (event, text: unknown) => {
+  ipcMain.handle('uem:clipboard:write-text', async (event, text: unknown) => {
     assertTrustedSender(event);
     if (typeof text !== 'string' || text.length > 8 * 1024 * 1024) throw new Error('Clipboard text must be a string of at most 8 MiB.');
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
   });
   ipcMain.handle('uem:editor:reconnect', async event => {
     assertTrustedSender(event);

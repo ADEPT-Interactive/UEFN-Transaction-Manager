@@ -133,7 +133,12 @@ async function waitForExpression(source, description, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const result = await evaluate(source);
+      // DOM objects cannot cross Electron's structured-clone boundary. Resolve
+      // existence predicates in the renderer before returning their result.
+      const result = await evaluate(`async () => {
+        const value = await (${source})();
+        return value instanceof Node ? true : value;
+      }`);
       if (result) return result;
     } catch {
       // React may still be loading the dashboard.
@@ -1125,7 +1130,7 @@ async function verifyVerseApiBrowser() {
   const functionText = await evaluate('() => document.querySelector(\'[data-api-item] section code\')?.innerText');
   await physicalClick('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')', 'copying a function call');
   await waitForExpression('() => document.querySelector(\'[data-api-item] button[aria-label^="Copy Open"]\')?.innerText.includes(\'Copied\')', 'the function copy result');
-  assert.equal(clipboard.readText(), functionText, 'the function button must write its exact call');
+  assert.equal((await clipboard.readText()), functionText, 'the function button must write its exact call');
   await click(buttonByText('Events', true), 'the event reference');
   assert.ok(await evaluate('() => document.querySelector(\'[data-api-item]\')?.innerText.includes(\'Subscribe\')'));
   await click(buttonByText('Await functions', true), 'the awaitable event reference');
@@ -1136,7 +1141,7 @@ async function verifyVerseApiBrowser() {
   assert.match(example, /Cancel\(\)/);
   await physicalClick('() => document.querySelector(\'[aria-label="Copy callback example"]\')', 'copying the callback example');
   await waitForExpression('() => document.querySelector(\'[aria-label="Copy callback example"]\')?.innerText.includes(\'Copied\')', 'clipboard success feedback');
-  assert.equal(require('electron').clipboard.readText().replaceAll('\r\n', '\n'), example, 'copy must include the complete example');
+  assert.equal((await clipboard.readText()).replaceAll('\r\n', '\n'), example, 'copy must include the complete example');
   // Searching exact event symbols is useful when coming from generated Verse.
   const eventSymbol = example.match(/Transactions\.(Subscribe[A-Za-z0-9_]+Event)/)?.[1];
   assert.ok(eventSymbol);
@@ -1166,7 +1171,7 @@ async function verifyVerseApiBrowser() {
   assert.ok(source.length > 1000, 'the generated source should be present');
   await physicalClick(buttonByText('Copy Code', true), 'copying the complete generated Verse');
   await waitForExpression('() => [...document.querySelectorAll(\'button\')].some(button => button.innerText.trim() === \'Copied!\')', 'the generated source copy result');
-  assert.equal(clipboard.readText().replaceAll('\r\n', '\n'), source, 'generated Verse must copy the complete source before reporting success');
+  assert.equal((await clipboard.readText()).replaceAll('\r\n', '\n'), source, 'generated Verse must copy the complete source before reporting success');
   await click(buttonByText('Catalog', true), 'returning to the catalog');
   console.log('VERSE_API_BROWSER_ACCEPTANCE', JSON.stringify({ directItemShortcut: true, eventSearch: true, callbackClipboard: true, emptySearch: true, constrainedZoomScroll: true }));
 }
@@ -1299,11 +1304,11 @@ async function main() {
   windowRef.webContents.session.setPermissionCheckHandler(() => false);
   ipcMain.handle('uem:update:get-state', () => ({ status: 'idle', currentVersion: 'renderer-test' }));
   ipcMain.handle('uem:editor:reconnect', () => reconnectFixture());
-  ipcMain.handle('uem:clipboard:write-text', (event, text) => {
+  ipcMain.handle('uem:clipboard:write-text', async (event, text) => {
     assert.equal(event.sender, windowRef.webContents);
     assert.equal(event.senderFrame, event.sender.mainFrame);
     if (typeof text !== 'string' || text.length > 8 * 1024 * 1024) throw new Error('Invalid clipboard text.');
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
     clipboardWriteCount += 1;
   });
   const contentRoot = path.join(runtimeProjectRoot, 'Content');
@@ -1335,6 +1340,6 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     await cleanup();
-    app.exit(1);
+    process.exit(1);
   }
 });
