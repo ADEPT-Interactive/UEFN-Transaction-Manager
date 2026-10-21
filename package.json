@@ -67,7 +67,7 @@
     "postcss": "^8.5.30",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
+    "typescript": "^7.0.2",
     "vite": "^8.2.4"
   },
   "overrides": {
