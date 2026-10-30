@@ -57,7 +57,9 @@ export interface TextureImportJobResult {
 const jobs = new Map<string, TextureImportJob>();
 const stagingRoot = path.join(os.tmpdir(), 'UEFN Entitlement Manager', 'texture-imports');
 const JOB_TTL_MS = 15 * 60 * 1000;
-const CLAIM_TIMEOUT_MS = 120 * 1000;
+// The editor connector reports failure after 120 s. Requeue only after that
+// report would have arrived, so a slow import is never claimed twice.
+const CLAIM_TIMEOUT_MS = 150 * 1000;
 const MAX_PENDING_TEXTURE_JOBS = 32;
 
 export async function normalizeImageToPowerOfTwo(imageBuffer: Buffer): Promise<Buffer> {
@@ -186,6 +188,8 @@ export async function normalizeTextureImportJob(jobId: string): Promise<TextureI
   if (job.status !== 'processing') throw new Error('Only a claimed texture import can be normalized.');
   const normalized = await normalizeImageToPowerOfTwo(fs.readFileSync(job.sourcePath));
   const temporaryPath = `${job.sourcePath}.normalized`;
+  // A previous interrupted attempt for this job may have left the temp file.
+  fs.rmSync(temporaryPath, { force: true });
   fs.writeFileSync(temporaryPath, normalized, { flag: 'wx' });
   fs.renameSync(temporaryPath, job.sourcePath);
   return publicJob(job);

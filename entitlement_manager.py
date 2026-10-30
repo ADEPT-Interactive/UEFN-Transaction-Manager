@@ -15,6 +15,7 @@ SERVER_IDENTITY = "UEFN Entitlement Manager Bridge"
 BRIDGE_REQUEST_TIMEOUT_SECONDS = 30.0
 EDITOR_HEARTBEAT_INTERVAL_SECONDS = 2.0
 EDITOR_TICK_MAX_AGE_SECONDS = 8.0
+READINESS_CHECK_INTERVAL_SECONDS = 1.0
 with open(os.path.join(TOOL_DIR, "version.json"), "r", encoding="utf-8") as version_file:
     SERVER_VERSION = json.load(version_file)["version"]
 VERSE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -460,6 +461,7 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
         "last_project_ready": None,
         "last_readiness_reason": None,
         "last_editor_tick": None,
+        "last_readiness_check": None,
     }
     handle_holder = {"value": None}
 
@@ -526,8 +528,18 @@ def install_texture_import_bridge(port, editor_token, content_dir=None, asset_mo
 
     def on_editor_tick(delta_seconds):
         del delta_seconds
+        now = time.monotonic()
+        state["last_editor_tick"] = now
+        # This callback runs every editor frame. The readiness check enumerates
+        # desktop windows and resolves paths, so run it at most once per
+        # interval, and always fresh before executing a queued job.
+        job_waiting = not jobs.empty()
+        if (not job_waiting and state["last_readiness_check"] is not None
+                and now - state["last_readiness_check"] < READINESS_CHECK_INTERVAL_SECONDS
+                and not state["shutdown_requested"]):
+            return
+        state["last_readiness_check"] = now
         readiness = _editor_project_readiness(unreal, project_file, asset_mount, content_dir)
-        state["last_editor_tick"] = time.monotonic()
         next_project_ready = bool(readiness["ready"])
         next_readiness_reason = readiness["reason"]
         if state["last_project_ready"] is None or state["last_project_ready"] != next_project_ready or state["last_readiness_reason"] != next_readiness_reason:

@@ -23,6 +23,9 @@ function escapeVerseString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
+    // Verse treats {Expr} in a string literal as interpolation; creator text must stay literal.
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
     .replace(/\r/g, '')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')

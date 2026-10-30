@@ -81,7 +81,7 @@ test('the same compiler client works with the historical port and an alternate p
     let mock: Awaited<ReturnType<typeof mockWorkflowServer>>;
     try { mock = await mockWorkflowServer(port); }
     catch (error) {
-      if (port === 1962 && (error as NodeJS.ErrnoException).code === 'EADDRINUSE') { t.diagnostic('1962 is occupied by a live UEFN session; the live compatibility probe covers this port.'); continue; }
+      if (port === 1962 && (error as NodeJS.ErrnoException).code === 'EADDRINUSE') { t.diagnostic('Port 1962 is in use (likely a running UEFN); the historical-port case was skipped. Close UEFN to cover it.'); continue; }
       throw error;
     }
     t.after(() => mock.server.close());

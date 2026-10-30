@@ -33,6 +33,7 @@ import { isPlaceholderIconTexture, PLACEHOLDER_ICON_ASSET_NAME, PLACEHOLDER_ICON
 import { NumericInput } from './NumericInput';
 import { VBucksPriceControl } from './VBucksPriceControl';
 import { deriveEditorConnectionState } from '../../shared/editorState';
+import { pythonSetupMessage } from '../constants/pythonSetup';
 
 interface EntitlementModalProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pendingIconDialogRef = useRef<HTMLDivElement>(null);
+  const issuesRef = useRef<HTMLDivElement>(null);
   const pendingIconCancelRef = useRef<HTMLButtonElement>(null);
   const imageUploadRef = useRef<ImageUploadZoneHandle>(null);
   const alternateImageUploadRefs = useRef<Record<string, ImageUploadZoneHandle | null>>({});
@@ -240,13 +242,16 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    // Next/Save stay clickable so the user is shown what blocks them instead of a silent dimmed button.
+    const revealIssues = () => issuesRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     if (isCreating && creationStep < creationTabs.length - 1) {
-      if (currentStepErrors.length > 0) return;
+      if (currentStepErrors.length > 0) { revealIssues(); return; }
       const nextStep = creationStep + 1;
       setCreationStep(nextStep);
       setActiveTab(creationTabs[nextStep]);
       return;
     }
+    if (errors.length > 0) { revealIssues(); return; }
     commitForm();
   };
 
@@ -506,7 +511,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
                   <p className="mt-1 text-amber-100/80">{connectionState === 'uefn-closed'
                     ? 'Open the linked project in UEFN, then return here. Transaction Manager will update this tab automatically.'
                     : connectionState === 'python-required'
-                      ? 'In UEFN, open the Project menu with the small palm tree icon, choose Project Settings, and enable Python Editor Scripting. No restart is needed.'
+                      ? pythonSetupMessage(editorStatus?.pythonState)
                       : connectionState === 'project-opening'
                         ? 'The linked project is still opening in UEFN. Keep it open while Transaction Manager waits for the identity and readiness checks to settle.'
                         : connectionState === 'different-project' || connectionState === 'uefn-running-project-unknown'
@@ -798,7 +803,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
 
           {/* Validation Warnings inside Modal */}
           {currentStepIssues.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
+            <div ref={issuesRef} className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
               {currentStepIssues.map(issue => (
                 <div key={issue.id} className="flex items-start gap-2 text-xs">
                   {issue.severity === 'error' ? (
@@ -826,7 +831,7 @@ export const EntitlementModal: React.FC<EntitlementModalProps> = ({
               Cancel
             </button>
             {isCreating && creationStep > 0 && <button type="button" onClick={() => { const previousStep = creationStep - 1; setCreationStep(previousStep); setActiveTab(creationTabs[previousStep]); }} className="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Back</button>}
-            {isCreating && creationStep < creationTabs.length - 1 ? <button type="submit" disabled={currentStepErrors.length > 0} className="flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><span>Next</span><span aria-hidden="true">→</span></button> : <button type="submit" disabled={errors.length > 0} className="flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50"><Save className="h-4 w-4" /><span>Save Offer</span></button>}
+            {isCreating && creationStep < creationTabs.length - 1 ? <button type="submit" aria-disabled={currentStepErrors.length > 0} className={`flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 ${currentStepErrors.length > 0 ? 'opacity-50' : ''}`}><span>Next</span><span aria-hidden="true">→</span></button> : <button type="submit" aria-disabled={errors.length > 0} className={`flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-blue-500 ${errors.length > 0 ? 'opacity-50' : ''}`}><Save className="h-4 w-4" /><span>Save Offer</span></button>}
           </div>
         </form>
         {pendingAction && (

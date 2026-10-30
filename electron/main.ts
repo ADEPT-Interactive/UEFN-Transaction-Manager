@@ -10,6 +10,7 @@ import { detectDistributionMode } from './distributionMode.js';
 import { UpdateManager } from './updateManager.js';
 import { createLauncherProtocolHandler } from './launcherProtocol.js';
 import { NavigationTransaction, SerializedAsyncOperation, type ExpectedNavigation } from './navigation.js';
+import { pruneLogDirectory } from './logRetention.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'uem-launcher', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -34,6 +35,7 @@ const logRoot = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UEFN Entitle
 fs.mkdirSync(logRoot, { recursive: true });
 const diagnosticPath = path.join(logRoot, `electron-main-${process.pid}.log`);
 fs.writeFileSync(diagnosticPath, '', 'utf8');
+const logRetention = pruneLogDirectory(logRoot, { keep: new Set([diagnosticPath]) });
 
 type WindowMode = 'launcher' | 'dashboard';
 
@@ -862,7 +864,7 @@ else {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uem:update:state', state);
       }, diagnostic);
       updateManager.initialize();
-      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}; distribution=${distributionMode}; appVersion=${releaseMetadata.version ?? app.getVersion()}; sourceRevision=${releaseMetadata.sourceRevision ?? 'unknown'}`);
+      diagnostic(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; Node ${process.versions.node}; arch=${process.arch}; packaged=${app.isPackaged}; distribution=${distributionMode}; appVersion=${releaseMetadata.version ?? app.getVersion()}; sourceRevision=${releaseMetadata.sourceRevision ?? 'unknown'}; logsPruned=${logRetention.removed}${logRetention.rotated.length ? `; logsRotated=${logRetention.rotated.join(',')}` : ''}`);
       await loadLauncher();
       if (portableUpdateResultPath && fs.existsSync(portableUpdateResultPath)) {
         try {

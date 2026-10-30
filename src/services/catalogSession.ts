@@ -992,6 +992,21 @@ export class CatalogSession {
     return { snapshot: this.snapshot(), affected: target, cascades: [] };
   }
 
+  /**
+   * Replace the whole draft with a document read back from disk (backup
+   * restore). Unlike replaceDocument this deliberately discards the draft and
+   * its identity history, and the result is clean against the restored file.
+   */
+  restoreFromDisk(document: CatalogDocument, contentHash: string): CatalogSnapshot {
+    this.document = normalizeDocument(clone(document), document.config);
+    this.revisionNumber += 1;
+    this.savedRevisionValue = this.currentRevision;
+    this.savedFileHashValue = contentHash;
+    this.managedFileHashValue = contentHash;
+    this.emit();
+    return this.snapshot();
+  }
+
   markSaved(contentHash: string): CatalogSnapshot {
     this.savedRevisionValue = this.currentRevision;
     this.savedFileHashValue = contentHash;

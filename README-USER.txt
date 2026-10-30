@@ -38,7 +38,7 @@ UTM separately reports its listener, skill installation, agent setup, reload req
 
 NATIVE ICON IMPORT
 
-For first-time setup or migration, open the exact project in UEFN, open the palm-tree Project menu, choose Project Settings, and enable Python Editor Scripting. Also enable Tools > Enable Python. Keep the project open while Transaction Manager connects its application-owned helper and confirms its native placeholder asset. It does not add to init_unreal.py or install Python files into the project.
+For first-time setup or migration, open the exact project in UEFN, open the palm-tree Project menu, choose Project Settings, and under Beta Access enable Python Editor Scripting. Keep the project open while Transaction Manager connects its application-owned helper and confirms its native placeholder asset. It does not add to init_unreal.py or install Python files into the project.
 
 Power-of-two PNGs are imported unchanged. Other sizes are scaled uniformly to a suitable power-of-two shape, with transparent padding only when needed to preserve proportions. Keep original artwork outside mounted Content folders; import only the prepared image. Existing UEFN Texture2D assets can be adopted through the verified project workflow; do not enter filesystem paths or edit .uasset files manually.
 

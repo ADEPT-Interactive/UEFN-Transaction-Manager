@@ -104,7 +104,7 @@ For first-time setup or migration, confirm the exact project is open in UEFN and
 
 1. In UEFN, open the palm-tree **Project** menu.
 2. Choose **Project Settings**.
-3. Enable **Python Editor Scripting**.
+3. In the **Beta Access** section, enable **Python Editor Scripting**.
 4. Keep this exact project open while UTM provisions its native placeholder and confirms the object path.
 5. Add or edit an icon and confirm the import.
 
@@ -196,11 +196,15 @@ When UEFN is closed, open the project linked to this Transaction Manager window 
 
 ### Icon import is unavailable
 
-Enable **Python Editor Scripting** in the project settings, then confirm UEFN and UTM target the same project. First-time setup and native import require the editor connection to remain available while the exact Texture2D object path is confirmed. If an initialized catalog references only existing confirmed assets, catalog-only edits can be saved while UEFN is closed.
+In UEFN, open the palm-tree **Project** menu → **Project Settings** and enable **Python Editor Scripting** under **Beta Access**, then confirm UEFN and UTM target the same project. First-time setup and native import require the editor connection to remain available while the exact Texture2D object path is confirmed. If an initialized catalog references only existing confirmed assets, catalog-only edits can be saved while UEFN is closed.
 
 ### A generated device field is missing
 
 Compile successfully, refresh the UEFN Content Browser, and confirm that you placed the generated device from the target project. Some generated device reference arrays may still require manual UEFN wiring when the current Unreal MCP representation cannot assign them reliably.
+
+### Restore an earlier save
+
+Choose **Tools → Restore a backup…** to roll the managed Verse file back to an earlier save. UTM keeps the 5 most recent backups per project, outside the project folder, and backs up the current file before restoring, so a restore can be undone. Compile in UEFN afterwards.
 
 ### An agent cannot see both servers
 

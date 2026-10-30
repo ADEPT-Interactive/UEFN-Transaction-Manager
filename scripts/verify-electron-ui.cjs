@@ -1158,7 +1158,7 @@ async function verifyVerseApiBrowser() {
   await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the Verse API browser at 1280x720 150%', true);
   await click(buttonByText('Device setup', true), 'the device setup guide');
   await assertDialogLayout('[role="dialog"]', '.min-h-0.flex-1.overflow-y-auto', 'the device setup guide at 1280x720 150%', true);
-  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'Tools → Enable Python\')'));
+  assert.ok(await evaluate('() => document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'Beta Access\') && document.querySelector(\'[role="dialog"]\')?.innerText.includes(\'Python Editor Scripting\')'));
   windowRef.webContents.setZoomFactor(1);
   windowRef.setSize(1440, 900);
   await click('() => document.querySelector(\'[aria-label="Close Verse API"]\')', 'closing Verse API');
@@ -1320,6 +1320,9 @@ async function main() {
     projectFile: showcaseProjectFile,
   });
   await windowRef.loadURL(`http://127.0.0.1:${bridgePort}/#${fragment}`);
+  // Chromium remembers zoom per host in this profile. A run that failed while
+  // zoomed to 150% would otherwise offset every physical click in later runs.
+  windowRef.webContents.setZoomFactor(1);
   // Assert final modal geometry and interactions. Motion can be paused by
   // Windows occlusion in this hidden host; it is not part of these assertions.
   await windowRef.webContents.insertCSS('.animate-modal { animation: none !important; }');
@@ -1329,6 +1332,9 @@ async function main() {
 }
 
 app.commandLine.appendSwitch('disable-gpu');
+// Cleanup destroys the last window; without this Electron quits with code 0
+// before a failing run reaches app.exit(1), hiding the failure from CI.
+app.on('window-all-closed', () => { /* this probe exits explicitly */ });
 app.whenReady().then(async () => {
   try {
     await main();
@@ -1339,7 +1345,8 @@ app.whenReady().then(async () => {
     process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    await cleanup();
+    process.exitCode = 1;
+    await cleanup().catch(() => {});
     process.exit(1);
   }
 });

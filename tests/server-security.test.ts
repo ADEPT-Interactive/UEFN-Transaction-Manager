@@ -7,6 +7,11 @@ import path from 'node:path';
 import test from 'node:test';
 import sharp from 'sharp';
 import { isPng, tokensEqual, validateIdentifier, validateVerseFileName } from '../server/security';
+import { createProjectBackup } from '../shared/projectBackups';
+import { generateVerseCode } from '../src/services/verseGenerator';
+import { normalizeEntitlement } from '../src/services/projectSchema';
+import { defaultProjectConfig } from '../src/services/catalogSession';
+import { DEFAULT_PRESETS } from '../src/constants/presets';
 
 test('security primitives reject traversal, weak names, and fake PNGs', () => {
   assert.equal(validateVerseFileName('managed_transactions.verse'), 'managed_transactions.verse');
@@ -68,6 +73,18 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
     const mcpEndpoint = `http://127.0.0.1:${mcpPort}/mcp`;
     const mcpInitialize = await fetch(mcpEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'server-security-test', version: '1' } } }) });
     assert.equal(mcpInitialize.status, 200);
+    // A malformed Host header used to throw inside the MCP handler and terminate the whole bridge.
+    await new Promise<void>(resolve => {
+      const socket = net.connect(mcpPort, '127.0.0.1', () => socket.write(['POST /mcp HTTP/1.1', 'Host: [', 'Content-Length: 0', '', ''].join('\r\n')));
+      socket.on('data', () => socket.destroy());
+      socket.on('error', () => resolve());
+      socket.on('close', () => resolve());
+      setTimeout(() => socket.destroy(), 1000);
+    });
+    assert.equal((await fetch(`${base}/api/health`)).status, 200);
+    const oversizedMcp = await fetch(mcpEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: 'x'.repeat(9 * 1024 * 1024) }).catch(() => undefined);
+    if (oversizedMcp) assert.equal(oversizedMcp.status, 413);
+    assert.equal((await fetch(`${base}/api/health`)).status, 200);
     const copiedConfig = await fetch(`${base}/api/agent-integration/copy-config`, { method: 'POST', headers: auth, body: '{}' });
     assert.equal(copiedConfig.status, 200);
     assert.deepEqual((await copiedConfig.json()).config.mcpServers['utm-mcp'], { type: 'http', url: mcpEndpoint });
@@ -77,6 +94,8 @@ test('bridge requires its session and confines all Verse IO to the authorized ro
 
     const reservedManagedSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'managed_transactions.verse', content: 'first', createBackup: true, expectedHash: null }) });
     assert.equal(reservedManagedSave.status, 409);
+    const malformedMutation = await fetch(`${base}/api/catalog/mutate`, { method: 'POST', headers: auth, body: '{}' });
+    assert.equal(malformedMutation.status, 400);
     const firstSave = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName: 'manual.verse', content: 'first', createBackup: true, expectedHash: null }) });
     assert.equal(firstSave.status, 200);
     const firstHash = ((await firstSave.json()) as { contentHash: string }).contentHash;
@@ -336,6 +355,7 @@ test('standalone bridge fails closed without an explicit editor project-readines
       differentProjectOpen: false,
       openProjectFile: projectFile.replace(/\\/g, '/'),
       pythonEnabled: false,
+      pythonState: 'project-disabled',
       autoConnectorInstalled: false,
       nativeTextureImportAvailable: false,
       bootstrapState: 'not-needed',
@@ -371,5 +391,105 @@ test('standalone bridge fails closed without an explicit editor project-readines
     fakeUefn.kill();
     child.kill();
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a case variant of a custom managed target cannot bypass the managed-file write guard', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-case-guard-'));
+  const port = await freePort();
+  const token = 'test-token-'.padEnd(48, 'x');
+  const child = spawn(process.execPath, ['dist/server.cjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, UEM_TEST_MODE: '1', UEM_TEST_NO_GLOBAL_UEFN_PROBE: '1', LOCALAPPDATA: path.join(root, 'LocalAppData'), PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: 'editor-token-'.padEnd(48, 'x'), UEM_CONTENT_ROOT: root, UEM_ASSET_MOUNT: '/CaseGuard', UEM_IDLE_TIMEOUT_MS: '60000' },
+    stdio: 'ignore',
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const auth = { 'Content-Type': 'application/json', 'X-UEM-Token': token };
+  try {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    const opened = await fetch(`${base}/api/catalog/open`, { method: 'POST', headers: auth, body: JSON.stringify({ config: { targetVerseFileName: 'Shop_Catalog.verse' } }) });
+    assert.equal((await opened.json()).catalog.config.targetVerseFileName, 'Shop_Catalog.verse');
+    for (const fileName of ['Shop_Catalog.verse', 'shop_catalog.verse', 'SHOP_CATALOG.VERSE']) {
+      const save = await fetch(`${base}/api/verse/save`, { method: 'POST', headers: auth, body: JSON.stringify({ fileName, content: 'outside the managed path', createBackup: false, expectedHash: null }) });
+      assert.equal(save.status, 409, fileName);
+    }
+    assert.deepEqual(fs.readdirSync(root).filter(name => name.toLowerCase().endsWith('.verse')), []);
+  } finally {
+    child.kill();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a backup restores the managed Verse file and catalog, and the replaced file becomes a backup', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-restore-'));
+  const content = path.join(root, 'Content');
+  const localAppData = path.join(root, 'LocalAppData');
+  fs.mkdirSync(path.join(content, 'EntitlementIcons'), { recursive: true });
+  // Saving needs the placeholder Texture2D package; this run has no editor to create it.
+  fs.writeFileSync(path.join(content, 'EntitlementIcons', 'UTM_PlaceholderIcon.uasset'), 'fixture package');
+  const target = path.join(content, 'managed_transactions.verse');
+  const config = defaultProjectConfig(content);
+  const version = (name: string) => generateVerseCode([normalizeEntitlement({ ...DEFAULT_PRESETS[0], id: 'pass', verseKey: 'access_pass', name, iconTexture: 'EntitlementIcons.UTM_PlaceholderIcon' }, 0)], [], config, { allOffers: [{ entitlementId: 'pass' }], focused: [] }, []);
+  fs.writeFileSync(target, version('First Pass'));
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = localAppData;
+  try { createProjectBackup(target, content); } finally {
+    if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previousLocalAppData;
+  }
+  fs.writeFileSync(target, version('Second Pass'));
+  const port = await freePort();
+  const token = 'test-token-'.padEnd(48, 'x');
+  const child = spawn(process.execPath, ['dist/server.cjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, UEM_TEST_MODE: '1', UEM_TEST_NO_GLOBAL_UEFN_PROBE: '1', LOCALAPPDATA: localAppData, PORT: String(port), UEM_SESSION_TOKEN: token, UEM_EDITOR_TOKEN: 'editor-token-'.padEnd(48, 'x'), UEM_CONTENT_ROOT: content, UEM_ASSET_MOUNT: '/RestoreTest', UEM_IDLE_TIMEOUT_MS: '60000' },
+    stdio: 'ignore',
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const auth = { 'Content-Type': 'application/json', 'X-UEM-Token': token };
+  try {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* startup */ }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    await fetch(`${base}/api/catalog/open`, { method: 'POST', headers: auth, body: '{}' });
+    const listed = await (await fetch(`${base}/api/backups`, { headers: { 'X-UEM-Token': token } })).json() as { backups: Array<{ name: string }> };
+    assert.equal(listed.backups.length, 1);
+    const rejected = await fetch(`${base}/api/backups/restore`, { method: 'POST', headers: auth, body: JSON.stringify({ name: '../outside.verse' }) });
+    assert.equal(rejected.status, 400);
+    const restore = await fetch(`${base}/api/backups/restore`, { method: 'POST', headers: auth, body: JSON.stringify({ name: listed.backups[0].name }) });
+    assert.equal(restore.status, 200);
+    const restored = await restore.json() as { catalog: { entitlements: Array<{ name: string }>; dirty: boolean }; safetyBackupName?: string };
+    assert.equal(restored.catalog.entitlements[0]?.name, 'First Pass');
+    assert.equal(restored.catalog.dirty, false);
+    assert.ok(restored.safetyBackupName);
+    assert.match(fs.readFileSync(target, 'utf8'), /First Pass/);
+    const after = await (await fetch(`${base}/api/backups`, { headers: { 'X-UEM-Token': token } })).json() as { backups: Array<{ name: string }> };
+    assert.equal(after.backups.length, 2);
+    assert.equal(after.backups[0].name, restored.safetyBackupName);
+    // Compile saves before building; repeating an unchanged save must not rewrite the file or add a backup.
+    const saveCatalog = async () => {
+      const { catalog: current } = await (await fetch(`${base}/api/catalog/snapshot`, { headers: { 'X-UEM-Token': token } })).json() as { catalog: { revision: string } };
+      const response = await fetch(`${base}/api/catalog/save`, { method: 'POST', headers: auth, body: JSON.stringify({ expectedRevision: current.revision }) });
+      assert.equal(response.status, 200);
+      return response.json() as Promise<{ contentHash: string; backupPath?: string }>;
+    };
+    const first = await saveCatalog();
+    const backupsBeforeRepeat = (await (await fetch(`${base}/api/backups`, { headers: { 'X-UEM-Token': token } })).json() as { backups: Array<{ name: string }> }).backups.map(entry => entry.name);
+    const modifiedBeforeRepeat = fs.statSync(target).mtimeMs;
+    const repeat = await saveCatalog();
+    assert.equal(repeat.contentHash, first.contentHash);
+    assert.equal(repeat.backupPath, undefined);
+    assert.equal(fs.statSync(target).mtimeMs, modifiedBeforeRepeat);
+    const backupsAfterRepeat = (await (await fetch(`${base}/api/backups`, { headers: { 'X-UEM-Token': token } })).json() as { backups: Array<{ name: string }> }).backups.map(entry => entry.name);
+    assert.deepEqual(backupsAfterRepeat, backupsBeforeRepeat);
+  } finally {
+    child.kill();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
