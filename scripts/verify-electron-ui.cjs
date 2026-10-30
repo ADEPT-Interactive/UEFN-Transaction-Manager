@@ -18,6 +18,7 @@ const editorToken = crypto.randomBytes(48).toString('base64url');
 
 let bridgeProcess;
 let fakeEditorProcess;
+let fakeConnectorHeartbeat;
 let bridgePort;
 let windowRef;
 let bridgeStdout = '';
@@ -1216,6 +1217,7 @@ async function verifyConnectionFeedback() {
 }
 
 async function cleanup() {
+  if (fakeConnectorHeartbeat) clearInterval(fakeConnectorHeartbeat);
   try {
     if (windowRef && !windowRef.isDestroyed()) windowRef.destroy();
   } catch {
@@ -1278,15 +1280,22 @@ async function main() {
   bridgeProcess.stdout.on('data', data => { bridgeStdout = `${bridgeStdout}${data}`.slice(-12000); });
   bridgeProcess.stderr.on('data', data => { bridgeStderr = `${bridgeStderr}${data}`.slice(-12000); });
   await waitForBridge();
-  const editorSession = await editorRequest('/api/editor/session', 'POST', JSON.stringify({
+  const editorSessionBody = JSON.stringify({
     contentRoot: path.join(runtimeProjectRoot, 'Content'),
     assetMount: '/Showcase',
     projectFile: showcaseProjectFile,
     projectReady: true,
     processId: fakeEditorProcess.pid,
     readinessReason: 'renderer-acceptance-fixture',
-  }));
+  });
+  const editorSession = await editorRequest('/api/editor/session', 'POST', editorSessionBody);
   assert.equal(editorSession.status, 200, `the renderer acceptance connector session should be accepted: ${editorSession.text}`);
+  // The bridge treats a connector as gone 8 s after its last report, and the
+  // real connector reports continuously. Keep this fixture reporting too, so
+  // native-import steps never depend on how quickly earlier steps finished.
+  fakeConnectorHeartbeat = setInterval(() => {
+    editorRequest('/api/editor/session', 'POST', editorSessionBody).catch(() => {});
+  }, 2000);
   const editorStatus = JSON.parse((await request('/api/editor/status')).text);
   assert.equal(editorStatus.freshExactConnector, true, `the renderer acceptance connector must be exact and fresh: ${JSON.stringify(editorStatus)}`);
   assert.equal(editorStatus.editorConnected, true, `the renderer acceptance connector must be ready: ${JSON.stringify(editorStatus)}`);
