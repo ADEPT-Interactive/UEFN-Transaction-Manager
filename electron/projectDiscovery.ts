@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { promises as fsPromises } from 'node:fs';
@@ -190,33 +190,65 @@ function parseCsvLine(line: string): string[] {
   return values;
 }
 
+const UEFN_TASKLIST_ARGUMENTS = ['/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/V', '/FO', 'CSV', '/NH'];
+
+function parseUefnTasklist(output: string): UefnProcess[] {
+  return output.split(/\r?\n/).filter(Boolean).map(parseCsvLine).flatMap(columns => {
+    const processId = Number(columns[1]);
+    if (!Number.isInteger(processId) || processId <= 0) return [];
+    const rawTitle = columns[columns.length - 1]?.trim();
+    return [{ processId, windowTitle: rawTitle && rawTitle !== 'N/A' ? rawTitle : undefined }];
+  });
+}
+
 export function listUefnProcesses(writeDiagnostic: DiagnosticWriter = () => undefined): UefnProcess[] {
   if (process.platform !== 'win32') return [];
   try {
-    const output = execFileSync('tasklist.exe', [
-      '/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/V', '/FO', 'CSV', '/NH',
-    ], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
-    return output.split(/\r?\n/).filter(Boolean).map(parseCsvLine).flatMap(columns => {
-      const processId = Number(columns[1]);
-      if (!Number.isInteger(processId) || processId <= 0) return [];
-      const rawTitle = columns[columns.length - 1]?.trim();
-      return [{ processId, windowTitle: rawTitle && rawTitle !== 'N/A' ? rawTitle : undefined }];
-    });
+    return parseUefnTasklist(execFileSync('tasklist.exe', UEFN_TASKLIST_ARGUMENTS, { encoding: 'utf8', windowsHide: true, timeout: 5000 }));
   } catch (error) {
     writeDiagnostic(`UEFN process discovery was unavailable: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
 
+/** Non-blocking variant for periodic checks on the Electron main process; tasklist /V takes ~400 ms. */
+export function listUefnProcessesAsync(writeDiagnostic: DiagnosticWriter = () => undefined): Promise<UefnProcess[]> {
+  if (process.platform !== 'win32') return Promise.resolve([]);
+  return new Promise(resolve => {
+    execFile('tasklist.exe', UEFN_TASKLIST_ARGUMENTS, { encoding: 'utf8', windowsHide: true, timeout: 5000 }, (error, output) => {
+      if (error) {
+        writeDiagnostic(`UEFN process discovery was unavailable: ${error.message}`);
+        resolve([]);
+        return;
+      }
+      resolve(parseUefnTasklist(output));
+    });
+  });
+}
+
+const LOG_TAIL_BYTES = 4 * 1024 * 1024;
+let activeProjectLogCache: { key: string; activePath: string | null } | undefined;
+
 export function readActiveProjectFromCurrentLog(writeDiagnostic: DiagnosticWriter = () => undefined): string | null {
   const logPath = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   if (!fs.existsSync(logPath)) return null;
   try {
+    // Read only the tail (matching the bridge) and only when the file changed.
+    // UEFN logs grow to tens of MB and this runs on the Electron main process.
+    const stats = fs.statSync(logPath);
+    const key = `${logPath}:${stats.size}:${stats.mtimeMs}:${stats.ino}`;
+    if (activeProjectLogCache?.key === key) return activeProjectLogCache.activePath;
+    const bytesToRead = Math.min(stats.size, LOG_TAIL_BYTES);
+    const buffer = Buffer.alloc(bytesToRead);
+    const descriptor = fs.openSync(logPath, 'r');
+    try { fs.readSync(descriptor, buffer, 0, bytesToRead, stats.size - bytesToRead); }
+    finally { fs.closeSync(descriptor); }
     // The shared parser still applies the latestStartup boundary before it
     // treats a later "Successfully opened project" record as current, and a
     // close marker can revoke that record.
-    const lifecycle = parseUefnProjectLifecycleLog(fs.readFileSync(logPath, 'utf8'));
-    return lifecycle.openedProject ?? null;
+    const activePath = parseUefnProjectLifecycleLog(buffer.toString('utf8')).openedProject ?? null;
+    activeProjectLogCache = { key, activePath };
+    return activePath;
   } catch (error) {
     writeDiagnostic(`The current UEFN log could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
     return null;
@@ -789,6 +821,17 @@ export function projectIsOpen(projectFile: string, writeDiagnostic: DiagnosticWr
   try {
     if (canonicalProjectPath(activePath).toLowerCase() !== canonicalProjectPath(projectFile).toLowerCase()) return undefined;
     return listUefnProcesses(writeDiagnostic).sort((left, right) => right.processId - left.processId)[0];
+  } catch {
+    return undefined;
+  }
+}
+
+export async function projectIsOpenAsync(projectFile: string, writeDiagnostic: DiagnosticWriter = () => undefined): Promise<UefnProcess | undefined> {
+  const activePath = readActiveProjectFromCurrentLog(writeDiagnostic);
+  if (!activePath) return undefined;
+  try {
+    if (canonicalProjectPath(activePath).toLowerCase() !== canonicalProjectPath(projectFile).toLowerCase()) return undefined;
+    return (await listUefnProcessesAsync(writeDiagnostic)).sort((left, right) => right.processId - left.processId)[0];
   } catch {
     return undefined;
   }

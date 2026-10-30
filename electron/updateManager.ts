@@ -52,6 +52,8 @@ const defaultFeedRoot = 'https://updates.adeptinteractive.net/uem/stable/';
 export class UpdateManager {
   private readonly currentVersion: string;
   private readonly enabled: boolean;
+  /** Feed overrides exist for local testing; a packaged build always uses the production feed. */
+  private readonly allowFeedOverride: boolean;
   private readonly distributionMode: DistributionMode;
   private readonly applicationRoot: string;
   private readonly executablePath: string;
@@ -78,6 +80,7 @@ export class UpdateManager {
   ) {
     this.currentVersion = currentVersion;
     this.enabled = platform === 'win32' && (isPackaged || process.env.UEM_UPDATE_TEST_CONFIG === '1');
+    this.allowFeedOverride = !isPackaged;
     this.distributionMode = distributionMode;
     this.applicationRoot = applicationRoot;
     this.executablePath = executablePath;
@@ -85,6 +88,10 @@ export class UpdateManager {
     this.writeDiagnostic = writeDiagnostic;
     this.updater = updater ?? resolveDefaultUpdater();
     this.state = { status: 'idle', currentVersion, distributionMode };
+  }
+
+  private feedRoot(): string {
+    return (this.allowFeedOverride ? process.env.UEM_UPDATE_TEST_URL : undefined) ?? defaultFeedRoot;
   }
 
   public isPortable(): boolean {
@@ -164,7 +171,8 @@ export class UpdateManager {
   }
 
   private async checkPortable(manual: boolean): Promise<UpdateState> {
-    const manifestUrl = process.env.UEM_PORTABLE_UPDATE_MANIFEST_URL ?? `${process.env.UEM_UPDATE_TEST_URL ?? defaultFeedRoot}portable-latest.json`;
+    const manifestOverride = this.allowFeedOverride ? process.env.UEM_PORTABLE_UPDATE_MANIFEST_URL : undefined;
+    const manifestUrl = manifestOverride ?? `${this.feedRoot()}portable-latest.json`;
     try {
       const response = await fetch(manifestUrl, { redirect: 'error' });
       if (!response.ok) throw new Error(`Portable update metadata returned HTTP ${response.status}.`);
@@ -214,7 +222,8 @@ export class UpdateManager {
     const updateRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'uem-portable-update-'));
     const archivePath = path.join(updateRoot, path.basename(manifest.filename));
     try {
-      const feedRoot = process.env.UEM_PORTABLE_UPDATE_MANIFEST_URL ? new URL('.', process.env.UEM_PORTABLE_UPDATE_MANIFEST_URL).toString() : (process.env.UEM_UPDATE_TEST_URL ?? defaultFeedRoot);
+      const manifestOverride = this.allowFeedOverride ? process.env.UEM_PORTABLE_UPDATE_MANIFEST_URL : undefined;
+      const feedRoot = manifestOverride ? new URL('.', manifestOverride).toString() : this.feedRoot();
       const response = await fetch(portableUpdateUrl(feedRoot, manifest));
       if (!response.ok) throw new Error(`Portable update archive returned HTTP ${response.status}.`);
       const total = Number(response.headers.get('content-length')) || manifest.size || 0;

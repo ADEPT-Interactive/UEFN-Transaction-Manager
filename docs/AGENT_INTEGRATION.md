@@ -6,7 +6,7 @@ UEFN Transaction Manager exposes a project-scoped MCP server for catalog work. A
 
 - Open the intended project in UTM and keep it running.
 - Use an MCP-capable coding agent. Installing a skill and configuring/loading MCP are separate steps.
-- For first setup or missing native assets, open the exact project in UEFN and enable Python in Project Settings and Tools → Enable Python. Initialized catalogs with confirmed assets can be edited and saved while UEFN is closed.
+- For first setup or missing native assets, open the exact project in UEFN and enable Python Editor Scripting (Project menu → Project Settings → Beta Access). Initialized catalogs with confirmed assets can be edited and saved while UEFN is closed.
 - For external editor work, also enable Epic MCP Toolsets and verify that its project matches UTM.
 
 UTM's main workspace now exposes **Agent** directly. If the catalog is empty, **Already have in-island transactions?** opens the migration setup path; the existing project does not need to be rebuilt by hand.

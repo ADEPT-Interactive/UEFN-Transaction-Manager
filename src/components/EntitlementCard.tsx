@@ -56,7 +56,7 @@ export const EntitlementCard: React.FC<EntitlementCardProps> = ({
           {/* V-Bucks Price Tag */}
           <div className="flex flex-col items-end">
             <div aria-label={`${item.priceVBucks.toLocaleString()} V-Bucks`} className="flex items-center gap-1.5 bg-gradient-to-r from-sky-500/20 to-blue-500/20 text-sky-300 border border-sky-400/40 px-2.5 py-1 rounded-full shadow-sm">
-              <VBucksIcon className="h-3.5 w-3.5 animate-pulse-subtle text-sky-400" />
+              <VBucksIcon className="h-3.5 w-3.5 text-sky-400" />
               <span className="font-extrabold text-xs font-mono">{item.priceVBucks.toLocaleString()}</span>
               <span className="sr-only">V-Bucks</span>
             </div>

@@ -21,6 +21,28 @@ STATE_PATH = os.path.join(
 )
 
 
+CONNECTOR_FILE_NAME = "entitlement_manager.py"
+
+
+def _is_trusted_connector(script_path):
+    """Only execute the connector shipped beside this file.
+
+    The session file lives in a user-writable folder, so its connector path
+    must not be able to point UEFN at arbitrary Python.
+    """
+    if not isinstance(script_path, str) or not os.path.isfile(script_path):
+        return False
+    resolved = os.path.normcase(os.path.realpath(script_path))
+    if os.path.basename(resolved) != os.path.normcase(CONNECTOR_FILE_NAME):
+        return False
+    this_file = globals().get("__file__")
+    if not this_file:
+        # Some UEFN execution routes may not set __file__; keep the name check.
+        return True
+    expected_directory = os.path.normcase(os.path.dirname(os.path.realpath(this_file)))
+    return os.path.dirname(resolved) == expected_directory
+
+
 def _read_ready_session():
     try:
         with open(STATE_PATH, "r", encoding="utf-8") as state_file:
@@ -30,7 +52,7 @@ def _read_ready_session():
         connector = state.get("connectorScript", "")
         if state.get("schemaVersion") != 1 or not 1024 <= port <= 65535:
             return None
-        if not isinstance(token, str) or len(token) < 32 or not os.path.isfile(connector):
+        if not isinstance(token, str) or len(token) < 32 or not _is_trusted_connector(connector):
             return None
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=0.75) as response:
             health = json.loads(response.read().decode("utf-8"))

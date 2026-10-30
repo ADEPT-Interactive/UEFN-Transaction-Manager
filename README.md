@@ -1,10 +1,10 @@
 <div align="center">
   <img src="public/uem-mark.svg" alt="UEFN Transaction Manager icon" width="112" height="112">
   <h1>UEFN Transaction Manager</h1>
-  <p>Current release: 4.5.1. Windows installer and portable downloads are available below.</p>
+  <p>Current release: 4.6.0. Windows installer and portable downloads are available below.</p>
   <p><strong>A visual tool for building and managing Fortnite in-island transactions in UEFN.</strong></p>
   <p>
-    <img alt="Version 4.5.1" src="https://img.shields.io/badge/version-4.5.1-24c7dd?style=flat-square">
+    <img alt="Version 4.6.0" src="https://img.shields.io/badge/version-4.6.0-24c7dd?style=flat-square">
     <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-5b8cff?style=flat-square">
     <img alt="UEFN" src="https://img.shields.io/badge/built%20for-UEFN-8b5cf6?style=flat-square">
     <a href="https://discord.gg/playadept"><img alt="ADEPT Discord" src="https://img.shields.io/discord/790712680482603038?label=Discord&logo=discord&logoColor=white&color=5865F2&style=flat-square"></a>
@@ -104,7 +104,7 @@ For first-time setup or migration, confirm the exact project is open in UEFN and
 
 1. In UEFN, open the palm-tree **Project** menu.
 2. Choose **Project Settings**.
-3. Enable **Python Editor Scripting**.
+3. In the **Beta Access** section, enable **Python Editor Scripting**.
 4. Keep this exact project open while UTM provisions its native placeholder and confirms the object path.
 5. Add or edit an icon and confirm the import.
 
@@ -196,11 +196,15 @@ When UEFN is closed, open the project linked to this Transaction Manager window 
 
 ### Icon import is unavailable
 
-Enable **Python Editor Scripting** in the project settings, then confirm UEFN and UTM target the same project. First-time setup and native import require the editor connection to remain available while the exact Texture2D object path is confirmed. If an initialized catalog references only existing confirmed assets, catalog-only edits can be saved while UEFN is closed.
+In UEFN, open the palm-tree **Project** menu → **Project Settings** and enable **Python Editor Scripting** under **Beta Access**, then confirm UEFN and UTM target the same project. First-time setup and native import require the editor connection to remain available while the exact Texture2D object path is confirmed. If an initialized catalog references only existing confirmed assets, catalog-only edits can be saved while UEFN is closed.
 
 ### A generated device field is missing
 
 Compile successfully, refresh the UEFN Content Browser, and confirm that you placed the generated device from the target project. Some generated device reference arrays may still require manual UEFN wiring when the current Unreal MCP representation cannot assign them reliably.
+
+### Restore an earlier save
+
+Choose **Tools → Restore a backup…** to roll the managed Verse file back to an earlier save. UTM keeps the 5 most recent backups per project, outside the project folder, and backs up the current file before restoring, so a restore can be undone. Compile in UEFN afterwards.
 
 ### An agent cannot see both servers
 

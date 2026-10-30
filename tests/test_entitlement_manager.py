@@ -615,6 +615,42 @@ class EntitlementManagerPathTests(unittest.TestCase):
         self.assertTrue(first_stop.is_set())
         second_stop.set()
 
+    def test_editor_tick_readiness_check_is_throttled(self):
+        import entitlement_manager
+
+        unreal = types.SimpleNamespace(
+            register_slate_post_tick_callback=lambda callback: "tick-handle",
+            log=lambda _message: None,
+            log_warning=lambda _message: None,
+        )
+        readiness = mock.Mock(return_value={"ready": True, "reason": "verified"})
+        with mock.patch.dict(sys.modules, {"unreal": unreal}), mock.patch.object(entitlement_manager, "_bridge_request", return_value={"job": None}), mock.patch.object(entitlement_manager, "_editor_project_readiness", readiness):
+            entitlement_manager.install_texture_import_bridge(43210, "test", "content", "/Test", "Test.uefnproject")
+            try:
+                for _ in range(60):
+                    unreal._uem_texture_import_callback(0.016)
+                # The readiness check enumerates desktop windows; it must not run every editor frame.
+                self.assertEqual(readiness.call_count, 1)
+            finally:
+                unreal._uem_texture_import_stop_event.set()
+                unreal._uem_texture_import_worker.join(timeout=1)
+                unreal._uem_texture_heartbeat_worker.join(timeout=1)
+
+    def test_auto_connector_only_loads_the_connector_shipped_beside_it(self):
+        import uefn_auto_connector
+
+        shipped = os.path.join(os.path.dirname(os.path.abspath(uefn_auto_connector.__file__)), "entitlement_manager.py")
+        self.assertTrue(uefn_auto_connector._is_trusted_connector(shipped))
+        with tempfile.TemporaryDirectory() as directory:
+            planted = os.path.join(directory, "entitlement_manager.py")
+            other = os.path.join(directory, "payload.py")
+            for path in (planted, other):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("raise SystemExit")
+            self.assertFalse(uefn_auto_connector._is_trusted_connector(planted))
+            self.assertFalse(uefn_auto_connector._is_trusted_connector(other))
+        self.assertFalse(uefn_auto_connector._is_trusted_connector(None))
+
 
 if __name__ == "__main__":
     unittest.main()

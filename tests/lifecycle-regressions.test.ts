@@ -5,13 +5,14 @@ import path from 'node:path';
 import test from 'node:test';
 import http from 'node:http';
 import { BootstrapPolicy } from '../electron/bootstrapPolicy.js';
+import { pruneLogDirectory } from '../electron/logRetention.js';
 import { connectorBootstrapCommand } from '../electron/connectorBootstrap.js';
 import { tryDuckyBootstrap } from '../electron/duckyBootstrap.js';
 import { isExpectedNavigationAbort, SerializedAsyncOperation } from '../electron/navigation.js';
-import { createProjectBackup, projectBackupDirectory } from '../shared/projectBackups.js';
+import { createProjectBackup, listProjectBackups, MAX_BACKUPS_PER_FILE, projectBackupDirectory, resolveProjectBackup } from '../shared/projectBackups.js';
 import { isConnectorHeartbeatFresh, isProjectReadinessFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess } from '../shared/editorLifecycle.js';
 import { deriveEditorConnectionState } from '../shared/editorState.js';
-import { projectPythonIsEnabled } from '../shared/pythonEnablement.js';
+import { projectPythonEnablementState, projectPythonIsEnabled } from '../shared/pythonEnablement.js';
 
 const read = (filePath: string) => fs.readFileSync(path.join(process.cwd(), filePath), 'utf8');
 
@@ -27,10 +28,12 @@ test('Python eligibility follows project and per-user switches without reopening
     fs.mkdirSync(path.dirname(ini), { recursive: true });
     fs.writeFileSync(ini, `EnablePythonLocallyPerProject=((aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa, True),(${projectId}, False))`);
     assert.equal(projectPythonIsEnabled(file, true, root), false);
+    assert.equal(projectPythonEnablementState(file, true, root), 'local-disabled');
     fs.writeFileSync(ini, `EnablePythonLocallyPerProject=((${projectId.toUpperCase()}, True))`);
     assert.equal(projectPythonIsEnabled(file, false, root), true);
     fs.writeFileSync(file, descriptor(false));
     assert.equal(projectPythonIsEnabled(file, true, root), false);
+    assert.equal(projectPythonEnablementState(file, true, root), 'project-disabled');
     fs.writeFileSync(file, descriptor(true));
     assert.equal(projectPythonIsEnabled(file, false, root), true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -457,4 +460,94 @@ test('recent explicit integer typing remains in the generated Verse consumption 
   const generator = read('src/services/verseGenerator.ts');
   assert.match(generator, /var RequestedRemaining:int/);
   assert.match(generator, /var BufferedMatched:int/);
+});
+
+test('only the first attempt budget may type into the UEFN window; recovery cycles stay focus-free', () => {
+  const policy = new BootstrapPolicy();
+  const project = { projectFile: 'C:/Projects/Commerce.uefnproject', processId: 42 };
+  policy.observe({ now: 0, project, connectorAlive: false, editorConnected: false });
+  for (const now of [4_000, 6_000, 11_000]) {
+    const decision = policy.observe({ now, project, connectorAlive: false, editorConnected: false });
+    assert.equal(decision.kind, 'attempt');
+    if (decision.kind === 'attempt') assert.equal(decision.allowForegroundInput, true);
+  }
+  assert.equal(policy.observe({ now: 16_000, project, connectorAlive: false, editorConnected: false }).kind, 'exhausted');
+  const recovery = policy.observe({ now: 46_000, project, connectorAlive: false, editorConnected: false });
+  assert.equal(recovery.kind, 'attempt');
+  if (recovery.kind === 'attempt') assert.equal(recovery.allowForegroundInput, false);
+  // A manual retry resets the policy and re-enables one foreground budget.
+  policy.reset();
+  policy.observe({ now: 50_000, project, connectorAlive: false, editorConnected: false });
+  const manual = policy.observe({ now: 54_000, project, connectorAlive: false, editorConnected: false });
+  assert.equal(manual.kind, 'attempt');
+  if (manual.kind === 'attempt') assert.equal(manual.allowForegroundInput, true);
+});
+
+test('log retention removes only old per-launch logs and rotates the shared bridge log', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-log-retention-'));
+  try {
+    const now = Date.now();
+    const old = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const write = (name: string, content = 'x', mtime?: Date) => {
+      const file = path.join(root, name);
+      fs.writeFileSync(file, content);
+      if (mtime) fs.utimesSync(file, mtime, mtime);
+      return file;
+    };
+    write('electron-main-100.log', 'x', old);
+    write('bridge-startup-5000.log', 'x', old);
+    write('desktop-shell-7.log', 'x', old);
+    const current = write('electron-main-200.log', 'x', old);
+    write('electron-main-300.log');
+    write('unrelated-notes.log', 'x', old);
+    write('bridge.log', 'y'.repeat(2048));
+    const result = pruneLogDirectory(root, { now, keep: new Set([current]), maxRotatedLogBytes: 1024 });
+    assert.equal(result.removed, 3);
+    assert.deepEqual(result.rotated, ['bridge.log']);
+    assert.deepEqual(fs.readdirSync(root).sort(), ['bridge.log.1', 'electron-main-200.log', 'electron-main-300.log', 'unrelated-notes.log']);
+    assert.deepEqual(pruneLogDirectory(path.join(root, 'missing')), { removed: 0, rotated: [] });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('backups keep only the newest few per file and never touch unrelated files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uem-backup-retention-'));
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = path.join(root, 'LocalAppData');
+  const content = path.join(root, 'Project', 'Content');
+  const projectFile = path.join(root, 'Project', 'Project.uefnproject');
+  const managed = path.join(content, 'managed_transactions.verse');
+  const manual = path.join(content, 'manual.verse');
+  fs.mkdirSync(content, { recursive: true });
+  try {
+    const directory = projectBackupDirectory(content, projectFile);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'init_unreal.py.2026-09-15T02-31-26-262Z.35020.b1610212.bak'), 'legacy');
+    fs.writeFileSync(path.join(directory, 'notes.txt'), 'owner file');
+    fs.writeFileSync(manual, 'manual');
+    createProjectBackup(manual, content, projectFile);
+    for (let version = 1; version <= MAX_BACKUPS_PER_FILE + 3; version += 1) {
+      fs.writeFileSync(managed, `version ${version}`);
+      createProjectBackup(managed, content, projectFile);
+    }
+    const kept = listProjectBackups(content, projectFile, 'managed_transactions.verse');
+    assert.equal(kept.length, MAX_BACKUPS_PER_FILE);
+    assert.equal(fs.readFileSync(resolveProjectBackup(content, projectFile, kept[0].name).filePath, 'utf8'), `version ${MAX_BACKUPS_PER_FILE + 3}`);
+    assert.equal(listProjectBackups(content, projectFile, 'manual.verse').length, 1);
+    assert.ok(fs.existsSync(path.join(directory, 'notes.txt')));
+    assert.ok(fs.existsSync(path.join(directory, 'init_unreal.py.2026-09-15T02-31-26-262Z.35020.b1610212.bak')));
+    for (const name of [path.join('..', 'notes.txt'), 'notes.txt', `../${kept[0].name}`, 42]) assert.throws(() => resolveProjectBackup(content, projectFile, name));
+    // Saving the same bytes again (Compile saves first) must not push older versions out.
+    const repeated = createProjectBackup(managed, content, projectFile);
+    assert.equal(path.basename(repeated), kept[0].name);
+    assert.deepEqual(listProjectBackups(content, projectFile, 'managed_transactions.verse').map(entry => entry.name), kept.map(entry => entry.name));
+    fs.writeFileSync(managed, 'version after a repeat');
+    const changed = createProjectBackup(managed, content, projectFile);
+    assert.equal(listProjectBackups(content, projectFile, 'managed_transactions.verse')[0].name, path.basename(changed));
+  } finally {
+    if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previousLocalAppData;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

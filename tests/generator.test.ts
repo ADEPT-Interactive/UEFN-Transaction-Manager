@@ -1133,3 +1133,14 @@ test('validator rejects offer keys and alternate IDs reused anywhere in the proj
   assert.ok(rules.includes('offer_identifier_unique'));
   assert.ok(rules.includes('alternate_offer_id_unique'));
 });
+
+test('curly braces in creator text are escaped so Verse never interpolates them', () => {
+  const braced: EntitlementItem = { ...items[0], name: 'Gold {Pack}', shortDescription: 'Get {Amount} gold', description: 'Contains {Amount} gold.' };
+  const source = generateVerseCode([braced], [], config, { allOffers: [{ entitlementId: braced.id }], focused: [] }, []);
+  const creatorTextLines = source.split('\n').filter(line => !line.trimStart().startsWith('#') && /Gold|Amount/.test(line));
+  assert.ok(creatorTextLines.length >= 3);
+  assert.ok(creatorTextLines.some(line => line.includes('"Gold \\{Pack\\}"')));
+  for (const line of creatorTextLines) assert.doesNotMatch(line, /(?<!\\)\{(?:Pack|Amount)/, `unescaped brace in ${line}`);
+  // The manifest keeps the original text so the catalog round-trips unchanged.
+  assert.equal(parseVerseCode(source).entitlements[0]?.name, 'Gold {Pack}');
+});

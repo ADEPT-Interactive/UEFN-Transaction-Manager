@@ -69,7 +69,7 @@ test('creator guidance and template chooser stay streamlined', () => {
   const userFacingPythonCopy = [appSource, setupSource, read('README.md'), read('README-USER.txt'), read(path.join('server', 'index.ts')), read(path.join('electron', 'launcher.html'))].join('\n');
   assert.doesNotMatch(userFacingPythonCopy, /restart UEFN/i);
   assert.match(setupSource, /Python Editor Scripting/);
-  assert.match(setupSource, /Tools → Enable Python/);
+  assert.match(setupSource, /Beta Access/);
   assert.doesNotMatch(setupSource, /Reward handling|legacy-named/);
   assert.doesNotMatch(chooserSource, /Starting price/);
   assert.match(chooserSource, /aria-expanded=\{selected\}/);
@@ -168,7 +168,7 @@ test('standalone startup paints before discovery and automatically installs its 
   assert.match(serverSource, /selectedProjectIsActiveInUefn/);
   assert.match(serverSource, /\/api\/editor\/status/);
   assert.match(bridgeSource, /watchForEditorBootstrap/);
-  assert.match(bridgeSource, /projectIsOpen\(projectFile/);
+  assert.match(bridgeSource, /projectIsOpen(?:Async)?\(projectFile/);
   assert.match(bridgeSource, /editorBootstrapWatcher = setInterval/);
   assert.match(read(path.join('electron', 'bootstrapPolicy.ts')), /maxAttempts = 3/);
   assert.match(read(path.join('electron', 'bootstrapPolicy.ts')), /bounded-bootstrap-attempts-exhausted/);
@@ -297,4 +297,11 @@ test('release shell uses stable application identity and versioned artifacts', (
   assert.match(releaseScript, /electron\\installer\.nsh/);
   assert.equal(packageVersion, version);
   assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
+});
+
+test('the idle catalog runs no looping animations (they keep the GPU busy next to UEFN)', () => {
+  assert.doesNotMatch(read('src/index.css'), /animation:[^;]*\binfinite\b/);
+  const sources = fs.readdirSync(path.join(root, 'src', 'components')).filter(name => name.endsWith('.tsx'))
+    .map(name => read(path.join('src', 'components', name)));
+  for (const source of sources) assert.doesNotMatch(source, /\banimate-(?:pulse|ping|bounce)\b/);
 });

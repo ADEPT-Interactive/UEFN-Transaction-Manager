@@ -18,12 +18,12 @@ import { isPlaceholderIconTexture, PLACEHOLDER_ICON_DATA_URL } from '../src/cons
 import { UTMcpHost, type SaveCatalogResult, type UTMProjectContext } from './utmMcp';
 import { installAgentSkill, inspectAllAgentSkills, type AgentSkillInstallationStatus, type SupportedAgentId } from './agentSetup';
 import { assetPackagePathFromObjectPath, collectManagedAssetReferences, missingManagedAssetReferences } from './managedAssets';
-import { createProjectBackup } from '../shared/projectBackups';
+import { createProjectBackup, listProjectBackups, resolveProjectBackup } from '../shared/projectBackups';
 import { PROCESS_PROBE_CACHE_MS, isConnectorHeartbeatFresh, parseUefnProjectLifecycleLog, retainKnownRunningProcess, type UefnProjectLifecycle } from '../shared/editorLifecycle';
 import { deriveEditorConnectionState, type EditorConnectionState } from '../shared/editorState';
 import { AgentActivityManager } from './agentActivity';
 import { projectIdentityFromContext } from './agentPreflight';
-import { projectPythonIsEnabled as readProjectPythonEnabled } from '../shared/pythonEnablement';
+import { projectPythonEnablementState, projectPythonIsEnabled as readProjectPythonEnabled } from '../shared/pythonEnablement';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -121,6 +121,18 @@ function sendBridgeInternalError(error: unknown, request: express.Request, respo
   });
 }
 
+// The bridge holds the only copy of the unsaved shared draft. A stray async
+// failure must be recorded, not allowed to terminate the process.
+process.on('unhandledRejection', error => {
+  try {
+    fs.mkdirSync(path.dirname(bridgeDiagnosticLogPath), { recursive: true });
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+    fs.appendFileSync(bridgeDiagnosticLogPath, `[${new Date().toISOString()}] ${bridgeDiagnosticReference()} unhandled rejection\n${detail}\n`, { encoding: 'utf8' });
+  } catch {
+    // Logging is best effort.
+  }
+});
+
 function bodyParserError(error: unknown): { status: 400 | 413; code: 'INVALID_JSON' | 'REQUEST_PAYLOAD_TOO_LARGE'; message: string } | undefined {
   const candidate = error as { type?: unknown; status?: unknown; statusCode?: unknown };
   if (candidate?.type === 'entity.too.large' || candidate?.status === 413 || candidate?.statusCode === 413) {
@@ -207,12 +219,18 @@ function emptyUefnProjectLifecycle(): UefnProjectLifecycle {
   return { openedPosition: -1, openingPosition: -1, closedPosition: -1, latestSelectionPosition: -1, projectOpening: false };
 }
 
+// Status endpoints run several times per second. Re-read and re-parse the log
+// tail only when the file itself changed.
+let lifecycleCache: { key: string; value: UefnProjectLifecycle } | undefined;
+
 function latestUefnProjectLifecycle(): UefnProjectLifecycle {
   if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return emptyUefnProjectLifecycle();
   const logPath = path.join(process.env.LOCALAPPDATA, 'UnrealEditorFortnite', 'Saved', 'Logs', 'UnrealEditorFortnite.log');
   try {
     if (!fs.existsSync(logPath)) return emptyUefnProjectLifecycle();
     const stats = fs.statSync(logPath);
+    const key = `${stats.size}:${stats.mtimeMs}:${stats.ino}`;
+    if (lifecycleCache?.key === key) return lifecycleCache.value;
     const bytesToRead = Math.min(stats.size, 4 * 1024 * 1024);
     const buffer = Buffer.alloc(bytesToRead);
     const descriptor = fs.openSync(logPath, 'r');
@@ -220,7 +238,9 @@ function latestUefnProjectLifecycle(): UefnProjectLifecycle {
     finally { fs.closeSync(descriptor); }
     // parseUefnProjectLifecycleLog applies the latestStartup boundary before
     // project readiness is derived from the current UEFN lifecycle.
-    return parseUefnProjectLifecycleLog(buffer.toString('utf8'));
+    const value = parseUefnProjectLifecycleLog(buffer.toString('utf8'));
+    lifecycleCache = { key, value };
+    return value;
   } catch {
     return emptyUefnProjectLifecycle();
   }
@@ -272,26 +292,43 @@ function processIdIsRunning(processId: number): boolean {
 function uefnIsRunning(): boolean {
   if (connectorHeartbeatIsFresh()) return true;
   if (expectedEditorProcessId > 0 && processIdIsRunning(expectedEditorProcessId)) return true;
-  if (isolateGlobalUefnProbe) return false;
+  if (isolateGlobalUefnProbe || process.platform !== 'win32') return false;
+  // tasklist takes roughly 400 ms. The first probe is synchronous so startup
+  // state is accurate; later probes refresh in the background so status
+  // requests never block the bridge event loop.
+  if (cachedUefnProcessSnapshot.checkedAt === 0) probeUefnProcessSync();
+  else if (Date.now() - cachedUefnProcessSnapshot.checkedAt >= PROCESS_PROBE_CACHE_MS) refreshUefnProcessSnapshot();
+  return cachedUefnProcessSnapshot.running;
+}
+
+const UEFN_TASKLIST_ARGUMENTS = ['/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/FO', 'CSV', '/NH'];
+let uefnProcessProbeInFlight = false;
+
+function recordUefnProcessProbe(output: string | undefined): void {
   const now = Date.now();
-  if (now - cachedUefnProcessSnapshot.checkedAt < PROCESS_PROBE_CACHE_MS) return cachedUefnProcessSnapshot.running;
-  let running = false;
-  if (process.platform === 'win32') {
-    try {
-      const output = childProcess.execFileSync(
-        'tasklist.exe',
-        ['/FI', 'IMAGENAME eq UnrealEditorFortnite-Win64-Shipping.exe', '/FO', 'CSV', '/NH'],
-        { encoding: 'utf8', windowsHide: true, timeout: 1500 },
-      );
-      running = /UnrealEditorFortnite-Win64-Shipping\.exe/i.test(output);
-    } catch {
-      running = retainKnownRunningProcess(cachedUefnProcessSnapshot.running, cachedUefnProcessSnapshot.lastSuccessfulProbeAt, now);
-      cachedUefnProcessSnapshot = { checkedAt: now, running, lastSuccessfulProbeAt: cachedUefnProcessSnapshot.lastSuccessfulProbeAt };
-      return running;
-    }
+  if (output === undefined) {
+    const running = retainKnownRunningProcess(cachedUefnProcessSnapshot.running, cachedUefnProcessSnapshot.lastSuccessfulProbeAt, now);
+    cachedUefnProcessSnapshot = { checkedAt: now, running, lastSuccessfulProbeAt: cachedUefnProcessSnapshot.lastSuccessfulProbeAt };
+    return;
   }
-  cachedUefnProcessSnapshot = { checkedAt: now, running, lastSuccessfulProbeAt: now };
-  return running;
+  cachedUefnProcessSnapshot = { checkedAt: now, running: /UnrealEditorFortnite-Win64-Shipping\.exe/i.test(output), lastSuccessfulProbeAt: now };
+}
+
+function probeUefnProcessSync(): void {
+  try {
+    recordUefnProcessProbe(childProcess.execFileSync('tasklist.exe', UEFN_TASKLIST_ARGUMENTS, { encoding: 'utf8', windowsHide: true, timeout: 1500 }));
+  } catch {
+    recordUefnProcessProbe(undefined);
+  }
+}
+
+function refreshUefnProcessSnapshot(): void {
+  if (uefnProcessProbeInFlight) return;
+  uefnProcessProbeInFlight = true;
+  childProcess.execFile('tasklist.exe', UEFN_TASKLIST_ARGUMENTS, { encoding: 'utf8', windowsHide: true, timeout: 3000 }, (error, output) => {
+    uefnProcessProbeInFlight = false;
+    recordUefnProcessProbe(error ? undefined : output);
+  });
 }
 
 function pathsEqual(first: string | undefined, second: string | undefined): boolean {
@@ -611,6 +648,9 @@ async function saveGeneratedCatalog(): Promise<SaveCatalogResult> {
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'The generated Verse could not be produced.', status: 422 };
   }
+  const contentHash = sha256(content);
+  // Compile saves first; an unchanged catalog needs no rewrite and no new backup.
+  if (currentHash === contentHash) return { success: true, fileName, filePath, contentHash } as SaveCatalogResult;
   let backupPath: string | undefined;
   let temporaryPath = '';
   try {
@@ -620,7 +660,7 @@ async function saveGeneratedCatalog(): Promise<SaveCatalogResult> {
     temporaryPath = path.join(contentRoot, `.${fileName}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
     fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', flag: 'wx' });
     fs.renameSync(temporaryPath, filePath);
-    return { success: true, fileName, filePath, backupPath, contentHash: sha256(content) } as SaveCatalogResult;
+    return { success: true, fileName, filePath, backupPath, contentHash } as SaveCatalogResult;
   } catch (error) {
     if (temporaryPath && fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
     return { success: false, error: error instanceof Error ? error.message : 'The managed Verse file could not be written.', status: 500 };
@@ -748,7 +788,7 @@ app.get('/api/catalog/snapshot', (_req, res) => res.json({ success: true, manage
 
 app.post('/api/catalog/replace', async (req, res) => {
   try {
-    if (!req.body?.catalog || typeof req.body.catalog !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog replacement requires a catalog and expectedRevision.');
+    if (!req.body?.catalog || typeof req.body.catalog !== 'object' || typeof req.body.expectedRevision !== 'string') return res.status(400).json({ success: false, code: 'INVALID_REQUEST', error: 'Catalog replacement requires a catalog and expectedRevision.' });
     const currentRevision = catalogSession.snapshot().revision;
     if (currentRevision !== req.body.expectedRevision) throw new CatalogDomainError(CATALOG_ERROR_CODES.revisionConflict, 'The catalog changed before replacement.', { expectedRevision: req.body.expectedRevision, currentRevision }, 409);
     await assertCatalogReady(req.body.catalog as CatalogDocument);
@@ -764,7 +804,7 @@ app.post('/api/catalog/replace', async (req, res) => {
 
 app.post('/api/catalog/mutate', async (req, res) => {
   try {
-    if (!req.body?.operation || typeof req.body.operation !== 'object' || typeof req.body.expectedRevision !== 'string') throw new Error('Catalog mutation requires an operation and expectedRevision.');
+    if (!req.body?.operation || typeof req.body.operation !== 'object' || typeof req.body.expectedRevision !== 'string') return res.status(400).json({ success: false, code: 'INVALID_REQUEST', error: 'Catalog mutation requires an operation and expectedRevision.' });
     const proposed = catalogSession.applyPatch([req.body.operation], req.body.expectedRevision, true).snapshot;
     await assertCatalogReady(proposed);
     const result = catalogSession.mutate(req.body.operation, req.body.expectedRevision);
@@ -950,6 +990,7 @@ app.get('/api/editor/status', (_req, res) => {
     openProjectFile: state.openProjectFile,
     openingProjectFile: state.openingProjectFile,
     pythonEnabled: state.pythonEnabled,
+    pythonState: projectPythonEnablementState(configuredProjectFile, initialProjectPythonEnabled),
     autoConnectorInstalled,
     nativeTextureImportAvailable: state.editorConnected,
     bootstrapState,
@@ -1026,7 +1067,8 @@ app.post('/api/verse/save', (req, res) => {
   let temporaryPath = '';
   try {
     const fileName = validateVerseFileName(req.body.fileName);
-    if (fileName === catalogSession.snapshot().config.targetVerseFileName || fileName.toLowerCase() === 'managed_transactions.verse') {
+    // Windows file names are case-insensitive, so the guard must be too.
+    if (fileName.toLowerCase() === catalogSession.snapshot().config.targetVerseFileName.toLowerCase() || fileName.toLowerCase() === 'managed_transactions.verse') {
       return res.status(409).json({ success: false, code: 'PROJECT_NOT_READY', error: 'The managed transaction Verse file can only be written through catalog save after managed Texture2D readiness has been confirmed.' });
     }
     if (typeof req.body.content !== 'string') throw new Error('Verse content must be a string.');
@@ -1051,11 +1093,51 @@ app.post('/api/verse/save', (req, res) => {
     fs.writeFileSync(temporaryPath, req.body.content, { encoding: 'utf8', flag: 'wx' });
     fs.renameSync(temporaryPath, filePath);
     temporaryPath = '';
-    if (fileName === catalogSession.snapshot().config.targetVerseFileName) catalogSession.markSaved(sha256(req.body.content));
     res.json({ success: true, filePath, backupPath, contentHash: sha256(req.body.content), message: 'Verse file written atomically.' });
   } catch (error) {
     if (temporaryPath && fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Failed to save Verse file.' });
+  }
+});
+
+app.get('/api/backups', (_req, res) => {
+  try {
+    const target = catalogSession.snapshot().config.targetVerseFileName;
+    res.json({ success: true, targetVerseFileName: target, backups: listProjectBackups(contentRoot, configuredProjectFile, target) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Backups could not be listed.' });
+  }
+});
+
+app.post('/api/backups/restore', (req, res) => {
+  let temporaryPath = '';
+  try {
+    const config = catalogSession.snapshot().config;
+    const fileName = validateVerseFileName(config.targetVerseFileName);
+    const { filePath: backupPath, entry } = resolveProjectBackup(contentRoot, configuredProjectFile, req.body?.name);
+    if (entry.sourceFileName.toLowerCase() !== fileName.toLowerCase()) return res.status(400).json({ success: false, error: `That backup is for ${entry.sourceFileName}, not ${fileName}.` });
+    // Read before the safety backup below, which may prune the oldest backup.
+    const content = fs.readFileSync(backupPath, 'utf8');
+    const parsed = parseVerseCode(content);
+    if (!parsed.managed || parsed.error) return res.status(422).json({ success: false, error: 'That backup does not contain a readable Transaction Manager catalog.' });
+    const filePath = path.join(contentRoot, fileName);
+    let safetyBackupPath: string | undefined;
+    if (fs.existsSync(filePath)) {
+      assertExistingPathInsideRoot(contentRoot, filePath);
+      // Restoring is itself undoable: the file being replaced becomes the newest backup.
+      safetyBackupPath = createProjectBackup(filePath, contentRoot, configuredProjectFile);
+    }
+    temporaryPath = path.join(contentRoot, `.${fileName}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
+    fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(temporaryPath, filePath);
+    temporaryPath = '';
+    const loaded = readCatalogAtConfig(config);
+    catalogManaged = loaded.managed;
+    const catalog = catalogSession.restoreFromDisk(loaded.document, loaded.contentHash ?? sha256(content));
+    res.json({ success: true, restored: entry, safetyBackupName: safetyBackupPath ? path.basename(safetyBackupPath) : undefined, catalog });
+  } catch (error) {
+    if (temporaryPath && fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'The backup could not be restored.' });
   }
 });
 

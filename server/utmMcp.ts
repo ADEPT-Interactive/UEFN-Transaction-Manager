@@ -17,6 +17,9 @@ import {
 import { AgentActivityError, AgentActivityManager, type AgentActivityMode, type AgentActivityStatus, type PublicAgentActivityState } from './agentActivity';
 import { OperationPreflightError, OperationPreflightManager, projectIdentityFromContext } from './agentPreflight';
 
+const MAX_MCP_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_MCP_SESSIONS = 32;
+
 export interface UTMProjectContext {
   productVersion: string;
   projectName: string;
@@ -87,7 +90,7 @@ type McpResponse = {
 };
 
 const expectedRevision = z.string().min(1).describe('Opaque catalog revision returned by get_catalog_snapshot.');
-const data = z.record(z.unknown()).optional().describe('Fields to create or patch. Internal IDs are allocated by UTM unless explicitly supplied.');
+const data = z.record(z.string(), z.unknown()).optional().describe('Fields to create or patch. Internal IDs are allocated by UTM unless explicitly supplied.');
 const targetId = z.string().min(1);
 const publicIdentitySchema = z.object({
   kind: z.enum(['entitlement', 'alternate_offer', 'bundle', 'storefront']),
@@ -182,14 +185,14 @@ const externalReadinessSchema = z.object({
   }),
   project: projectIdentitySchema.optional(),
   editorReady: z.boolean().optional(),
-  capabilities: z.record(capabilityEvidenceSchema),
+  capabilities: z.record(z.string(), capabilityEvidenceSchema),
 });
 const catalogOnlyApprovalSchema = z.object({ approved: z.boolean(), confirmation: z.string().min(1).max(500) });
 const operationPreflightSchema = {
   operation: agentOperationSchema,
   mode: agentModeSchema.optional(),
   requestedProject: projectIdentitySchema.optional(),
-  requestedScope: z.record(z.unknown()).optional(),
+  requestedScope: z.record(z.string(), z.unknown()).optional(),
   externalReadiness: externalReadinessSchema.optional(),
   approval: catalogOnlyApprovalSchema.optional(),
 };
@@ -209,11 +212,11 @@ const patchOperationSchema = z.object({
     'create_storefront', 'update_storefront', 'delete_storefront', 'set_storefront_membership',
     'adopt_existing_identity',
   ]),
-  data: z.record(z.unknown()).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
   targetId: z.string().optional(),
   kind: z.enum(['entitlement', 'alternate_offer', 'bundle', 'storefront']).optional(),
   verseKey: z.string().optional(),
-  publicIdentity: z.record(z.unknown()).optional(),
+  publicIdentity: z.record(z.string(), z.unknown()).optional(),
   entitlementId: z.string().optional(),
   alternateOfferId: z.string().optional(),
   bundleId: z.string().optional(),
@@ -354,7 +357,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
       mode: z.enum(['read-only', 'mutating']),
       phase: z.string().min(1).max(100).optional(),
       description: z.string().min(1).max(160).optional(),
-      scope: z.record(z.unknown()).optional(),
+      scope: z.record(z.string(), z.unknown()).optional(),
       preflightToken: z.string().min(1).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -430,7 +433,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
   server.registerTool('validate_catalog', {
     title: 'Validate catalog',
     description: 'Read-only. Runs the authoritative UTM validator against the current shared draft. It does not mutate or save the catalog.',
-    inputSchema: { candidate: z.record(z.unknown()).optional().describe('Reserved for a future dry-run candidate; omit to validate the live draft.') },
+    inputSchema: { candidate: z.record(z.string(), z.unknown()).optional().describe('Reserved for a future dry-run candidate; omit to validate the live draft.') },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   }, async () => jsonResult({ revision: catalog.currentRevision, issues: catalog.validateCurrent() }));
 
@@ -543,7 +546,7 @@ function registerTools(server: McpServer, options: UTMHostOptions, connectionId:
   server.registerTool('set_storefront_membership', {
     title: 'Set storefront membership',
     description: 'Replaces one storefront membership list in the shared draft. It does not save or compile. Use storefrontId all for All Offers. Requires expectedRevision.',
-    inputSchema: { expectedRevision, storefrontId: z.string().default('all'), entries: z.array(z.record(z.unknown())), ...mutationContextSchema },
+    inputSchema: { expectedRevision, storefrontId: z.string().default('all'), entries: z.array(z.record(z.string(), z.unknown())), ...mutationContextSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async args => mutate({ type: 'set_storefront_membership', storefrontId: args.storefrontId, data: { entries: args.entries } }, args.expectedRevision, false, { preflightToken: args.preflightToken, activityId: args.activityId }));
 
@@ -686,16 +689,33 @@ export class UTMcpHost {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    // Every failure must end here. An escaped rejection would terminate the
+    // whole bridge process, discarding the unsaved shared draft.
+    try {
+      await this.handleRequest(req, res);
+    } catch {
+      if (!res.headersSent && !res.writableEnded) res.writeHead(400).end(JSON.stringify({ error: 'The MCP request could not be processed.' }));
+      else if (!res.writableEnded) res.end();
+    }
+  }
+
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Validate the Host header before parsing it; a malformed host makes URL parsing throw.
     const allowedHosts = new Set([`127.0.0.1:${this.port}`, `localhost:${this.port}`]);
-    if (url.pathname !== '/mcp') { res.writeHead(404).end(); return; }
     if (!allowedHosts.has(req.headers.host ?? '')) { res.writeHead(403).end(JSON.stringify({ error: 'Host is not allowed.' })); return; }
+    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    if (url.pathname !== '/mcp') { res.writeHead(404).end(); return; }
     const origin = req.headers.origin;
     if (origin && !new Set([`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`]).has(origin)) { res.writeHead(403).end(JSON.stringify({ error: 'Origin is not allowed.' })); return; }
     let body: unknown;
     if (req.method === 'POST') {
       const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      let received = 0;
+      for await (const chunk of req) {
+        received += chunk.length;
+        if (received > MAX_MCP_BODY_BYTES) { res.writeHead(413).end(JSON.stringify({ error: 'MCP request body is too large.' })); req.destroy(); return; }
+        chunks.push(Buffer.from(chunk));
+      }
       const raw = Buffer.concat(chunks).toString('utf8');
       if (raw) {
         try { body = JSON.parse(raw); }
@@ -721,6 +741,7 @@ export class UTMcpHost {
       entry = { transport, server, connectionId };
       if (transport.sessionId) this.transports.set(transport.sessionId, entry);
     }
+    this.evictExcessSessions(entry);
     if (body && typeof body === 'object' && !Array.isArray(body)) {
       const request = body as { method?: unknown; params?: unknown };
       if (request.method === 'initialize') {
@@ -742,5 +763,19 @@ export class UTMcpHost {
     }
     await entry.transport.handleRequest(req, res, body);
     if (entry.transport.sessionId && !this.transports.has(entry.transport.sessionId)) this.transports.set(entry.transport.sessionId, entry);
+  }
+
+  /** Clients that reinitialize without closing would otherwise accumulate sessions for the bridge lifetime. */
+  private evictExcessSessions(current: { transport: StreamableHTTPServerTransport }): void {
+    if (this.transports.size <= MAX_MCP_SESSIONS) return;
+    for (const [sessionId, entry] of this.transports) {
+      if (this.transports.size <= MAX_MCP_SESSIONS) break;
+      if (entry.transport === current.transport) continue;
+      this.transports.delete(sessionId);
+      this.activity.cancelOwner(entry.connectionId);
+      this.preflight.invalidateOwner(entry.connectionId);
+      void entry.transport.close().catch(() => undefined);
+      void entry.server.close().catch(() => undefined);
+    }
   }
 }

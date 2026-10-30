@@ -1,3 +1,4 @@
+import type { PythonState } from '../constants/pythonSetup';
 import { BundleOffer, EntitlementItem, ProjectConfig, StorefrontMembership } from '../types/entitlement';
 import { cleanManagedData } from './projectSchema';
 import { buildCatalogReplacementPayload } from './catalogMutationPayloads';
@@ -80,6 +81,13 @@ export interface ProjectScanResult {
   subDirs?: string[];
   iconPreviews?: ProjectIconPreview[];
   error?: string;
+}
+
+export interface ProjectBackup {
+  name: string;
+  sourceFileName: string;
+  createdAt: string;
+  size: number;
 }
 
 export interface CatalogSnapshotPayload {
@@ -199,6 +207,7 @@ export interface EditorStatus {
   heartbeatAgeMs?: number;
   processId?: number;
   pythonEnabled: boolean;
+  pythonState?: PythonState;
   autoConnectorInstalled: boolean;
   nativeTextureImportAvailable: boolean;
   bootstrapState: 'not-needed' | 'waiting' | 'attempting' | 'connected' | 'failed';
@@ -325,27 +334,61 @@ export const FileService = {
 
   subscribeCatalog(listener: (catalog: CatalogSnapshotPayload) => void): () => void {
     const controller = new AbortController();
-    void fetch(`${API_BASE}/catalog/events`, { headers: { 'X-UEM-Token': getToken(), Accept: 'text/event-stream' }, cache: 'no-store', signal: controller.signal }).then(async response => {
-      if (!response.ok || !response.body) return;
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      try {
-        while (true) {
-          const next = await reader.read();
-          if (next.done) break;
-          buffer += decoder.decode(next.value, { stream: true });
-          const blocks = buffer.split(/\r?\n\r?\n/);
-          buffer = blocks.pop() ?? '';
-          for (const block of blocks) {
-            const line = block.split(/\r?\n/).find(value => value.startsWith('data: '));
-            if (!line) continue;
-            try { listener(JSON.parse(line.slice(6)) as CatalogSnapshotPayload); } catch { /* Health polling remains authoritative if an event is malformed. */ }
+    // Reconnect when the stream drops so agent edits keep appearing. The
+    // bridge sends a full snapshot on every connection, so a reconnect also
+    // resynchronizes anything missed while disconnected.
+    const connect = async () => {
+      let retryDelay = 1000;
+      while (!controller.signal.aborted) {
+        try {
+          const response = await fetch(`${API_BASE}/catalog/events`, { headers: { 'X-UEM-Token': getToken(), Accept: 'text/event-stream' }, cache: 'no-store', signal: controller.signal });
+          if (response.status === 401 || response.status === 403) return;
+          if (response.ok && response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            try {
+              while (true) {
+                const next = await reader.read();
+                if (next.done) break;
+                retryDelay = 1000;
+                buffer += decoder.decode(next.value, { stream: true });
+                const blocks = buffer.split(/\r?\n\r?\n/);
+                buffer = blocks.pop() ?? '';
+                for (const block of blocks) {
+                  const line = block.split(/\r?\n/).find(value => value.startsWith('data: '));
+                  if (!line) continue;
+                  try { listener(JSON.parse(line.slice(6)) as CatalogSnapshotPayload); } catch { /* Health polling remains authoritative if an event is malformed. */ }
+                }
+              }
+            } finally { reader.releaseLock(); }
           }
+        } catch {
+          // Reconnect below unless the subscription was cancelled.
         }
-      } finally { reader.releaseLock(); }
-    }).catch(() => undefined);
+        if (controller.signal.aborted) return;
+        await wait(retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 15000);
+      }
+    };
+    void connect();
     return () => controller.abort();
+  },
+
+  async listBackups(): Promise<{ success: boolean; targetVerseFileName?: string; backups?: ProjectBackup[]; error?: string }> {
+    try {
+      return await apiFetch('/backups', { method: 'GET' });
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Backups could not be listed.' };
+    }
+  },
+
+  async restoreBackup(name: string): Promise<{ success: boolean; restored?: ProjectBackup; safetyBackupName?: string; catalog?: CatalogSnapshotPayload; error?: string }> {
+    try {
+      return await apiFetch('/backups/restore', { method: 'POST', body: JSON.stringify({ name }) });
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'The backup could not be restored.' };
+    }
   },
 
   async getAgentIntegrationStatus(): Promise<AgentIntegrationStatus> {

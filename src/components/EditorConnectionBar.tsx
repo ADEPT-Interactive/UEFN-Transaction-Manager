@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import type { EditorStatus } from '../services/fileService';
 import { deriveEditorConnectionState } from '../../shared/editorState';
+import { pythonSetupMessage } from '../constants/pythonSetup';
 
 export function getEditorConnectionState(status: EditorStatus) {
   return status.connectionState ?? deriveEditorConnectionState({
@@ -64,9 +65,9 @@ export const EditorConnectionBar: React.FC<{ status: EditorStatus | null; projec
     'uefn-closed': ['UEFN closed', `Open ${project} to connect`, `Open ${project} in UEFN. Transaction Manager stays linked and reconnects automatically.`],
     'different-project': ['Different project open', `Open ${project} in UEFN`, `Switch UEFN to ${project}. This window keeps its current catalog; native operations wait for the matching project.`],
     'project-opening': ['Opening UEFN project', 'Waiting for loading to finish', 'Keep the linked project open. Connection and native operations become available when loading finishes.'],
-    'python-required': ['Python disabled', 'Enable Python in UEFN', 'Enable Python Editor Scripting in Project Settings, then Tools → Enable Python for your user. UTM detects both settings and connects when the runtime is ready.'],
+    'python-required': ['Python disabled', 'Enable Python in UEFN', pythonSetupMessage(status?.pythonState)],
     connected: ['UEFN connected', projectName || 'Project ready', 'The linked project is verified. Saving, Verse compilation, and native Texture2D importing are available.'],
-    'connector-waiting': ['Connecting to UEFN', 'Automatic recovery is active', status?.autoConnectorInstalled ? 'Keep the linked project open with Tools → Enable Python enabled. Close blocking dialogs. UTM retries automatically after a short cooldown, or you can retry now.' : 'The application connector is missing. Reinstall this UTM build to restore it.'],
+    'connector-waiting': ['Connecting to UEFN', 'Automatic recovery is active', status?.autoConnectorInstalled ? 'Keep the linked project open and close any blocking dialogs. If UTM stays disconnected, select Retry connection.' : 'The application connector is missing. Reinstall this UTM build to restore it.'],
     'project-readiness-waiting': ['Waiting for UEFN', 'Editor readiness is pending', status?.readinessReason === 'project-browser-open' ? 'Close the Project Browser or finish opening the linked project. Native operations pause while the selector is open.' : status?.readinessReason === 'editor-tick-stale' ? 'Close blocking dialogs and let UEFN finish loading. The editor connection resumes when it responds again.' : 'The connector is alive. Native operations unlock when UEFN confirms the exact project is ready.'],
     'uefn-running-project-unknown': ['Waiting for project', `Open ${project} in UEFN`, 'UEFN is running, but the linked project has not been detected yet. Open it or allow loading to finish.'],
   }[state];

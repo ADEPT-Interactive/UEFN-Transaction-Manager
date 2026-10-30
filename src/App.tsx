@@ -5,6 +5,8 @@ import { EntitlementList } from './components/EntitlementList';
 import { EntitlementModal } from './components/EntitlementModal';
 import { VersePreview } from './components/VersePreview';
 import { ValidationReportModal } from './components/ValidationReportModal';
+import { BackupRestoreModal, formatBackupDate } from './components/BackupRestoreModal';
+import { pythonSetupMessage, type PythonState } from './constants/pythonSetup';
 import { ProjectSettingsModal } from './components/ProjectSettingsModal';
 import { BundleManager } from './components/BundleManager';
 import { OfferDisplayManager } from './components/OfferDisplayManager';
@@ -267,12 +269,12 @@ function preserveCatalogImages(next: CatalogSnapshotPayload, previousEntitlement
 
 type AgentIntegrationIntent = 'connect' | 'migrate';
 
-function readinessMessage(state: EditorConnectionState, projectName?: string): string | null {
+function readinessMessage(state: EditorConnectionState, projectName?: string, pythonState?: PythonState): string | null {
   switch (state) {
     case 'connected': return null;
     case 'different-project': return 'First catalog creation is blocked until the exact project linked to this window is open in UEFN.';
     case 'project-opening': return `${projectName ? `${projectName} is` : 'The linked project is'} still opening in UEFN. UTM will update automatically when the project identity is confirmed.`;
-    case 'python-required': return 'Enable Python Editor Scripting in Project Settings and Tools → Enable Python for your user. UTM connects when the runtime is ready.';
+    case 'python-required': return pythonSetupMessage(pythonState);
     case 'connector-waiting': return 'The authenticated UEFN connector is not attached yet. Keep UEFN and Transaction Manager open while it connects.';
     case 'project-readiness-waiting': return 'The connector is present, but UEFN has not confirmed project readiness yet. Keep the exact project open and wait for the readiness check.';
     case 'uefn-running-project-unknown': return 'Open the project linked to this Transaction Manager window in UEFN before creating its first managed catalog.';
@@ -298,7 +300,7 @@ const SetupGuide: React.FC<{ bridgeConnected: boolean; editorStatus: EditorStatu
 
   const readinessBlocker = !editorStatus?.success
     ? 'Checking the exact UEFN project and editor connector…'
-    : readinessMessage(getEditorConnectionState(editorStatus));
+    : readinessMessage(getEditorConnectionState(editorStatus), undefined, editorStatus?.pythonState);
 
   return (
     <section className="mx-auto mb-6 max-w-6xl rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-5" aria-labelledby="catalog-start-heading">
@@ -357,6 +359,7 @@ export const App: React.FC = () => {
   const [editingItem, setEditingItem] = useState<EntitlementItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isValidatorOpen, setIsValidatorOpen] = useState(false);
+  const [isBackupsOpen, setIsBackupsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [apiItemId, setApiItemId] = useState<string | null>(null);
@@ -386,6 +389,7 @@ export const App: React.FC = () => {
   const appChromeRef = useRef<HTMLDivElement>(null);
   const catalogRevisionRef = useRef('1');
   const suppressCatalogSyncRef = useRef(false);
+  const saveToDiskRef = useRef<() => Promise<unknown>>(async () => undefined);
   const pendingIconPreviewsRef = useRef<TransientIconPreview[]>([]);
 
   const rememberTransientImages = (recordId: string | undefined, record: { iconTexture: string; iconImageData?: string; iconFileName?: string; alternateOffers?: Array<{ iconTexture: string; iconImageData?: string; iconFileName?: string }> }) => {
@@ -574,6 +578,18 @@ export const App: React.FC = () => {
   }, [serverOnline]);
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') return;
+      event.preventDefault();
+      // Inside a dialog, Ctrl+S must not write the project while the dialog's own draft is uncommitted.
+      if (document.querySelector('[aria-modal="true"]') || isSaving || !serverOnline) return;
+      void saveToDiskRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSaving, serverOnline]);
+
+  useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (isDirty) event.preventDefault(); };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
@@ -724,6 +740,7 @@ export const App: React.FC = () => {
     clearStatusLater(savedStatus);
     return { contentHash: result.contentHash };
   };
+  saveToDiskRef.current = saveToDisk;
 
   const performLoadFromDisk = async () => {
     const result = await FileService.loadVerseFile(config.targetVerseFileName);
@@ -914,7 +931,7 @@ export const App: React.FC = () => {
       <div ref={appChromeRef} data-app-chrome="true">
         <DesktopTitleBar dirty={isDirty} onRequestClose={() => isDirty ? setCloseConfirmationOpen(true) : postDesktopWindowAction('close')} />
         <Header
-          config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()}
+          config={config} onUpdateConfig={setConfig} onSaveToDisk={() => void saveToDisk()} onLoadFromDisk={() => void loadFromDisk()} onOpenBackups={() => setIsBackupsOpen(true)}
           onCompileVerse={() => void compileVerse()} onExportPreset={() => FileService.exportPresetJson({ config, ...cleanManagedData(entitlements, bundles, storefrontMembership, retiredVerseKeys) })}
           onImportPreset={importPreset} onOpenSettings={() => setIsSettingsOpen(true)} onOpenValidator={() => setIsValidatorOpen(true)}
            onSwitchProject={requestProjectSwitch} isSwitchingProject={isSwitchingProject}
@@ -941,6 +958,7 @@ export const App: React.FC = () => {
       </main>
 
       <EntitlementModal isOpen={isModalOpen} item={editingItem} contentFolderPath={config.contentFolderPath} assetFolderName={config.assetFolderName} allEntitlements={entitlements} reservedVerseKeys={[...collectManagedVerseKeys(entitlements, bundles, storefrontMembership.focused), ...retiredVerseKeys]} editorStatus={editorStatus} dismissedWarningIds={dismissedWarningIds} onSave={saveModalItem} onClose={() => { setIsModalOpen(false); setEditingItem(null); }} />
+      <BackupRestoreModal isOpen={isBackupsOpen} isDirty={isDirty} autoBackupEnabled={config.autoBackup} onClose={() => setIsBackupsOpen(false)} onRestored={({ catalog, restored }) => { applyCatalogSnapshot(catalog); setIsBackupsOpen(false); setStatus({ message: `Restored the backup from ${formatBackupDate(restored.createdAt)}. Compile in UEFN to apply it.` }); }} />
       <ValidationReportModal isOpen={isValidatorOpen} issues={validationIssues} dismissedWarnings={dismissedWarnings} entitlements={entitlements} isSetupIncomplete={isFirstOfferSetup} onCreateEntitlement={requestOfferCreation} onOpenSettings={() => setIsSettingsOpen(true)} onSelectEntitlement={item => { setEditingItem(item); setIsModalOpen(true); }} onDismissWarning={issue => setDismissedWarningIds(ids => [...new Set([...ids, issue.id])])} onRestoreWarning={issue => setDismissedWarningIds(ids => ids.filter(id => id !== issue.id))} onRestoreAllWarnings={() => setDismissedWarningIds([])} onClose={() => setIsValidatorOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsOpen} config={config} onSaveConfig={setConfig} onClose={() => setIsSettingsOpen(false)} />
       <SetupModal bundles={bundles} initialItemId={apiItemId} open={isSetupOpen} onClose={() => setIsSetupOpen(false)} config={config} entitlements={entitlements} storefrontMembership={storefrontMembership} />

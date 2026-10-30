@@ -6,7 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { ProjectCandidate } from './contracts.js';
-import { projectIsOpen } from './projectDiscovery.js';
+import { projectIsOpen, projectIsOpenAsync } from './projectDiscovery.js';
 import { sendUefnConnectorCommand } from './nativeWindows.js';
 import { connectorBootstrapCommand } from './connectorBootstrap.js';
 import { tryDuckyBootstrap, type DuckyBootstrapSource } from './duckyBootstrap.js';
@@ -285,7 +285,7 @@ export class BridgeSession {
           return;
         }
         this.bootstrapHandshakeConfirmed = false;
-        const openProject = projectIsOpen(projectFile, this.writeDiagnostic);
+        const openProject = await projectIsOpenAsync(projectFile, this.writeDiagnostic);
         if (!this.isCurrent(generation)) return;
         const decision = this.editorBootstrapPolicy.observe({ now: Date.now(), project: openProject ? { projectFile, processId: openProject.processId } : undefined, connectorAlive: Boolean(statusBody.connectorAlive), editorConnected: false });
         if (decision.identityCleared) {
@@ -314,7 +314,7 @@ export class BridgeSession {
         if (decision.kind === 'exhausted') {
           if (this.bootstrapExhaustionReported) return;
           this.bootstrapExhaustionReported = true;
-          const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}. Automatic recovery will retry after a short cooldown.`;
+          const message = `UEFN did not confirm the connector handshake after ${decision.maxAttempts} supported automatic command attempts for pid=${openProject.processId}. UTM keeps retrying through focus-free attachment only; select Retry connection to let it send the connector command to the UEFN window again.`;
           this.writeDiagnostic(`Automatic UEFN connector bootstrap exhausted: ${message}`);
           await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message, attemptNumber: decision.attemptNumber, intendedProject: projectFile, uefnProcessId: openProject.processId, method: 'uefn-python-console' }), this.requestController.signal);
           return;
@@ -323,7 +323,7 @@ export class BridgeSession {
         this.bootstrapExhaustionReported = false;
         this.writeDiagnostic(`Automatic UEFN connector found the linked project: project=${projectFile}, pid=${openProject.processId}; bootstrap attempt ${decision.attemptNumber}/${decision.maxAttempts}, reason=${decision.reason}, method=uefn-python-console, nextRetryAt=${new Date(decision.nextRetryAt).toISOString()}.`);
         this.editorBootstrapAttemptInFlight = true;
-        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber, generation, bootstrapCommand, bootstrapSource);
+        await this.bootstrapOpenEditor(openProject.windowTitle ?? initialWindowTitle, projectFile, openProject.processId, decision.attemptNumber, generation, bootstrapCommand, bootstrapSource, decision.allowForegroundInput);
       } catch (error) {
         if (this.isCurrent(generation)) this.writeDiagnostic(`Automatic UEFN connector readiness check did not complete: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
@@ -339,7 +339,7 @@ export class BridgeSession {
     void check();
   }
 
-  private async bootstrapOpenEditor(windowTitle: string | undefined, intendedProject: string, uefnProcessId: number, attemptNumber: number, generation: number, command: string, bootstrapSource: DuckyBootstrapSource) {
+  private async bootstrapOpenEditor(windowTitle: string | undefined, intendedProject: string, uefnProcessId: number, attemptNumber: number, generation: number, command: string, bootstrapSource: DuckyBootstrapSource, allowForegroundInput = true) {
     let method = 'ducky-listener';
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -354,6 +354,13 @@ export class BridgeSession {
       throwIfStopped(() => !this.isCurrent(generation));
       let sent = await tryDuckyBootstrap(bootstrapSource, uefnProcessId, this.requestController.signal);
       throwIfStopped(() => !this.isCurrent(generation));
+      if (!sent && !allowForegroundInput) {
+        // Recovery cycles after the first budget stay focus-free: never
+        // repeatedly bring UEFN to the foreground and type into it unattended.
+        this.writeDiagnostic(`Automatic UEFN connector recovery attempt ${attemptNumber} skipped foreground input; focus-free attachment was unavailable. Retry connection re-enables it.`);
+        await request(this.port, '/api/editor/bootstrap-status', this.sessionToken, 'POST', JSON.stringify({ state: 'failed', message: 'Focus-free attachment is unavailable. Select Retry connection to send the connector command to the UEFN window.', attemptNumber, intendedProject, uefnProcessId, method, commandAccepted: false }), this.requestController.signal);
+        return;
+      }
       if (!sent) {
         // Current UEFN exposes Python/Python REPL in this input bar. Prefer
         // its verified Python form; retain the console form on the second

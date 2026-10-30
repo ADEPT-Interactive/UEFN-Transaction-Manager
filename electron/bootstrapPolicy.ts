@@ -4,7 +4,12 @@ export type BootstrapProjectIdentity = { projectFile: string; processId: number 
 
 export type BootstrapDecision =
   | { kind: 'connected' | 'waiting'; reason: string; identity?: string; identityChanged?: boolean; identityCleared?: boolean }
-  | { kind: 'attempt'; reason: string; identity: string; attemptNumber: number; maxAttempts: number; nextRetryAt: number; identityChanged?: boolean; identityCleared?: boolean }
+  /**
+   * allowForegroundInput is true only for the first attempt budget per editor
+   * identity (or after a manual retry). Later recovery cycles must stay
+   * focus-free so UTM never repeatedly steals focus and types into windows.
+   */
+  | { kind: 'attempt'; reason: string; identity: string; attemptNumber: number; maxAttempts: number; nextRetryAt: number; allowForegroundInput: boolean; identityChanged?: boolean; identityCleared?: boolean }
   | { kind: 'exhausted'; reason: string; identity: string; attemptNumber: number; maxAttempts: number; identityChanged?: boolean; identityCleared?: boolean };
 
 export class BootstrapPolicy {
@@ -17,6 +22,7 @@ export class BootstrapPolicy {
   private graceUntil = 0;
   private recoveryAt = 0;
   private readonly recoveryDelayMs = 30_000;
+  private recoveryCycles = 0;
 
   reset(): void {
     this.identity = undefined;
@@ -24,6 +30,7 @@ export class BootstrapPolicy {
     this.nextRetryAt = 0;
     this.graceUntil = 0;
     this.recoveryAt = 0;
+    this.recoveryCycles = 0;
   }
 
   observe(input: { now: number; project?: BootstrapProjectIdentity; connectorAlive: boolean; editorConnected: boolean }): BootstrapDecision {
@@ -33,6 +40,7 @@ export class BootstrapPolicy {
       this.attemptNumber = 0;
       this.nextRetryAt = 0;
       this.recoveryAt = 0;
+      this.recoveryCycles = 0;
       return { kind: 'connected', reason: 'editor-connected', ...(this.identity ? { identity: this.identity } : {}) };
     }
 
@@ -50,6 +58,7 @@ export class BootstrapPolicy {
       this.nextRetryAt = 0;
       this.graceUntil = input.now + this.projectGracePeriodMs;
       this.recoveryAt = 0;
+      this.recoveryCycles = 0;
     }
 
     if (input.connectorAlive) return { kind: 'waiting', reason: 'connector-heartbeat-alive-awaiting-readiness', identity: nextIdentity, ...(identityChanged ? { identityChanged: true } : {}) };
@@ -60,11 +69,12 @@ export class BootstrapPolicy {
       if (input.now < this.recoveryAt) return { kind: 'exhausted', reason: 'bounded-bootstrap-attempts-exhausted', identity: nextIdentity, attemptNumber: this.attemptNumber, maxAttempts: this.maxAttempts };
       this.attemptNumber = 0;
       this.recoveryAt = 0;
+      this.recoveryCycles += 1;
     }
 
     this.attemptNumber += 1;
     const delay = this.retryDelays[this.attemptNumber] ?? this.retryDelays.at(-1)!;
     this.nextRetryAt = input.now + delay;
-    return { kind: 'attempt', reason: 'connector-heartbeat-stale', identity: nextIdentity, attemptNumber: this.attemptNumber, maxAttempts: this.maxAttempts, nextRetryAt: this.nextRetryAt, ...(identityChanged ? { identityChanged: true } : {}) };
+    return { kind: 'attempt', reason: 'connector-heartbeat-stale', identity: nextIdentity, attemptNumber: this.attemptNumber, maxAttempts: this.maxAttempts, nextRetryAt: this.nextRetryAt, allowForegroundInput: this.recoveryCycles === 0, ...(identityChanged ? { identityChanged: true } : {}) };
   }
 }
