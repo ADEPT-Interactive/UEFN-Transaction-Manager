@@ -34,3 +34,13 @@ Never commit machine-specific audit logs, session transcripts, local absolute
 paths, usernames, environment dumps, or temporary E2E handoff reports to this
 public repository. Release evidence must use repository-relative paths and
 generic placeholders.
+
+## CI policy
+
+CI is the final check, not a linter.
+
+- Run `npm run test:all` locally before pushing.
+- Open pull requests as drafts. Drafts run no CI, so push to them as often as you like. Mark the pull request ready once, when it is finished; that runs CI once.
+- Batch review fixes into one push. Each push to a ready pull request runs the full Windows build again and cancels the run before it.
+- What runs when: drafts run nothing; ready pull requests and pushes to `main` run the full test and package build; release tags run `release.yml`.
+- To check a draft or another branch, run CI by hand: Actions > CI > Run workflow, or `gh workflow run ci.yml --ref <branch>`. The packaged build is kept as a run artifact for 14 days.
