@@ -1,19 +1,29 @@
 name: CI
 
+# What runs when (see "CI policy" in CONTRIBUTING.md):
+# - Draft pull requests: nothing. Mark the pull request ready to run CI once.
+# - Ready pull requests and pushes to main: the full test and package build.
+# - Any other branch, or a draft: run it by hand (Actions > CI > Run workflow).
+# Release tags are handled by release.yml, not here.
 on:
   push:
-    # Keep all branch pushes; a tags-ignore filter alone would disable them.
-    branches:
-      - '**'
-    tags-ignore:
-      - 'archive/**'
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer commit on a pull request cancels its older run. Other runs get a group of
+# their own, so runs on main are never cancelled and every main commit gets a result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
@@ -33,6 +43,8 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: uefn-transaction-manager-windows-x64
+          # About 500 MB per run; long enough to download and test a build.
+          retention-days: 14
           path: |
             release/UEFN-Transaction-Manager-Setup-*.exe
             release/UEFN-Transaction-Manager-*-Portable.zip
