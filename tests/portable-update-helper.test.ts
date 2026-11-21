@@ -176,6 +176,31 @@ test('portable extraction rejects invalid archives and archives without the port
   }
 });
 
+test('portable extraction uses the Windows PowerShell archive module even when an inherited module path shadows it', async () => {
+  // A powershell.exe started from PowerShell 7 inherits PowerShell 7's PSModulePath. Since
+  // PowerShell 7.6.10 that path holds Microsoft.PowerShell.Archive 1.2.7, whose Expand-Archive
+  // only writes a non-terminating error under .NET Framework and extracts nothing. This
+  // stand-in module behaves the same way, so the test does not depend on the installed shells.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'uem-portable-extraction-shadow-'));
+  const originalModulePath = process.env.PSModulePath;
+  try {
+    const archivePath = await makePortableArchive(root, 'shadowed module', '4.3.2');
+    const shadowModules = path.join(root, 'shadow modules');
+    const shadowModule = path.join(shadowModules, 'Microsoft.PowerShell.Archive', '99.0.0');
+    await fs.mkdir(shadowModule, { recursive: true });
+    await fs.writeFile(path.join(shadowModule, 'Microsoft.PowerShell.Archive.psd1'), "@{ RootModule = 'Microsoft.PowerShell.Archive.psm1'; ModuleVersion = '99.0.0'; GUID = 'eb74e8da-9ae2-482a-a648-e96550fb8733'; FunctionsToExport = @('Expand-Archive', 'Compress-Archive') }");
+    await fs.writeFile(path.join(shadowModule, 'Microsoft.PowerShell.Archive.psm1'), "function Expand-Archive { [CmdletBinding()] param([string]$LiteralPath, [string]$DestinationPath, [switch]$Force) Write-Error 'shadow Expand-Archive extracted nothing' }\nfunction Compress-Archive { [CmdletBinding()] param() Write-Error 'shadow Compress-Archive' }\n");
+    process.env.PSModulePath = [shadowModules, originalModulePath].filter(Boolean).join(path.delimiter);
+    const inspection = await extractPortableArchive(archivePath, path.join(root, 'destination'));
+    assert.equal(inspection.marker.version, '4.3.2');
+    assert.equal(await fs.readFile(inspection.executablePath, 'utf8'), 'shadowed module-exe');
+  } finally {
+    if (originalModulePath === undefined) delete process.env.PSModulePath;
+    else process.env.PSModulePath = originalModulePath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('portable verification rejects wrong hash and size before invoking extraction', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'uem-portable-integrity-'));
   const archivePath = path.join(root, 'portable.zip');

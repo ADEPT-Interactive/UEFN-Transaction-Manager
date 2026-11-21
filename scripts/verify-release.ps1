@@ -5,6 +5,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Use the archive module that ships with this shell. When Windows PowerShell 5.1 is started
+# from PowerShell 7 it inherits PowerShell 7's module path, and the Microsoft.PowerShell.Archive
+# 1.2.7 found there (PowerShell 7.6.10 and later) cannot extract under .NET Framework.
+Import-Module -Name (Join-Path $PSHOME "Modules\Microsoft.PowerShell.Archive")
 Add-Type -AssemblyName System.Net.Http
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $privacyCheck = Join-Path $PSScriptRoot "check-repository-privacy.mjs"

@@ -93,7 +93,11 @@ async function listFiles(root: string): Promise<string[]> {
 
 export async function extractPortableArchive(archivePath: string, destinationRoot: string): Promise<PortableArchiveInspection> {
   await fsp.mkdir(destinationRoot, { recursive: true });
-  const script = `$archive = ${quotePowerShell(archivePath)}; $destination = ${quotePowerShell(destinationRoot)}; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force`;
+  // Load the archive module that ships with Windows PowerShell itself. A powershell.exe started
+  // from PowerShell 7 inherits PowerShell 7's PSModulePath, and the Microsoft.PowerShell.Archive
+  // 1.2.7 found there (PowerShell 7.6.10 and later) only reports a non-terminating error under
+  // .NET Framework and extracts nothing. Stop turns any such error into a failed extraction.
+  const script = `$ErrorActionPreference = 'Stop'; Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Archive'); $archive = ${quotePowerShell(archivePath)}; $destination = ${quotePowerShell(destinationRoot)}; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force`;
   await runPowerShell(script);
   const candidates = [destinationRoot, ...(await fsp.readdir(destinationRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => path.join(destinationRoot, entry.name))];
   for (const root of candidates) {
